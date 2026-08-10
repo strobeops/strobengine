@@ -165,7 +165,7 @@ class StrobEngine:
         if self.config is not None:
             summary.workers = self.config.concurrency
         summary.raw_command = (
-            f"strobengine.run(url='{self._url}', workers={summary.workers})"
+            f"strobengine.run(url='{summary.url}', workers={summary.workers})"
         )
         return summary
 
