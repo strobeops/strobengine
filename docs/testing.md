@@ -6,8 +6,11 @@
 # Rust unit tests
 cargo test
 
-# Python unit tests
+# Python unit tests (e2e excluded by default)
 uv run pytest -v
+
+# Include e2e tests
+uv run pytest -v --e2e
 ```
 
 ## Test Structure
@@ -23,17 +26,37 @@ uv run pytest -v
 ## Running Tests
 
 ```bash
-# All tests
+# All tests (e2e excluded by default)
 uv run pytest -v
 
-# Only e2e tests
-uv run pytest tests/e2e/ -v
+# All tests including e2e
+uv run pytest -v --e2e
 
-# Specific test class
-uv run pytest tests/e2e/test_http_scenarios.py::TestHighConcurrency -v
+# Only e2e tests
+uv run pytest -v --e2e -m e2e
+
+# Specific e2e test class
+uv run pytest -v --e2e tests/e2e/test_http_scenarios.py::TestHighConcurrency
 
 # Rust tests only
 cargo test
+```
+
+By default, tests under `tests/e2e/` are skipped. Pass `--e2e` to include them.
+The `e2e` marker can be used with `-m e2e` to select only e2e tests.
+
+## Test Markers
+
+| Marker | Description |
+|--------|-------------|
+| `e2e` | End-to-end tests requiring the mock server (auto-applied to `tests/e2e/`) |
+
+```bash
+# Run only e2e-marked tests
+uv run pytest -v --e2e -m e2e
+
+# Run all tests except e2e
+uv run pytest -v -m "not e2e"
 ```
 
 ## E2E Test Server
@@ -103,4 +126,4 @@ make fix
 | `cargo-test` | `cargo test` |
 | `ruff-check` | `uv run ruff check .` |
 | `ruff-format` | `uv run ruff format --check .` |
-| `pytest` | `uv run pytest -v` |
+| `pytest` | `uv run pytest -v --e2e` |
