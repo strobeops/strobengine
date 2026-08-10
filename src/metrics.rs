@@ -1,12 +1,16 @@
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, AtomicUsize};
 
 use pyo3::prelude::*;
+use pyo3::types::PyDict;
 
 /// Conversion factor from microseconds to milliseconds (1 ms = 1,000 us).
 pub const MICROS_PER_MILLI: f64 = 1_000.0;
 
 pub struct RequestMetric {
     pub latency_micros: u128,
+    pub status_code: u16,
+    pub bytes_received: u64,
 }
 
 pub struct LiveCounters {
@@ -16,6 +20,7 @@ pub struct LiveCounters {
     pub completed_requests: AtomicU64,
     pub latency_sum_micros: AtomicU64,
     pub latency_count: AtomicU64,
+    pub bytes_received: AtomicU64,
 }
 
 impl LiveCounters {
@@ -27,6 +32,7 @@ impl LiveCounters {
             completed_requests: AtomicU64::new(0),
             latency_sum_micros: AtomicU64::new(0),
             latency_count: AtomicU64::new(0),
+            bytes_received: AtomicU64::new(0),
         }
     }
 }
@@ -34,6 +40,8 @@ impl LiveCounters {
 #[pyclass(skip_from_py_object)]
 #[derive(Debug, Clone)]
 pub struct TestSummary {
+    #[pyo3(get)]
+    pub url: String,
     #[pyo3(get)]
     pub total_requests: usize,
     #[pyo3(get)]
@@ -44,20 +52,97 @@ pub struct TestSummary {
     pub p95_latency_ms: f64,
     #[pyo3(get)]
     pub p99_latency_ms: f64,
+    #[pyo3(get)]
+    pub min_latency_ms: f64,
+    #[pyo3(get)]
+    pub p50_latency_ms: f64,
+    #[pyo3(get)]
+    pub p90_latency_ms: f64,
+    #[pyo3(get)]
+    pub max_latency_ms: f64,
+    #[pyo3(get)]
+    pub total_bytes_received: u64,
+    #[pyo3(get)]
+    pub duration_secs: f64,
+    #[pyo3(get, set)]
+    pub workers: usize,
+    #[pyo3(get, set)]
+    pub timestamp: String,
+    #[pyo3(get, set)]
+    pub raw_command: Option<String>,
+    #[pyo3(get)]
+    pub status_codes: HashMap<u16, u64>,
 }
 
+#[pymethods]
+impl TestSummary {
+    pub fn to_dict<'a>(&self, py: Python<'a>) -> PyResult<Bound<'a, PyDict>> {
+        let dict = PyDict::new(py);
+        dict.set_item("url", &self.url)?;
+        dict.set_item("total_requests", self.total_requests)?;
+        dict.set_item("total_errors", self.total_errors)?;
+        dict.set_item("average_latency_ms", self.average_latency_ms)?;
+        dict.set_item("p95_latency_ms", self.p95_latency_ms)?;
+        dict.set_item("p99_latency_ms", self.p99_latency_ms)?;
+        dict.set_item("min_latency_ms", self.min_latency_ms)?;
+        dict.set_item("p50_latency_ms", self.p50_latency_ms)?;
+        dict.set_item("p90_latency_ms", self.p90_latency_ms)?;
+        dict.set_item("max_latency_ms", self.max_latency_ms)?;
+        dict.set_item("total_bytes_received", self.total_bytes_received)?;
+        dict.set_item("duration_secs", self.duration_secs)?;
+        dict.set_item("workers", self.workers)?;
+        dict.set_item("timestamp", &self.timestamp)?;
+        dict.set_item("raw_command", self.raw_command.as_deref())?;
+        let status_dict = PyDict::new(py);
+        for (&code, &count) in &self.status_codes {
+            status_dict.set_item(code, count)?;
+        }
+        dict.set_item("status_codes", &status_dict)?;
+        Ok(dict)
+    }
+
+    #[pyo3(signature = (indent=None))]
+    pub fn to_json(&self, py: Python<'_>, indent: Option<usize>) -> PyResult<String> {
+        let json_mod = py.import("json")?;
+        let dict = self.to_dict(py)?;
+        let kwargs = PyDict::new(py);
+        if let Some(i) = indent {
+            kwargs.set_item("indent", i)?;
+        }
+        let json_str = json_mod.call_method("dumps", (&dict,), Some(&kwargs))?;
+        json_str.extract()
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
 pub fn calculate_summary(
+    url: String,
     total_requests: u64,
     total_errors: u64,
     mut latencies: Vec<u128>,
+    total_bytes: u64,
+    duration_secs: f64,
+    workers: usize,
+    status_codes: HashMap<u16, u64>,
 ) -> TestSummary {
     if latencies.is_empty() {
         return TestSummary {
+            url,
             total_requests: total_requests as usize,
             total_errors: total_errors as usize,
             average_latency_ms: 0.0,
             p95_latency_ms: 0.0,
             p99_latency_ms: 0.0,
+            min_latency_ms: 0.0,
+            p50_latency_ms: 0.0,
+            p90_latency_ms: 0.0,
+            max_latency_ms: 0.0,
+            total_bytes_received: total_bytes,
+            duration_secs,
+            workers,
+            timestamp: String::new(),
+            raw_command: None,
+            status_codes,
         };
     }
 
@@ -67,15 +152,31 @@ pub fn calculate_summary(
     let sum: u128 = latencies.iter().sum();
     let average_latency_ms = sum as f64 / len as f64 / MICROS_PER_MILLI;
 
+    let min_latency_ms = latencies[0] as f64 / MICROS_PER_MILLI;
+    let max_latency_ms = latencies[len - 1] as f64 / MICROS_PER_MILLI;
+
+    let p50_idx = (len * 50 / 100).min(len - 1);
+    let p90_idx = (len * 90 / 100).min(len - 1);
     let p95_idx = (len * 95 / 100).min(len - 1);
     let p99_idx = (len * 99 / 100).min(len - 1);
 
     TestSummary {
+        url,
         total_requests: total_requests as usize,
         total_errors: total_errors as usize,
         average_latency_ms,
         p95_latency_ms: latencies[p95_idx] as f64 / MICROS_PER_MILLI,
         p99_latency_ms: latencies[p99_idx] as f64 / MICROS_PER_MILLI,
+        min_latency_ms,
+        p50_latency_ms: latencies[p50_idx] as f64 / MICROS_PER_MILLI,
+        p90_latency_ms: latencies[p90_idx] as f64 / MICROS_PER_MILLI,
+        max_latency_ms,
+        total_bytes_received: total_bytes,
+        duration_secs,
+        workers,
+        timestamp: String::new(),
+        raw_command: None,
+        status_codes,
     }
 }
 
@@ -85,63 +186,158 @@ mod tests {
 
     #[test]
     fn empty_latencies_returns_zeros() {
-        let s = calculate_summary(10, 3, vec![]);
+        let s = calculate_summary(
+            "http://example.com".into(),
+            10,
+            3,
+            vec![],
+            0,
+            1.0,
+            4,
+            HashMap::new(),
+        );
+        assert_eq!(s.url, "http://example.com");
         assert_eq!(s.total_requests, 10);
         assert_eq!(s.total_errors, 3);
         assert_eq!(s.average_latency_ms, 0.0);
         assert_eq!(s.p95_latency_ms, 0.0);
         assert_eq!(s.p99_latency_ms, 0.0);
+        assert_eq!(s.min_latency_ms, 0.0);
+        assert_eq!(s.p50_latency_ms, 0.0);
+        assert_eq!(s.p90_latency_ms, 0.0);
+        assert_eq!(s.max_latency_ms, 0.0);
     }
 
     #[test]
     fn single_request() {
-        let s = calculate_summary(1, 0, vec![5000]);
+        let s = calculate_summary(
+            "http://example.com".into(),
+            1,
+            0,
+            vec![5000],
+            1024,
+            2.0,
+            2,
+            HashMap::new(),
+        );
         assert_eq!(s.total_requests, 1);
         assert_eq!(s.average_latency_ms, 5.0);
+        assert_eq!(s.min_latency_ms, 5.0);
+        assert_eq!(s.p50_latency_ms, 5.0);
+        assert_eq!(s.p90_latency_ms, 5.0);
         assert_eq!(s.p95_latency_ms, 5.0);
         assert_eq!(s.p99_latency_ms, 5.0);
+        assert_eq!(s.max_latency_ms, 5.0);
+        assert_eq!(s.total_bytes_received, 1024);
+        assert_eq!(s.workers, 2);
     }
 
     #[test]
     fn two_requests() {
-        let s = calculate_summary(2, 0, vec![1000, 2000]);
+        let s = calculate_summary(
+            "http://example.com".into(),
+            2,
+            0,
+            vec![1000, 2000],
+            0,
+            1.0,
+            1,
+            HashMap::new(),
+        );
         assert_eq!(s.average_latency_ms, 1.5);
-        // p95_idx = (2 * 95 / 100).min(1) = 1, value = 2000
+        assert_eq!(s.min_latency_ms, 1.0);
         assert_eq!(s.p95_latency_ms, 2.0);
-        // p99_idx = (2 * 99 / 100).min(1) = 1, value = 2000
         assert_eq!(s.p99_latency_ms, 2.0);
+        assert_eq!(s.max_latency_ms, 2.0);
     }
 
     #[test]
     fn uniform_hundred_values() {
         let latencies: Vec<u128> = (1..=100).collect();
-        let s = calculate_summary(100, 0, latencies);
-        // sum = 5050, average = 5050 / 100 / 1000 = 0.0505
+        let s = calculate_summary(
+            "http://example.com".into(),
+            100,
+            0,
+            latencies,
+            0,
+            1.0,
+            1,
+            HashMap::new(),
+        );
         assert!((s.average_latency_ms - 0.0505).abs() < 1e-6);
-        // p95 index = 95, value = 96 microseconds = 0.096 ms
+        assert_eq!(s.min_latency_ms, 0.001);
+        assert!((s.p50_latency_ms - 0.051).abs() < 1e-6);
+        assert!((s.p90_latency_ms - 0.091).abs() < 1e-6);
         assert!((s.p95_latency_ms - 0.096).abs() < 1e-6);
-        // p99 index = 99, value = 100 microseconds = 0.1 ms
         assert!((s.p99_latency_ms - 0.1).abs() < 1e-6);
+        assert_eq!(s.max_latency_ms, 0.1);
     }
 
     #[test]
     fn all_errors() {
-        let s = calculate_summary(5, 5, vec![100, 200, 300]);
+        let s = calculate_summary(
+            "http://example.com".into(),
+            5,
+            5,
+            vec![100, 200, 300],
+            0,
+            1.0,
+            1,
+            HashMap::new(),
+        );
         assert_eq!(s.total_requests, 5);
         assert_eq!(s.total_errors, 5);
     }
 
     #[test]
     fn microsecond_to_millisecond_conversion() {
-        let s = calculate_summary(1, 0, vec![12345]);
+        let s = calculate_summary(
+            "http://example.com".into(),
+            1,
+            0,
+            vec![12345],
+            0,
+            1.0,
+            1,
+            HashMap::new(),
+        );
         assert!((s.average_latency_ms - 12.345).abs() < 1e-6);
     }
 
     #[test]
     fn unsorted_latencies_are_sorted() {
-        let s = calculate_summary(3, 0, vec![3000, 1000, 2000]);
-        // sorted = [1000, 2000, 3000], p95_idx = 2, p99_idx = 2
+        let s = calculate_summary(
+            "http://example.com".into(),
+            3,
+            0,
+            vec![3000, 1000, 2000],
+            0,
+            1.0,
+            1,
+            HashMap::new(),
+        );
         assert_eq!(s.p95_latency_ms, 3.0);
         assert_eq!(s.p99_latency_ms, 3.0);
+        assert_eq!(s.min_latency_ms, 1.0);
+        assert_eq!(s.max_latency_ms, 3.0);
+    }
+
+    #[test]
+    fn status_codes_preserved() {
+        let mut codes = HashMap::new();
+        codes.insert(200, 10);
+        codes.insert(500, 3);
+        let s = calculate_summary(
+            "http://example.com".into(),
+            13,
+            3,
+            vec![100],
+            0,
+            1.0,
+            1,
+            codes,
+        );
+        assert_eq!(s.status_codes.get(&200), Some(&10));
+        assert_eq!(s.status_codes.get(&500), Some(&3));
     }
 }

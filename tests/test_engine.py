@@ -7,11 +7,24 @@ from strobengine.engine import RequestOptions, StrobEngine
 
 def _make_summary(**kwargs):
     defaults = {
+        "url": "http://example.com",
         "total_requests": 100,
         "total_errors": 0,
         "average_latency_ms": 10.0,
         "p95_latency_ms": 20.0,
         "p99_latency_ms": 30.0,
+        "min_latency_ms": 1.0,
+        "p50_latency_ms": 15.0,
+        "p90_latency_ms": 25.0,
+        "max_latency_ms": 50.0,
+        "total_bytes_received": 102400,
+        "duration_secs": 5.0,
+        "workers": 10,
+        "timestamp": "2026-08-10T10:00:00+00:00",
+        "raw_command": "strobengine.run(url='http://example.com', workers=10)",
+        "status_codes": {200: 100},
+        "to_dict": lambda: {},
+        "to_json": lambda indent=None: "{}",
     }
     defaults.update(kwargs)
     return Mock(**defaults)
@@ -27,12 +40,12 @@ class TestStrobEngineInit:
 
     def test_custom_values(self):
         engine = StrobEngine(
-            url="http://test.io",
+            url="http://example.com",
             concurrency=50,
             duration=30,
             options=RequestOptions(timeout=5),
         )
-        assert engine.config.url == "http://test.io"
+        assert engine.config.url == "http://example.com"
         assert engine.config.concurrency == 50
         assert engine.config.duration_secs == 30
         assert engine.config.timeout_secs == 5
@@ -70,11 +83,11 @@ class TestStrobEngineRun:
     def test_run_with_custom_params(self, mock_run):
         mock_run.return_value = _make_summary()
 
-        engine = StrobEngine(url="http://test.io", concurrency=25)
+        engine = StrobEngine(url="http://example.com", concurrency=25)
         engine.run()
 
         config = mock_run.call_args[0][0]
-        assert config.url == "http://test.io"
+        assert config.url == "http://example.com"
         assert config.concurrency == 25
 
 
@@ -101,7 +114,7 @@ class TestLoadTestFactory:
 
     def test_load_test_custom(self):
         engine = StrobEngine.load_test(
-            url="http://test.io",
+            url="http://example.com",
             concurrency=50,
             duration=30,
             options=RequestOptions(timeout=5),

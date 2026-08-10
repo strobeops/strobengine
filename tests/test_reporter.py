@@ -5,11 +5,41 @@ from strobengine.reporter import _error_rate, _format_number, print_summary
 
 def _make_summary(**kwargs):
     defaults = {
+        "url": "http://example.com",
         "total_requests": 1000,
         "total_errors": 5,
         "average_latency_ms": 12.34,
         "p95_latency_ms": 45.67,
         "p99_latency_ms": 89.01,
+        "min_latency_ms": 1.0,
+        "p50_latency_ms": 10.0,
+        "p90_latency_ms": 35.0,
+        "max_latency_ms": 150.0,
+        "total_bytes_received": 1048576,
+        "duration_secs": 10.0,
+        "workers": 10,
+        "timestamp": "2026-08-10T10:00:00+00:00",
+        "raw_command": "strobengine.load http://example.com",
+        "status_codes": {200: 995, 500: 5},
+        "to_dict": lambda: {
+            "url": "http://example.com",
+            "total_requests": 1000,
+            "total_errors": 5,
+            "average_latency_ms": 12.34,
+            "p95_latency_ms": 45.67,
+            "p99_latency_ms": 89.01,
+            "min_latency_ms": 1.0,
+            "p50_latency_ms": 10.0,
+            "p90_latency_ms": 35.0,
+            "max_latency_ms": 150.0,
+            "total_bytes_received": 1048576,
+            "duration_secs": 10.0,
+            "workers": 10,
+            "timestamp": "2026-08-10T10:00:00+00:00",
+            "raw_command": "strobengine.load http://example.com",
+            "status_codes": {200: 995, 500: 5},
+        },
+        "to_json": lambda indent=None: '{"url": "http://example.com"}',
     }
     defaults.update(kwargs)
     return Mock(**defaults)
@@ -43,26 +73,26 @@ class TestErrorRate:
 class TestPrintSummary:
     def test_with_duration(self, capsys):
         summary = _make_summary()
-        print_summary(summary, url="http://example.com", duration_secs=10)
+        print_summary(summary)
         output = capsys.readouterr().out
         assert "http://example.com" in output
         assert "1,000" in output or "1000" in output
 
     def test_without_duration(self, capsys):
         summary = _make_summary()
-        print_summary(summary, url="http://example.com")
+        print_summary(summary)
         output = capsys.readouterr().out
         assert "http://example.com" in output
 
     def test_errors_highlighted(self, capsys):
         summary = _make_summary(total_errors=50)
-        print_summary(summary, url="http://example.com")
+        print_summary(summary)
         output = capsys.readouterr().out
         assert "50" in output
 
     def test_no_errors(self, capsys):
         summary = _make_summary(total_errors=0)
-        print_summary(summary, url="http://example.com")
+        print_summary(summary)
         output = capsys.readouterr().out
         assert "http://example.com" in output
 
@@ -71,7 +101,7 @@ class TestRichFallback:
     @patch("strobengine.reporter._HAS_RICH", False)
     def test_plain_fallback_used(self, capsys):
         summary = _make_summary()
-        print_summary(summary, url="http://example.com")
+        print_summary(summary)
         output = capsys.readouterr().out
         assert "Load Test Results" in output
         assert "http://example.com" in output

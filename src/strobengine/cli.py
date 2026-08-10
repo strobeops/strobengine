@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import sys
 from typing import Annotated
 
@@ -147,22 +146,7 @@ def _global_options(
 def _output_results(
     summary: TestSummary, url: str, duration_secs: int, json_output: bool
 ) -> None:
-    if json_output:
-        print(
-            json.dumps(
-                {
-                    "url": url,
-                    "total_requests": summary.total_requests,
-                    "total_errors": summary.total_errors,
-                    "average_latency_ms": summary.average_latency_ms,
-                    "p95_latency_ms": summary.p95_latency_ms,
-                    "p99_latency_ms": summary.p99_latency_ms,
-                },
-                indent=2,
-            )
-        )
-    else:
-        print_summary(summary, url=url, duration_secs=duration_secs)
+    print_summary(summary, json_output=json_output)
 
 
 @app.command()

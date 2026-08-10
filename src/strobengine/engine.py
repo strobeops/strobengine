@@ -1,5 +1,6 @@
 import asyncio
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 
 from strobengine._strobengine import (
     LoadProfile,
@@ -159,10 +160,19 @@ class StrobEngine:
             options=options,
         )
 
+    def _enrich_summary(self, summary: TestSummary) -> TestSummary:
+        summary.timestamp = datetime.now(UTC).isoformat()
+        if self.config is not None:
+            summary.workers = self.config.concurrency
+        summary.raw_command = (
+            f"strobengine.run(url='{summary.url}', workers={summary.workers})"
+        )
+        return summary
+
     def run(self) -> TestSummary:
         opts = self._options
         if self._profile is not None:
-            return run_load_profiles(
+            summary = run_load_profiles(
                 self._url,
                 opts.timeout,
                 self._profile,
@@ -173,7 +183,9 @@ class StrobEngine:
                 form=opts.form,
                 headers=opts.headers,
             )
-        return run_load_test(self.config)
+        else:
+            summary = run_load_test(self.config)
+        return self._enrich_summary(summary)
 
     async def run_async(self) -> TestSummary:
         return await asyncio.to_thread(self.run)

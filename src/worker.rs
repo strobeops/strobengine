@@ -109,27 +109,26 @@ pub async fn worker_loop(
         };
 
         // Race request against cancellation — abandon stuck requests instantly
-        let status_code = tokio::select! {
+        let (status_code, bytes_received) = tokio::select! {
             _ = token.cancelled() => {
                 tracing::debug!("worker cancelled, abandoning in-flight request");
                 break;
             }
             res = request.send() => {
                 match res {
-                    Ok(res) => {
-                        let code = res.status().as_u16();
-                        let errored = !res.status().is_success();
-                        let _ = res.bytes().await;
-                        if errored {
+                    Ok(response) => {
+                        let code = response.status().as_u16();
+                        let bytes = response.content_length().unwrap_or(0);
+                        if !response.status().is_success() {
                             counters.errors.fetch_add(1, Ordering::Relaxed);
                             tracing::debug!(status_code = code, "non-success HTTP status");
                         }
-                        code
+                        (code, bytes)
                     }
-                    Err(_) => {
+                    Err(e) => {
                         counters.errors.fetch_add(1, Ordering::Relaxed);
-                        tracing::debug!("request failed");
-                        0
+                        tracing::debug!(error = %e, "request failed");
+                        (0, 0)
                     }
                 }
             }
@@ -151,9 +150,14 @@ pub async fn worker_loop(
             .latency_sum_micros
             .fetch_add(latency_micros, Ordering::Relaxed);
         counters.latency_count.fetch_add(1, Ordering::Relaxed);
+        counters
+            .bytes_received
+            .fetch_add(bytes_received, Ordering::Relaxed);
 
         let metric = RequestMetric {
             latency_micros: latency_micros as u128,
+            status_code,
+            bytes_received,
         };
 
         let _ = tx.send(metric).await;

@@ -13,4 +13,4 @@ engine = StrobEngine.spike_test(
 )
 summary = engine.run()
 
-print_summary(summary, url=engine._url, duration_secs=20)
+print_summary(summary)
