@@ -145,6 +145,7 @@ async fn execute_test(
 
     let counters = Arc::new(LiveCounters::new());
     let total_duration = Duration::from_secs(strategy.total_duration_secs());
+    let workers = strategy.max_concurrency();
     let test_start = Instant::now();
 
     // Track whether cancellation was triggered by user SIGINT
@@ -174,11 +175,16 @@ async fn execute_test(
 
     let aggregator = tokio::spawn(async move {
         let mut latencies = Vec::new();
+        let mut status_codes: std::collections::HashMap<u16, u64> =
+            std::collections::HashMap::new();
+        let mut total_bytes: u64 = 0;
         let mut rx = rx;
         while let Some(metric) = rx.recv().await {
             latencies.push(metric.latency_micros);
+            *status_codes.entry(metric.status_code).or_insert(0) += 1;
+            total_bytes += metric.bytes_received;
         }
-        latencies
+        (latencies, status_codes, total_bytes)
     });
 
     // Spawn progress render task (only on TTY when enabled)
@@ -335,12 +341,13 @@ async fn execute_test(
     }
 
     // Receive latency results (channel closes automatically as all tx references dropped)
-    let latencies = aggregator
+    let (latencies, status_codes, total_bytes) = aggregator
         .await
         .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
 
     let total = counters.total_requests.load(Ordering::Relaxed);
     let errors = counters.errors.load(Ordering::Relaxed);
+    let elapsed = test_start.elapsed().as_secs_f64();
 
     tracing::info!(total, errors, "load test completed");
 
@@ -351,7 +358,15 @@ async fn execute_test(
         ));
     }
 
-    Ok(metrics::calculate_summary(total, errors, latencies))
+    Ok(metrics::calculate_summary(
+        total,
+        errors,
+        latencies,
+        total_bytes,
+        elapsed,
+        workers,
+        status_codes,
+    ))
 }
 
 #[pyfunction]
