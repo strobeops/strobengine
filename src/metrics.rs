@@ -187,7 +187,7 @@ mod tests {
     #[test]
     fn empty_latencies_returns_zeros() {
         let s = calculate_summary(
-            "http://test".into(),
+            "http://example.com".into(),
             10,
             3,
             vec![],
@@ -196,7 +196,7 @@ mod tests {
             4,
             HashMap::new(),
         );
-        assert_eq!(s.url, "http://test");
+        assert_eq!(s.url, "http://example.com");
         assert_eq!(s.total_requests, 10);
         assert_eq!(s.total_errors, 3);
         assert_eq!(s.average_latency_ms, 0.0);
@@ -211,7 +211,7 @@ mod tests {
     #[test]
     fn single_request() {
         let s = calculate_summary(
-            "http://test".into(),
+            "http://example.com".into(),
             1,
             0,
             vec![5000],
@@ -235,7 +235,7 @@ mod tests {
     #[test]
     fn two_requests() {
         let s = calculate_summary(
-            "http://test".into(),
+            "http://example.com".into(),
             2,
             0,
             vec![1000, 2000],
@@ -255,7 +255,7 @@ mod tests {
     fn uniform_hundred_values() {
         let latencies: Vec<u128> = (1..=100).collect();
         let s = calculate_summary(
-            "http://test".into(),
+            "http://example.com".into(),
             100,
             0,
             latencies,
@@ -276,7 +276,7 @@ mod tests {
     #[test]
     fn all_errors() {
         let s = calculate_summary(
-            "http://test".into(),
+            "http://example.com".into(),
             5,
             5,
             vec![100, 200, 300],
@@ -292,7 +292,7 @@ mod tests {
     #[test]
     fn microsecond_to_millisecond_conversion() {
         let s = calculate_summary(
-            "http://test".into(),
+            "http://example.com".into(),
             1,
             0,
             vec![12345],
@@ -307,7 +307,7 @@ mod tests {
     #[test]
     fn unsorted_latencies_are_sorted() {
         let s = calculate_summary(
-            "http://test".into(),
+            "http://example.com".into(),
             3,
             0,
             vec![3000, 1000, 2000],
@@ -327,7 +327,16 @@ mod tests {
         let mut codes = HashMap::new();
         codes.insert(200, 10);
         codes.insert(500, 3);
-        let s = calculate_summary("http://test".into(), 13, 3, vec![100], 0, 1.0, 1, codes);
+        let s = calculate_summary(
+            "http://example.com".into(),
+            13,
+            3,
+            vec![100],
+            0,
+            1.0,
+            1,
+            codes,
+        );
         assert_eq!(s.status_codes.get(&200), Some(&10));
         assert_eq!(s.status_codes.get(&500), Some(&3));
     }
