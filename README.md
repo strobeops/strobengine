@@ -46,7 +46,7 @@ from strobengine.reporter import print_summary
 engine = StrobEngine(url="http://localhost:8080/api/health", concurrency=50, duration=30)
 summary = engine.run()
 
-print_summary(summary, url=engine._url, duration_secs=30)
+print_summary(summary)
 
 # Ramp/stress test (10 -> 200 workers over 60s, hold 30s)
 engine = StrobEngine.stress_test(
@@ -57,7 +57,7 @@ engine = StrobEngine.stress_test(
 )
 summary = engine.run()
 
-print_summary(summary, url=engine._url, duration_secs=30)
+print_summary(summary)
 
 # Spike test (baseline 5 -> peak 500 -> back to 5)
 engine = StrobEngine.spike_test(
@@ -68,7 +68,7 @@ engine = StrobEngine.spike_test(
 )
 summary = engine.run()
 
-print_summary(summary, url=engine._url, duration_secs=30)
+print_summary(summary)
 
 # POST request with JSON body and custom headers
 engine = StrobEngine(
@@ -131,7 +131,7 @@ strobengine load http://localhost:8080/api/health -vv
 strobengine load http://localhost:8080/api/health -q
 ```
 
-By default, this spawns **10 concurrent workers** for **10 seconds** with a **10-second request timeout**. Results are displayed as a formatted table with total requests, errors, requests/sec, and latency percentiles (avg, p95, p99).
+By default, this spawns **10 concurrent workers** for **10 seconds** with a **10-second request timeout**. Results are displayed as a formatted table with total requests, errors, requests/sec, and latency percentiles (min, avg, p50, p90, p95, p99, max).
 
 ### Subcommands
 
@@ -245,7 +245,7 @@ strobengine separates configuration, execution, and metrics into clean Rust modu
 
 - **`config`** -- `TestConfig` for static load, `LoadProfile` enum for dynamic profiles (Constant, Ramp, Spike) with target concurrency interpolation.
 - **`worker`** -- Async worker loops with method-aware request building, static payload reuse (Bytes), and zero-allocation header management via `ClientBuilder::default_headers()`.
-- **`metrics`** -- Lock-free atomic counters (`AtomicUsize`) track total requests and errors without contention. An aggregator task collects raw latencies, then `calculate_summary` computes average, p95, and p99 percentiles in Rust at bare-metal speed.
+- **`metrics`** -- Lock-free atomic counters (`AtomicUsize`) track total requests and errors without contention. An aggregator task collects raw latencies, then `calculate_summary` computes min, average, p50, p90, p95, p99, and max percentiles in Rust at bare-metal speed.
 - **`chaos`** -- Protocol-agnostic fault injection engine with `ChaosEngine` evaluator and `ChaosFault` enum (LatencySpike, CorruptedPayload, MetadataCorruption, ConnectionDrop).
 - **`progress`** -- Background Tokio render task sampling atomic metrics every 200ms, displaying live RPS, active VUs, and latency via indicatif.
 - **Orchestrator** -- Supervisor task ticks every 200ms, calculates target concurrency from the active profile curve, spawns/aborts workers dynamically.
