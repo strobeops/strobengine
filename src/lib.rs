@@ -359,6 +359,7 @@ async fn execute_test(
     }
 
     Ok(metrics::calculate_summary(
+        url,
         total,
         errors,
         latencies,
