@@ -7,6 +7,15 @@ from collections.abc import Generator
 import pytest
 
 
+def pytest_addoption(parser):
+    parser.addoption(
+        "--e2e",
+        action="store_true",
+        default=False,
+        help="run end-to-end integration tests",
+    )
+
+
 class QuietHTTPRequestHandler(http.server.BaseHTTPRequestHandler):
     def log_message(self, format: str, *args: object) -> None:
         pass

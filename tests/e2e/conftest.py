@@ -11,6 +11,20 @@ from aiohttp import web
 from .mock_server import create_app
 
 
+def pytest_collection_modifyitems(config, items):
+    # Automatically mark tests under the tests/e2e/ folder
+    for item in items:
+        if "e2e" in Path(item.fspath).parts:
+            item.add_marker("e2e")
+
+    # Skip e2e tests by default if --e2e option is missing
+    if not config.getoption("--e2e"):
+        skip_e2e = pytest.mark.skip(reason="need --e2e option to run")
+        for item in items:
+            if "e2e" in item.keywords:
+                item.add_marker(skip_e2e)
+
+
 def _free_port() -> int:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         s.bind(("127.0.0.1", 0))

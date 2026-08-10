@@ -49,6 +49,9 @@ dev = [
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+markers = [
+    "e2e: marks tests as end-to-end integration scenarios (requires mock server)",
+]
 
 [tool.ruff]
 # Target Python 3.11 features
