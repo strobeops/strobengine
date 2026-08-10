@@ -7,6 +7,7 @@ from strobengine.engine import RequestOptions, StrobEngine
 
 def _make_summary(**kwargs):
     defaults = {
+        "url": "http://example.com",
         "total_requests": 100,
         "total_errors": 0,
         "average_latency_ms": 10.0,
@@ -22,6 +23,8 @@ def _make_summary(**kwargs):
         "timestamp": "2026-08-10T10:00:00+00:00",
         "raw_command": "strobengine.run(url='http://example.com', workers=10)",
         "status_codes": {200: 100},
+        "to_dict": lambda: {},
+        "to_json": lambda indent=None: "{}",
     }
     defaults.update(kwargs)
     return Mock(**defaults)
