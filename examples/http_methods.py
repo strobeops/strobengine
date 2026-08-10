@@ -12,7 +12,7 @@ engine = StrobEngine(
     url="http://localhost:8080/get",
 )
 summary = engine.run()
-print_summary(summary, url=engine._url, duration_secs=10)
+print_summary(summary)
 
 # POST with JSON body and auth header
 engine = StrobEngine(
@@ -24,7 +24,7 @@ engine = StrobEngine(
     ),
 )
 summary = engine.run()
-print_summary(summary, url=engine._url, duration_secs=10)
+print_summary(summary)
 
 # PUT with body
 engine = StrobEngine(
@@ -32,7 +32,7 @@ engine = StrobEngine(
     options=RequestOptions(method="PUT", body='{"update": true}'),
 )
 summary = engine.run()
-print_summary(summary, url=engine._url, duration_secs=10)
+print_summary(summary)
 
 # DELETE
 engine = StrobEngine(
@@ -40,7 +40,7 @@ engine = StrobEngine(
     options=RequestOptions(method="DELETE"),
 )
 summary = engine.run()
-print_summary(summary, url=engine._url, duration_secs=10)
+print_summary(summary)
 
 # PATCH with partial body
 engine = StrobEngine(
@@ -48,7 +48,7 @@ engine = StrobEngine(
     options=RequestOptions(method="PATCH", body='{"patch": 1}'),
 )
 summary = engine.run()
-print_summary(summary, url=engine._url, duration_secs=10)
+print_summary(summary)
 
 # HEAD (check endpoint without downloading body)
 engine = StrobEngine(
@@ -56,7 +56,7 @@ engine = StrobEngine(
     options=RequestOptions(method="HEAD"),
 )
 summary = engine.run()
-print_summary(summary, url=engine._url, duration_secs=10)
+print_summary(summary)
 
 # OPTIONS (CORS preflight)
 engine = StrobEngine(
@@ -64,4 +64,4 @@ engine = StrobEngine(
     options=RequestOptions(method="OPTIONS"),
 )
 summary = engine.run()
-print_summary(summary, url=engine._url, duration_secs=10)
+print_summary(summary)
