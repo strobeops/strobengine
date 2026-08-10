@@ -10,6 +10,16 @@ def _make_summary(**kwargs):
         "average_latency_ms": 12.34,
         "p95_latency_ms": 45.67,
         "p99_latency_ms": 89.01,
+        "min_latency_ms": 1.0,
+        "p50_latency_ms": 10.0,
+        "p90_latency_ms": 35.0,
+        "max_latency_ms": 150.0,
+        "total_bytes_received": 1048576,
+        "duration_secs": 10.0,
+        "workers": 10,
+        "timestamp": "2026-08-10T10:00:00+00:00",
+        "raw_command": "strobengine.load http://example.com",
+        "status_codes": {200: 995, 500: 5},
     }
     defaults.update(kwargs)
     return Mock(**defaults)
