@@ -17,13 +17,16 @@ except ImportError:
 
 def print_summary(
     summary: TestSummary,
-    url: str,
-    duration_secs: int | None = None,
+    json_output: bool = False,
 ) -> None:
+    if json_output:
+        print(summary.to_json(indent=2))
+        return
+
     if _HAS_RICH:
-        _print_rich(summary, url, duration_secs)
+        _print_rich(summary)
     else:
-        _print_plain(summary, url, duration_secs)
+        _print_plain(summary)
     _metrics_description()
 
 
@@ -54,8 +57,6 @@ def _format_status_codes(codes: dict[int, int]) -> str:
 
 def _print_rich(
     summary: TestSummary,
-    url: str,
-    duration_secs: int | None,
 ) -> None:
     console = Console()
 
@@ -64,7 +65,7 @@ def _print_rich(
     table.add_column("Value", justify="right")
 
     # Execution context
-    table.add_row("Target URL", url)
+    table.add_row("Target URL", summary.url)
     if summary.timestamp:
         table.add_row("Timestamp", summary.timestamp)
     table.add_row("Duration", f"{summary.duration_secs:.1f}s")
@@ -107,8 +108,6 @@ def _print_rich(
 
 def _print_plain(
     summary: TestSummary,
-    url: str,
-    duration_secs: int | None,
 ) -> None:
     use_color = (
         not os.environ.get("NO_COLOR")
@@ -127,7 +126,7 @@ def _print_plain(
     lines = [
         f"{BOLD}{'Load Test Results':^{width}}{RESET}",
         sep,
-        f"  Target URL:     {url}",
+        f"  Target URL:     {summary.url}",
     ]
 
     if summary.timestamp:
