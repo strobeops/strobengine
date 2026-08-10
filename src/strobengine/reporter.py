@@ -31,10 +31,25 @@ def _format_number(n: int) -> str:
     return f"{n:,}"
 
 
+def _format_bytes(n: int) -> str:
+    if n < 1024:
+        return f"{n} B"
+    if n < 1024 * 1024:
+        return f"{n / 1024:.1f} KB"
+    return f"{n / (1024 * 1024):.1f} MB"
+
+
 def _error_rate(total: int, errors: int) -> str:
     if total == 0:
         return "0.00%"
     return f"{errors / total * 100:.2f}%"
+
+
+def _format_status_codes(codes: dict[int, int]) -> str:
+    if not codes:
+        return "none"
+    parts = [f"{code}: {count}" for code, count in sorted(codes.items())]
+    return " | ".join(parts)
 
 
 def _print_rich(
@@ -48,9 +63,30 @@ def _print_rich(
     table.add_column("Metric", style="bold cyan", no_wrap=True)
     table.add_column("Value", justify="right")
 
+    # Execution context
     table.add_row("Target URL", url)
-    table.add_row("Total Requests", _format_number(summary.total_requests))
+    if summary.timestamp:
+        table.add_row("Timestamp", summary.timestamp)
+    table.add_row("Duration", f"{summary.duration_secs:.1f}s")
+    table.add_row("Workers", str(summary.workers))
 
+    # Throughput
+    table.add_row("Total Requests", _format_number(summary.total_requests))
+    if summary.duration_secs > 0:
+        rps = summary.total_requests / summary.duration_secs
+        table.add_row("Requests/sec", f"{rps:.1f}")
+    table.add_row("Total Received", _format_bytes(summary.total_bytes_received))
+
+    # Latency distribution
+    table.add_row("Min Latency", f"{summary.min_latency_ms:.2f} ms")
+    table.add_row("Avg Latency", f"{summary.average_latency_ms:.2f} ms")
+    table.add_row("P50 Latency", f"{summary.p50_latency_ms:.2f} ms")
+    table.add_row("P90 Latency", f"{summary.p90_latency_ms:.2f} ms")
+    table.add_row("P95 Latency", f"{summary.p95_latency_ms:.2f} ms")
+    table.add_row("P99 Latency", f"{summary.p99_latency_ms:.2f} ms")
+    table.add_row("Max Latency", f"{summary.max_latency_ms:.2f} ms")
+
+    # Errors
     if summary.total_errors > 0:
         rate = _error_rate(summary.total_requests, summary.total_errors)
         table.add_row(
@@ -62,14 +98,7 @@ def _print_rich(
             "Errors",
             f"[green]{_format_number(summary.total_errors)} (0.00%)[/]",
         )
-
-    if duration_secs is not None and duration_secs > 0:
-        rps = summary.total_requests / duration_secs
-        table.add_row("Requests/sec", f"{rps:.1f}")
-
-    table.add_row("Avg Latency", f"{summary.average_latency_ms:.2f} ms")
-    table.add_row("P95 Latency", f"{summary.p95_latency_ms:.2f} ms")
-    table.add_row("P99 Latency", f"{summary.p99_latency_ms:.2f} ms")
+    table.add_row("Status Codes", _format_status_codes(summary.status_codes))
 
     console.print()
     console.print(table)
@@ -99,8 +128,26 @@ def _print_plain(
         f"{BOLD}{'Load Test Results':^{width}}{RESET}",
         sep,
         f"  Target URL:     {url}",
-        f"  Total Requests: {_format_number(summary.total_requests)}",
     ]
+
+    if summary.timestamp:
+        lines.append(f"  Timestamp:      {summary.timestamp}")
+    lines.append(f"  Duration:       {summary.duration_secs:.1f}s")
+    lines.append(f"  Workers:        {summary.workers}")
+
+    lines.append(f"  Total Requests: {_format_number(summary.total_requests)}")
+    if summary.duration_secs > 0:
+        rps = summary.total_requests / summary.duration_secs
+        lines.append(f"  Requests/sec:   {rps:.1f}")
+    lines.append(f"  Total Received: {_format_bytes(summary.total_bytes_received)}")
+
+    lines.append(f"  Min Latency:    {summary.min_latency_ms:.2f} ms")
+    lines.append(f"  Avg Latency:    {summary.average_latency_ms:.2f} ms")
+    lines.append(f"  P50 Latency:    {summary.p50_latency_ms:.2f} ms")
+    lines.append(f"  P90 Latency:    {summary.p90_latency_ms:.2f} ms")
+    lines.append(f"  P95 Latency:    {summary.p95_latency_ms:.2f} ms")
+    lines.append(f"  P99 Latency:    {summary.p99_latency_ms:.2f} ms")
+    lines.append(f"  Max Latency:    {summary.max_latency_ms:.2f} ms")
 
     if summary.total_errors > 0:
         rate = _error_rate(summary.total_requests, summary.total_errors)
@@ -111,14 +158,7 @@ def _print_plain(
         lines.append(
             f"  Errors:         {GREEN}{_format_number(summary.total_errors)} (0.00%){RESET}"
         )
-
-    if duration_secs is not None and duration_secs > 0:
-        rps = summary.total_requests / duration_secs
-        lines.append(f"  Requests/sec:   {rps:.1f}")
-
-    lines.append(f"  Avg Latency:    {summary.average_latency_ms:.2f} ms")
-    lines.append(f"  P95 Latency:    {summary.p95_latency_ms:.2f} ms")
-    lines.append(f"  P99 Latency:    {summary.p99_latency_ms:.2f} ms")
+    lines.append(f"  Status Codes:   {_format_status_codes(summary.status_codes)}")
     lines.append(sep)
 
     print("\n".join(lines))
@@ -126,12 +166,16 @@ def _print_plain(
 
 def _metrics_description():
     print("Metric Descriptions:")
+    print("- Min Latency: Minimum round-trip time across all completed requests.")
     print(
         "- Avg Latency: Mean round-trip time across all completed requests (lower is better)."
     )
+    print("- P50 Latency: 50% of requests completed faster than this time (median).")
+    print("- P90 Latency: 90% of requests completed faster than this time.")
     print(
         "- P95 Latency: 95% of requests completed faster than this time (tail latency, lower is better)."
     )
     print(
         "- P99 Latency: 99% of requests completed faster than this time (worst-case spikes)."
     )
+    print("- Max Latency: Maximum round-trip time across all completed requests.")
