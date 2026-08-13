@@ -17,10 +17,10 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/strobe-ops/strobengine"
-Documentation = "https://github.com/strobe-ops/strobengine"
-Source = "https://github.com/strobe-ops/strobengine"
-Changelog = "https://github.com/strobe-ops/strobengine/blob/main/CHANGELOG.md"
+Homepage = "https://github.com/strobeops/strobengine"
+Documentation = "https://github.com/strobeops/strobengine"
+Source = "https://github.com/strobeops/strobengine"
+Changelog = "https://github.com/strobeops/strobengine/blob/main/CHANGELOG.md"
 
 [project.scripts]
 strobengine = "strobengine.cli:main"
