@@ -1,0 +1,34 @@
+# Git metadata
+.git/
+.gitignore
+
+# Rust build artifacts & cargo cache
+target/
+**/*.rs.bk
+
+# Python cache & virtual environments
+.venv/
+venv/
+env/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# IDE and OS metadata
+.idea/
+.vscode/
+*.swp
+.DS_Store
+
+# Test & benchmark output artifacts
+results/
+dist/
+*.egg-info/
+
+# Docker files
+Dockerfile
+.dockerignore
