@@ -1,6 +1,6 @@
 [project]
 name = "strobengine"
-version = "0.2.1"
+version = "0.3.0"
 description = "A load testing framework with a Python UI and a bare-metal Rust engine core."
 readme = "README.md"
 license = "Apache-2.0"
@@ -17,10 +17,10 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/strobe-ops/strobengine"
-Documentation = "https://github.com/strobe-ops/strobengine"
-Source = "https://github.com/strobe-ops/strobengine"
-Changelog = "https://github.com/strobe-ops/strobengine/blob/main/CHANGELOG.md"
+Homepage = "https://github.com/strobeops/strobengine"
+Documentation = "https://github.com/strobeops/strobengine"
+Source = "https://github.com/strobeops/strobengine"
+Changelog = "https://github.com/strobeops/strobengine/blob/main/CHANGELOG.md"
 
 [project.scripts]
 strobengine = "strobengine.cli:main"

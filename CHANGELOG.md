@@ -4,6 +4,62 @@ All notable changes to `strobengine` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] - 2026-08-13
+
+### Bug Fixes
+
+- *(logging)* Log warning on invalid EnvFilter string (#59)
+- *(logging)* Warn when log file creation fails (#60)
+- *(cli)* Auto-detect value-taking flags in positional arg detection (#61)
+- *(cli)* Map trace log level to custom level 5 instead of DEBUG (#63)
+
+### Documentation
+
+- *(readme)* Add custom HTTP headers usage examples (#55)
+- Add --form flag to README CLI reference
+- Update roadmap to reflect recent project changes (#62)
+- *(worker)* Document u64::MAX fallback for extreme latencies (#66)
+- Consolidate testing guide into docs/testing.md
+- *(docker)* Add Docker usage documentation
+
+### Features
+
+- *(rust)* Add form payload support to TestConfig and Content-Type logic
+- *(python)* Add --form flag and type stubs
+- *(cli)* Add --form payload support for URL-encoded request bodies (#56)
+- *(metrics)* Add latency distribution, status code aggregation, and structured JSON repor (#72)
+
+### Miscellaneous Tasks
+
+- *(dev)* Setup pre-commit hooks and Makefile for local pre-push checks (#58)
+- *(github)* Add Docker build and push workflow for releases
+
+### Other
+
+- *(deps)* Add urlencoding crate for form payload encoding
+- *(deps)* Add aiohttp dev dependency for e2e test server
+- *(docker)* Add multi-stage Dockerfile for Maturin package
+- *(docker)* Add .dockerignore to optimize build context
+- *(docker)* Switch runtime container execution to non-root user
+
+### Refactoring
+
+- *(engine)* Unify load test execution via ConcurrencyStrategy (#54)
+- *(worker)* Remove unused status_code and is_error from RequestMetric (#57)
+- *(progress)* Remove unused `_total_duration` param from `create_progress_bar` (#64)
+
+### Testing
+
+- Remove trivial allocator unit test (#65)
+- *(e2e)* Add async mock server with status, delay, echo, and flaky endpoints
+- Add e2e mock server (#67)
+- *(e2e)* Add `cli_bin` fixture to detect strobengine CLI path (#68)
+- *(e2e)* Harden mock server with AppKey types and header normalization
+- *(e2e)* Switch mock_server fixture to threaded AppRunner
+- *(e2e)* Add HTTP scenario tests against mock server
+- *(e2e)* Harden mock server and consolidate testing docs
+- *(e2e)* Add subprocess-based CLI interface tests (#70)
+- *(e2e)* Configure --e2e pytest flag and CI pipeline step (#71)
 ## [0.2.1] - 2026-08-03
 
 ### Bug Fixes
@@ -24,6 +80,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Remove unnecessary clippy allow on run_load_test (#47)
 - Add multi-architecture matrix for macOS wheel builds (#52)
+- Prepare for release 0.2.1
 
 ### Refactoring
 

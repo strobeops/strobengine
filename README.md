@@ -36,6 +36,18 @@ uv sync
 
 `uv sync` invokes [maturin](https://github.com/PyO3/maturin) under the hood, which compiles the Rust code into a native Python extension module and installs it into your virtual environment.
 
+### Docker
+
+Alternatively, pull and run strobengine directly from Docker Hub:
+
+```bash
+docker pull strobeops/strobengine:latest
+docker run --rm -it strobeops/strobengine load http://host.docker.internal:8080/api/health -c 50 -d 30
+```
+
+> See [docs/docker.md](docs/docker.md) for full Docker documentation including
+> version tags, host networking, and building locally.
+
 ## Quick Start Usage
 
 ```python
