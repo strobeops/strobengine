@@ -11,9 +11,18 @@ RUN maturin build --release --out dist
 
 # Stage 2: Minimal Runtime Image
 FROM python:3.11-slim
+
+# Create a non-privileged system user and group
+RUN groupadd -r appuser && useradd -r -g appuser appuser
+
 WORKDIR /app
+
+# Copy built wheels with proper ownership
 COPY --from=builder /app/dist/*.whl .
 RUN pip install --no-cache-dir *.whl && rm *.whl
+
+# Switch execution context away from root
+USER appuser
 
 ENTRYPOINT ["strobengine"]
 CMD ["--help"]
