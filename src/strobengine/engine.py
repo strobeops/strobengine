@@ -38,6 +38,7 @@ class RequestOptions:
     form: list[tuple[str, str]] | None = None
     headers: list[tuple[str, str]] = field(default_factory=list)
     ws_mode: str = "handshake"
+    ws_payload: str | None = None
 
     def __post_init__(self) -> None:
         if self.timeout <= 0:
@@ -76,7 +77,10 @@ class StrobEngine:
                 headers=self._options.headers,
                 ws_mode=WsMode.ping_pong()
                 if self._options.ws_mode == "ping_pong"
+                else WsMode.stream()
+                if self._options.ws_mode == "stream"
                 else WsMode.handshake(),
+                ws_payload=self._options.ws_payload,
             )
             self._profile = None
         else:

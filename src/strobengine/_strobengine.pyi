@@ -5,6 +5,8 @@ class WsMode:
     def handshake() -> WsMode: ...
     @staticmethod
     def ping_pong() -> WsMode: ...
+    @staticmethod
+    def stream() -> WsMode: ...
 
 class LoadProfile:
     @staticmethod
@@ -41,6 +43,7 @@ class TestConfig:
     form: list[tuple[str, str]] | None
     headers: list[tuple[str, str]] | None
     ws_mode: WsMode
+    ws_payload: str | None
     def __init__(
         self,
         url: str,
@@ -55,6 +58,7 @@ class TestConfig:
         form: list[tuple[str, str]] | None = None,
         headers: list[tuple[str, str]] | None = None,
         ws_mode: WsMode | None = None,
+        ws_payload: str | None = None,
     ) -> None: ...
 
 class TestSummary:
