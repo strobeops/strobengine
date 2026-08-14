@@ -23,9 +23,12 @@ pub fn detect_protocol(
     url: &str,
     headers: Vec<(String, String)>,
     ws_mode: WsMode,
+    ws_payload: Option<String>,
 ) -> Arc<dyn ProtocolEngine> {
     if url.starts_with("ws://") || url.starts_with("wss://") {
-        Arc::new(websocket::WebSocketEngine::new(headers, ws_mode))
+        Arc::new(websocket::WebSocketEngine::new(
+            headers, ws_mode, ws_payload,
+        ))
     } else {
         Arc::new(http::HttpEngine::new())
     }
