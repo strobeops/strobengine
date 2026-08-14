@@ -1,5 +1,11 @@
 from typing import Any
 
+class WsMode:
+    @staticmethod
+    def handshake() -> WsMode: ...
+    @staticmethod
+    def ping_pong() -> WsMode: ...
+
 class LoadProfile:
     @staticmethod
     def constant(concurrency: int = 10, duration_secs: int = 10) -> LoadProfile: ...
@@ -34,6 +40,7 @@ class TestConfig:
     body: str | None
     form: list[tuple[str, str]] | None
     headers: list[tuple[str, str]] | None
+    ws_mode: WsMode
     def __init__(
         self,
         url: str,
@@ -47,6 +54,7 @@ class TestConfig:
         body: str | None = None,
         form: list[tuple[str, str]] | None = None,
         headers: list[tuple[str, str]] | None = None,
+        ws_mode: WsMode | None = None,
     ) -> None: ...
 
 class TestSummary:

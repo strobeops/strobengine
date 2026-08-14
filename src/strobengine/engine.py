@@ -6,6 +6,7 @@ from strobengine._strobengine import (
     LoadProfile,
     TestConfig,
     TestSummary,
+    WsMode,
     run_load_profiles,
     run_load_test,
 )
@@ -36,6 +37,7 @@ class RequestOptions:
     body: str | None = None
     form: list[tuple[str, str]] | None = None
     headers: list[tuple[str, str]] = field(default_factory=list)
+    ws_mode: str = "handshake"
 
     def __post_init__(self) -> None:
         if self.timeout <= 0:
@@ -72,6 +74,9 @@ class StrobEngine:
                 body=self._options.body,
                 form=self._options.form,
                 headers=self._options.headers,
+                ws_mode=WsMode.ping_pong()
+                if self._options.ws_mode == "ping_pong"
+                else WsMode.handshake(),
             )
             self._profile = None
         else:
