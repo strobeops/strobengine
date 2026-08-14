@@ -8,7 +8,7 @@ mod config;
 mod logging;
 mod metrics;
 mod progress;
-mod worker;
+pub mod protocols;
 
 use std::io::IsTerminal;
 use std::sync::Arc;
@@ -23,6 +23,7 @@ use tokio_util::sync::CancellationToken;
 use crate::chaos::ChaosEngine;
 use crate::config::{LoadProfile, TestConfig};
 use crate::metrics::{LiveCounters, RequestMetric};
+use crate::protocols::ProtocolEngine;
 
 /// Buffer capacity for the async MPSC channel streaming metrics from workers to the aggregator.
 /// 8,192 (~8k) provides enough head room to prevent worker task backpressure during high RPS bursts
@@ -127,21 +128,23 @@ fn init_logging(level: String, log_file: Option<String>) {
     logging::init_tracing(&level, log_file.as_deref());
 }
 
+/// RAII Guard that automatically decrements `active_workers` when dropped.
+struct WorkerGuard(Arc<LiveCounters>);
+
+impl Drop for WorkerGuard {
+    fn drop(&mut self) {
+        self.0.active_workers.fetch_sub(1, Ordering::Relaxed);
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 async fn execute_test(
+    engine: Arc<dyn ProtocolEngine>,
     url: String,
-    timeout_secs: u64,
-    method: Method,
-    body: Option<bytes::Bytes>,
-    header_map: HeaderMap,
-    chaos: ChaosEngine,
     no_progress: bool,
     strategy: ConcurrencyStrategy,
 ) -> PyResult<metrics::TestSummary> {
-    let client = build_client(strategy.max_concurrency(), timeout_secs, header_map)
-        .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
-
-    tracing::debug!("http client created");
+    tracing::debug!("protocol engine initialized");
 
     let counters = Arc::new(LiveCounters::new());
     let total_duration = Duration::from_secs(strategy.total_duration_secs());
@@ -220,17 +223,44 @@ async fn execute_test(
             let mut handles = Vec::with_capacity(concurrency);
 
             for _ in 0..concurrency {
-                handles.push(tokio::spawn(worker::worker_loop(
-                    client.clone(),
-                    url.clone(),
-                    method.clone(),
-                    body.clone(),
-                    Arc::clone(&counters),
-                    tx.clone(),
-                    duration,
-                    cancel_token.clone(),
-                    chaos,
-                )));
+                let engine = Arc::clone(&engine);
+                let url = url.clone();
+                let counters = Arc::clone(&counters);
+                let tx = tx.clone();
+                let token = cancel_token.clone();
+
+                handles.push(tokio::spawn(async move {
+                    let _guard = WorkerGuard(Arc::clone(&counters));
+                    counters.active_workers.fetch_add(1, Ordering::Relaxed);
+
+                    let start = Instant::now();
+                    while start.elapsed() < duration && !token.is_cancelled() {
+                        counters.total_requests.fetch_add(1, Ordering::Relaxed);
+
+                        let metric = tokio::select! {
+                            _ = token.cancelled() => {
+                                tracing::debug!("worker cancelled");
+                                break;
+                            }
+                            m = engine.execute_iteration(&url) => m,
+                        };
+
+                        counters.completed_requests.fetch_add(1, Ordering::Relaxed);
+                        counters
+                            .bytes_received
+                            .fetch_add(metric.bytes_received, Ordering::Relaxed);
+                        counters
+                            .latency_sum_micros
+                            .fetch_add(metric.latency_micros as u64, Ordering::Relaxed);
+                        counters.latency_count.fetch_add(1, Ordering::Relaxed);
+
+                        if metric.status_code == 0 || metric.status_code >= 400 {
+                            counters.errors.fetch_add(1, Ordering::Relaxed);
+                        }
+
+                        let _ = tx.send(metric).await;
+                    }
+                }));
             }
 
             // NOTE: Drop outer `tx` so only worker clones hold channel senders
@@ -249,10 +279,8 @@ async fn execute_test(
             tracing::info!(url, total_duration_secs, "starting profile load test");
 
             let counters_clone = Arc::clone(&counters);
-            let client_clone = client.clone();
+            let engine_clone = Arc::clone(&engine);
             let url_clone = url.clone();
-            let method_clone = method.clone();
-            let body_clone = body.clone();
             let cancel_clone = cancel_token.clone();
             let tx_supervisor = tx.clone();
 
@@ -277,17 +305,41 @@ async fn execute_test(
                     while current_concurrency < target {
                         let child_token = cancel_clone.child_token();
                         let remaining = total_duration.saturating_sub(elapsed);
-                        let handle = tokio::spawn(worker::worker_loop(
-                            client_clone.clone(),
-                            url_clone.clone(),
-                            method_clone.clone(),
-                            body_clone.clone(),
-                            Arc::clone(&counters_clone),
-                            tx_supervisor.clone(),
-                            remaining,
-                            child_token.clone(),
-                            chaos,
-                        ));
+                        let engine = Arc::clone(&engine_clone);
+                        let url = url_clone.clone();
+                        let counters = Arc::clone(&counters_clone);
+                        let tx = tx_supervisor.clone();
+                        let token = child_token.clone();
+
+                        let handle = tokio::spawn(async move {
+                            let _guard = WorkerGuard(Arc::clone(&counters));
+                            counters.active_workers.fetch_add(1, Ordering::Relaxed);
+
+                            let start = Instant::now();
+                            while start.elapsed() < remaining && !token.is_cancelled() {
+                                counters.total_requests.fetch_add(1, Ordering::Relaxed);
+
+                                let metric = tokio::select! {
+                                    _ = token.cancelled() => break,
+                                    m = engine.execute_iteration(&url) => m,
+                                };
+
+                                counters.completed_requests.fetch_add(1, Ordering::Relaxed);
+                                counters
+                                    .bytes_received
+                                    .fetch_add(metric.bytes_received, Ordering::Relaxed);
+                                counters
+                                    .latency_sum_micros
+                                    .fetch_add(metric.latency_micros as u64, Ordering::Relaxed);
+                                counters.latency_count.fetch_add(1, Ordering::Relaxed);
+
+                                if metric.status_code == 0 || metric.status_code >= 400 {
+                                    counters.errors.fetch_add(1, Ordering::Relaxed);
+                                }
+
+                                let _ = tx.send(metric).await;
+                            }
+                        });
                         child_tokens.push(child_token);
                         handles.push(handle);
                         current_concurrency += 1;
@@ -374,7 +426,6 @@ async fn execute_test(
 fn run_load_test(py: Python<'_>, config: TestConfig) -> PyResult<metrics::TestSummary> {
     py.detach(move || {
         let url = config.url;
-        let timeout_secs = config.timeout_secs;
         let chaos = ChaosEngine::new(config.chaos, config.chaos_rate);
         let no_progress = config.no_progress;
 
@@ -405,6 +456,22 @@ fn run_load_test(py: Python<'_>, config: TestConfig) -> PyResult<metrics::TestSu
             header_map.insert(CONTENT_TYPE, HeaderValue::from_static(ct));
         }
 
+        // Build protocol engine based on URL scheme
+        let engine: Arc<dyn ProtocolEngine> =
+            if url.starts_with("ws://") || url.starts_with("wss://") {
+                Arc::new(protocols::websocket::WebSocketEngine)
+            } else {
+                let client = build_client(config.concurrency, config.timeout_secs, header_map)
+                    .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
+                Arc::new(
+                    protocols::http::HttpEngine::new()
+                        .with_client(client)
+                        .with_method(method)
+                        .with_body(final_body)
+                        .with_chaos(chaos),
+                )
+            };
+
         let strategy = ConcurrencyStrategy::Constant {
             concurrency: config.concurrency,
             duration_secs: config.duration_secs,
@@ -415,16 +482,7 @@ fn run_load_test(py: Python<'_>, config: TestConfig) -> PyResult<metrics::TestSu
             .build()
             .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
 
-        rt.block_on(execute_test(
-            url,
-            timeout_secs,
-            method,
-            final_body,
-            header_map,
-            chaos,
-            no_progress,
-            strategy,
-        ))
+        rt.block_on(execute_test(engine, url, no_progress, strategy))
     })
 }
 
@@ -485,6 +543,22 @@ fn run_load_profiles(
             header_map.insert(CONTENT_TYPE, HeaderValue::from_static(ct));
         }
 
+        // Build protocol engine based on URL scheme
+        let engine: Arc<dyn ProtocolEngine> =
+            if url.starts_with("ws://") || url.starts_with("wss://") {
+                Arc::new(protocols::websocket::WebSocketEngine)
+            } else {
+                let client = build_client(profile.max_concurrency(), timeout_secs, header_map)
+                    .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
+                Arc::new(
+                    protocols::http::HttpEngine::new()
+                        .with_client(client)
+                        .with_method(method)
+                        .with_body(final_body)
+                        .with_chaos(chaos_engine),
+                )
+            };
+
         let strategy = ConcurrencyStrategy::Dynamic { profile };
 
         let rt = tokio::runtime::Builder::new_multi_thread()
@@ -492,16 +566,7 @@ fn run_load_profiles(
             .build()
             .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
 
-        rt.block_on(execute_test(
-            url,
-            timeout_secs,
-            method,
-            final_body,
-            header_map,
-            chaos_engine,
-            no_progress,
-            strategy,
-        ))
+        rt.block_on(execute_test(engine, url, no_progress, strategy))
     })
 }
 
