@@ -428,6 +428,8 @@ fn run_load_test(py: Python<'_>, config: TestConfig) -> PyResult<metrics::TestSu
         let url = config.url;
         let chaos = ChaosEngine::new(config.chaos, config.chaos_rate);
         let no_progress = config.no_progress;
+        let ws_mode = config.ws_mode;
+        let ws_headers = config.headers.clone().unwrap_or_default();
 
         let method = parse_method(&config.method)?;
         let body = parse_body(config.body);
@@ -459,7 +461,7 @@ fn run_load_test(py: Python<'_>, config: TestConfig) -> PyResult<metrics::TestSu
         // Build protocol engine based on URL scheme
         let engine: Arc<dyn ProtocolEngine> =
             if url.starts_with("ws://") || url.starts_with("wss://") {
-                Arc::new(protocols::websocket::WebSocketEngine)
+                protocols::detect_protocol(&url, ws_headers, ws_mode)
             } else {
                 let client = build_client(config.concurrency, config.timeout_secs, header_map)
                     .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
@@ -519,6 +521,7 @@ fn run_load_profiles(
         let method = parse_method(method)?;
         let raw_body = parse_body(body);
         let raw_form = parse_form(form);
+        let ws_headers = headers.clone().unwrap_or_default();
         let mut header_map = parse_headers(headers)?;
 
         // Resolve payload and auto-inject Content-Type
@@ -546,7 +549,7 @@ fn run_load_profiles(
         // Build protocol engine based on URL scheme
         let engine: Arc<dyn ProtocolEngine> =
             if url.starts_with("ws://") || url.starts_with("wss://") {
-                Arc::new(protocols::websocket::WebSocketEngine)
+                protocols::detect_protocol(&url, ws_headers, config::WsMode::Handshake)
             } else {
                 let client = build_client(profile.max_concurrency(), timeout_secs, header_map)
                     .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
@@ -578,6 +581,7 @@ fn _strobengine(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(run_load_profiles, m)?)?;
     m.add_class::<config::TestConfig>()?;
     m.add_class::<config::LoadProfile>()?;
+    m.add_class::<config::WsMode>()?;
     m.add_class::<metrics::TestSummary>()?;
     Ok(())
 }

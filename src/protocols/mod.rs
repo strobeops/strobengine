@@ -5,6 +5,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 
+use crate::config::WsMode;
 use crate::metrics::RequestMetric;
 
 /// A protocol engine that executes a single load-test iteration.
@@ -18,9 +19,13 @@ pub trait ProtocolEngine: Send + Sync {
 }
 
 /// Detect the appropriate protocol engine from the URL scheme.
-pub fn detect_protocol(url: &str) -> Arc<dyn ProtocolEngine> {
+pub fn detect_protocol(
+    url: &str,
+    headers: Vec<(String, String)>,
+    ws_mode: WsMode,
+) -> Arc<dyn ProtocolEngine> {
     if url.starts_with("ws://") || url.starts_with("wss://") {
-        Arc::new(websocket::WebSocketEngine)
+        Arc::new(websocket::WebSocketEngine::new(headers, ws_mode))
     } else {
         Arc::new(http::HttpEngine::new())
     }
