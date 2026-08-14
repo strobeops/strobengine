@@ -64,3 +64,40 @@ class TestWebSocketLoadTest:
         assert summary.total_requests > 0
         assert summary.total_errors == 0
         assert summary.average_latency_ms > 0
+
+    async def test_websocket_stream_mode_success(self, mock_server: str):
+        ws_url = mock_server.replace("http://", "ws://") + "/ws"
+        engine = StrobEngine(
+            url=ws_url,
+            concurrency=3,
+            duration=2,
+            options=RequestOptions(
+                no_progress=True,
+                ws_mode="stream",
+                ws_payload='{"type": "echo", "data": "test"}',
+            ),
+        )
+        summary = await engine.run_async()
+
+        assert summary.total_requests > 0
+        assert summary.total_errors == 0
+        assert summary.total_bytes_received > 0
+        assert summary.duration_secs >= 1.5
+
+    async def test_websocket_stream_default_payload(self, mock_server: str):
+        ws_url = mock_server.replace("http://", "ws://") + "/ws"
+        engine = StrobEngine(
+            url=ws_url,
+            concurrency=2,
+            duration=2,
+            options=RequestOptions(
+                no_progress=True,
+                ws_mode="stream",
+            ),
+        )
+        summary = await engine.run_async()
+
+        assert summary.total_requests > 0
+        assert summary.total_errors == 0
+        assert summary.total_bytes_received > 0
+        assert summary.duration_secs >= 1.5
