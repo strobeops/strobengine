@@ -3,6 +3,27 @@ use std::time::Duration;
 use crate::chaos::DEFAULT_CHAOS_RATE;
 use pyo3::prelude::*;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[pyclass(from_py_object)]
+pub enum WsMode {
+    #[default]
+    Handshake,
+    PingPong,
+}
+
+#[pymethods]
+impl WsMode {
+    #[staticmethod]
+    fn handshake() -> Self {
+        Self::Handshake
+    }
+
+    #[staticmethod]
+    fn ping_pong() -> Self {
+        Self::PingPong
+    }
+}
+
 #[pyclass(from_py_object)]
 #[derive(Clone)]
 pub struct TestConfig {
@@ -28,6 +49,8 @@ pub struct TestConfig {
     pub form: Option<Vec<(String, String)>>,
     #[pyo3(get, set)]
     pub headers: Option<Vec<(String, String)>>,
+    #[pyo3(get, set)]
+    pub ws_mode: WsMode,
 }
 
 #[pymethods]
@@ -45,6 +68,7 @@ impl TestConfig {
         body=None,
         form=None,
         headers=None,
+        ws_mode=WsMode::Handshake,
     ))]
     #[allow(clippy::too_many_arguments)]
     pub fn new(
@@ -59,6 +83,7 @@ impl TestConfig {
         body: Option<String>,
         form: Option<Vec<(String, String)>>,
         headers: Option<Vec<(String, String)>>,
+        ws_mode: WsMode,
     ) -> Self {
         Self {
             url,
@@ -72,6 +97,7 @@ impl TestConfig {
             body,
             form,
             headers,
+            ws_mode,
         }
     }
 }
@@ -228,6 +254,7 @@ mod tests {
             None,
             None,
             None,
+            WsMode::Handshake,
         );
         assert_eq!(c.url, "http://127.0.0.1:8080");
         assert_eq!(c.concurrency, 10);
@@ -238,6 +265,7 @@ mod tests {
         assert_eq!(c.method, "GET");
         assert!(c.body.is_none());
         assert!(c.headers.is_none());
+        assert_eq!(c.ws_mode, WsMode::Handshake);
     }
 
     #[test]
@@ -255,6 +283,7 @@ mod tests {
             Some(r#"{"key":"val"}"#.into()),
             None,
             Some(headers),
+            WsMode::PingPong,
         );
         assert_eq!(c.url, "http://127.0.0.1:8080");
         assert_eq!(c.concurrency, 50);
@@ -265,6 +294,7 @@ mod tests {
         assert_eq!(c.method, "POST");
         assert!(c.body.is_some());
         assert!(c.headers.is_some());
+        assert_eq!(c.ws_mode, WsMode::PingPong);
     }
 
     #[test]
@@ -281,6 +311,7 @@ mod tests {
             None,
             None,
             None,
+            WsMode::Handshake,
         );
         assert_eq!(c.url, "http://127.0.0.1:8080");
         assert_eq!(c.concurrency, 1);
