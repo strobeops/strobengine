@@ -28,3 +28,39 @@ class TestWebSocketLoadTest:
         assert summary.total_requests > 0
         assert summary.total_errors == summary.total_requests
         assert summary.status_codes.get(0, 0) == summary.total_requests
+
+    async def test_websocket_ping_pong_mode(self, mock_server: str):
+        ws_url = mock_server.replace("http://", "ws://") + "/ws"
+        engine = StrobEngine(
+            url=ws_url,
+            concurrency=3,
+            duration=2,
+            options=RequestOptions(
+                no_progress=True,
+                ws_mode="ping_pong",
+            ),
+        )
+        summary = await engine.run_async()
+
+        assert summary.total_requests > 0
+        assert summary.total_errors == 0
+        assert summary.average_latency_ms > 0
+        # PingPong mode should receive pong responses
+        assert summary.total_bytes_received > 0
+
+    async def test_websocket_custom_headers(self, mock_server: str):
+        ws_url = mock_server.replace("http://", "ws://") + "/ws"
+        engine = StrobEngine(
+            url=ws_url,
+            concurrency=2,
+            duration=2,
+            options=RequestOptions(
+                no_progress=True,
+                headers=[("X-Custom-Test", "e2e-value")],
+            ),
+        )
+        summary = await engine.run_async()
+
+        assert summary.total_requests > 0
+        assert summary.total_errors == 0
+        assert summary.average_latency_ms > 0
