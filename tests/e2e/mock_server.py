@@ -57,6 +57,17 @@ async def handle_flaky(request: web.Request) -> web.Response:
     return web.Response(status=500, text="internal error")
 
 
+async def handle_websocket(request: web.Request) -> web.WebSocketResponse:
+    ws = web.WebSocketResponse()
+    await ws.prepare(request)
+    async for msg in ws:
+        if msg.type == web.WSMsgType.TEXT:
+            await ws.send_str(msg.data)
+        elif msg.type in (web.WSMsgType.CLOSED, web.WSMsgType.ERROR):
+            break
+    return ws
+
+
 def create_app() -> web.Application:
     app = web.Application()
     app[LAST_ECHO_KEY] = {}
@@ -66,4 +77,5 @@ def create_app() -> web.Application:
     app.router.add_get("/status/{code}", handle_status)
     app.router.add_get("/delay/{seconds}", handle_delay)
     app.router.add_get("/flaky", handle_flaky)
+    app.router.add_get("/ws", handle_websocket)
     return app
