@@ -9,6 +9,7 @@ pub enum WsMode {
     #[default]
     Handshake,
     PingPong,
+    Stream,
 }
 
 #[pymethods]
@@ -21,6 +22,11 @@ impl WsMode {
     #[staticmethod]
     fn ping_pong() -> Self {
         Self::PingPong
+    }
+
+    #[staticmethod]
+    fn stream() -> Self {
+        Self::Stream
     }
 }
 
@@ -51,6 +57,8 @@ pub struct TestConfig {
     pub headers: Option<Vec<(String, String)>>,
     #[pyo3(get, set)]
     pub ws_mode: WsMode,
+    #[pyo3(get, set)]
+    pub ws_payload: Option<String>,
 }
 
 #[pymethods]
@@ -69,6 +77,7 @@ impl TestConfig {
         form=None,
         headers=None,
         ws_mode=WsMode::Handshake,
+        ws_payload=None,
     ))]
     #[allow(clippy::too_many_arguments)]
     pub fn new(
@@ -84,6 +93,7 @@ impl TestConfig {
         form: Option<Vec<(String, String)>>,
         headers: Option<Vec<(String, String)>>,
         ws_mode: WsMode,
+        ws_payload: Option<String>,
     ) -> Self {
         Self {
             url,
@@ -98,6 +108,7 @@ impl TestConfig {
             form,
             headers,
             ws_mode,
+            ws_payload,
         }
     }
 }
@@ -255,6 +266,7 @@ mod tests {
             None,
             None,
             WsMode::Handshake,
+            None,
         );
         assert_eq!(c.url, "http://127.0.0.1:8080");
         assert_eq!(c.concurrency, 10);
@@ -266,6 +278,7 @@ mod tests {
         assert!(c.body.is_none());
         assert!(c.headers.is_none());
         assert_eq!(c.ws_mode, WsMode::Handshake);
+        assert!(c.ws_payload.is_none());
     }
 
     #[test]
@@ -284,6 +297,7 @@ mod tests {
             None,
             Some(headers),
             WsMode::PingPong,
+            None,
         );
         assert_eq!(c.url, "http://127.0.0.1:8080");
         assert_eq!(c.concurrency, 50);
@@ -312,6 +326,7 @@ mod tests {
             None,
             None,
             WsMode::Handshake,
+            None,
         );
         assert_eq!(c.url, "http://127.0.0.1:8080");
         assert_eq!(c.concurrency, 1);
