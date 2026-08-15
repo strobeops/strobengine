@@ -1,4 +1,4 @@
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
 use bytes::Bytes;
@@ -7,6 +7,7 @@ use http::header::HeaderName;
 use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 
+use crate::chaos::{ChaosEngine, ChaosFault};
 use crate::config::WsMode;
 use crate::metrics::RequestMetric;
 
@@ -16,14 +17,21 @@ pub struct WebSocketEngine {
     headers: Vec<(String, String)>,
     ws_mode: WsMode,
     payload: Option<String>,
+    chaos: ChaosEngine,
 }
 
 impl WebSocketEngine {
-    pub fn new(headers: Vec<(String, String)>, ws_mode: WsMode, payload: Option<String>) -> Self {
+    pub fn new(
+        headers: Vec<(String, String)>,
+        ws_mode: WsMode,
+        payload: Option<String>,
+        chaos: ChaosEngine,
+    ) -> Self {
         Self {
             headers,
             ws_mode,
             payload,
+            chaos,
         }
     }
 }
@@ -32,6 +40,29 @@ impl WebSocketEngine {
 impl ProtocolEngine for WebSocketEngine {
     async fn execute_iteration(&self, target_url: &str) -> RequestMetric {
         let req_start = Instant::now();
+
+        // Phase 1: Pre-connection chaos
+        let fault = self.chaos.select_fault();
+
+        // ConnectionDrop: short-circuit with immediate timeout
+        if let Some(ChaosFault::ConnectionDrop) = fault {
+            tracing::trace!("ws chaos: connection drop");
+            let _ = tokio::time::timeout(Duration::from_nanos(1), async {
+                let _ = target_url.into_client_request();
+            })
+            .await;
+            return RequestMetric {
+                latency_micros: req_start.elapsed().as_micros(),
+                status_code: 0,
+                bytes_received: 0,
+            };
+        }
+
+        // LatencySpike: sleep before connecting
+        if let Some(ChaosFault::LatencySpike { duration_ms }) = fault {
+            tracing::trace!(duration_ms, "ws chaos: latency spike");
+            tokio::time::sleep(Duration::from_millis(duration_ms)).await;
+        }
 
         // Build request with custom headers
         let mut request = match target_url.into_client_request() {
@@ -58,37 +89,15 @@ impl ProtocolEngine for WebSocketEngine {
 
         let (status_code, bytes_received) = match result {
             Ok((mut ws_stream, _response)) => {
-                match self.ws_mode {
-                    WsMode::Handshake => {
-                        let _ = ws_stream.close(None).await;
-                        (200, 0)
-                    }
-                    WsMode::PingPong => {
-                        // Send ping frame
-                        let _ = ws_stream.send(Message::Ping(Bytes::new())).await;
-
-                        // Wait for pong response
-                        let mut got_pong = false;
-                        while let Some(Ok(msg)) = ws_stream.next().await {
-                            match msg {
-                                Message::Pong(_) => {
-                                    got_pong = true;
-                                    break;
-                                }
-                                Message::Close(_) => break,
-                                _ => {}
-                            }
-                        }
-
-                        let _ = ws_stream.close(None).await;
-                        if got_pong { (200, 1) } else { (0, 0) }
-                    }
-                    WsMode::Stream => {
-                        // Send text payload (fallback to "ping" if None)
-                        let payload_str = self.payload.as_deref().unwrap_or("ping");
-                        let _ = ws_stream.send(Message::Text(payload_str.into())).await;
-
-                        // Await response frame
+                // Phase 2: Post-connection chaos
+                match fault {
+                    Some(ChaosFault::CorruptedPayload) => {
+                        // Send binary frame with raw corrupted bytes
+                        tracing::trace!("ws chaos: corrupted payload (binary)");
+                        let _ = ws_stream
+                            .send(Message::Binary(Bytes::from_static(b"\xff\xfe\xbd\xef")))
+                            .await;
+                        // Still try to read response
                         let mut total_bytes = 0u64;
                         while let Some(Ok(msg)) = ws_stream.next().await {
                             match msg {
@@ -104,9 +113,54 @@ impl ProtocolEngine for WebSocketEngine {
                                 _ => {}
                             }
                         }
-
                         let _ = ws_stream.close(None).await;
                         (200, total_bytes)
+                    }
+                    _ => {
+                        // Normal execution (LatencySpike already applied, or no fault)
+                        match self.ws_mode {
+                            WsMode::Handshake => {
+                                let _ = ws_stream.close(None).await;
+                                (200, 0)
+                            }
+                            WsMode::PingPong => {
+                                let _ = ws_stream.send(Message::Ping(Bytes::new())).await;
+                                let mut got_pong = false;
+                                while let Some(Ok(msg)) = ws_stream.next().await {
+                                    match msg {
+                                        Message::Pong(_) => {
+                                            got_pong = true;
+                                            break;
+                                        }
+                                        Message::Close(_) => break,
+                                        _ => {}
+                                    }
+                                }
+                                let _ = ws_stream.close(None).await;
+                                if got_pong { (200, 1) } else { (0, 0) }
+                            }
+                            WsMode::Stream => {
+                                let payload_str = self.payload.as_deref().unwrap_or("ping");
+                                let _ = ws_stream.send(Message::Text(payload_str.into())).await;
+                                let mut total_bytes = 0u64;
+                                while let Some(Ok(msg)) = ws_stream.next().await {
+                                    match msg {
+                                        Message::Text(text) => {
+                                            total_bytes += text.len() as u64;
+                                            break;
+                                        }
+                                        Message::Binary(bin) => {
+                                            total_bytes += bin.len() as u64;
+                                            break;
+                                        }
+                                        Message::Close(_) => break,
+                                        _ => {}
+                                    }
+                                }
+                                let _ = ws_stream.close(None).await;
+                                (200, total_bytes)
+                            }
+                        }
                     }
                 }
             }
@@ -154,7 +208,7 @@ mod tests {
         });
 
         let ws_url = format!("ws://{}", local_addr);
-        let engine = WebSocketEngine::new(vec![], WsMode::Handshake, None);
+        let engine = WebSocketEngine::new(vec![], WsMode::Handshake, None, ChaosEngine::default());
         let metric = engine.execute_iteration(&ws_url).await;
 
         assert_eq!(metric.status_code, 200);
@@ -170,7 +224,6 @@ mod tests {
             if let Ok((stream, _)) = listener.accept().await
                 && let Ok(mut ws_stream) = accept_async(stream).await
             {
-                // Echo ping back as pong
                 while let Some(Ok(msg)) = ws_stream.next().await {
                     if let Message::Ping(data) = msg {
                         let _ = ws_stream.send(Message::Pong(data)).await;
@@ -180,7 +233,7 @@ mod tests {
         });
 
         let ws_url = format!("ws://{}", local_addr);
-        let engine = WebSocketEngine::new(vec![], WsMode::PingPong, None);
+        let engine = WebSocketEngine::new(vec![], WsMode::PingPong, None, ChaosEngine::default());
         let metric = engine.execute_iteration(&ws_url).await;
 
         assert_eq!(metric.status_code, 200);
@@ -203,7 +256,7 @@ mod tests {
 
         let ws_url = format!("ws://{}", local_addr);
         let headers = vec![("X-Custom-Test".to_string(), "e2e-value".to_string())];
-        let engine = WebSocketEngine::new(headers, WsMode::Handshake, None);
+        let engine = WebSocketEngine::new(headers, WsMode::Handshake, None, ChaosEngine::default());
         let metric = engine.execute_iteration(&ws_url).await;
 
         assert_eq!(metric.status_code, 200);
@@ -218,7 +271,6 @@ mod tests {
             if let Ok((stream, _)) = listener.accept().await
                 && let Ok(mut ws_stream) = accept_async(stream).await
             {
-                // Echo text messages back
                 while let Some(Ok(msg)) = ws_stream.next().await {
                     if let Message::Text(text) = msg {
                         let _ = ws_stream.send(Message::Text(text)).await;
@@ -228,7 +280,12 @@ mod tests {
         });
 
         let ws_url = format!("ws://{}", local_addr);
-        let engine = WebSocketEngine::new(vec![], WsMode::Stream, Some("hello".to_string()));
+        let engine = WebSocketEngine::new(
+            vec![],
+            WsMode::Stream,
+            Some("hello".to_string()),
+            ChaosEngine::default(),
+        );
         let metric = engine.execute_iteration(&ws_url).await;
 
         assert_eq!(metric.status_code, 200);
