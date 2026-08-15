@@ -1,6 +1,6 @@
 # strobengine
 
-A high-performance HTTP load testing engine with a Python API and a bare-metal Rust core.
+A high-performance HTTP and WebSocket load testing engine with a Python API and a bare-metal Rust core.
 
 ## Dependencies
 
@@ -268,6 +268,12 @@ The Python GIL is released entirely via `py.detach()` during test execution, all
 
 > See [docs/testing.md](docs/testing.md) for the full testing guide, including
 > e2e tests, CI/CD checks, and running individual test suites.
+
+## Documentation
+
+> See [docs/table_of_contents.md](docs/table_of_contents.md) for the full
+> documentation index including HTTP methods, WebSocket support, Docker,
+> testing, and architecture guides.
 
 ## How to Contribute
 
