@@ -462,7 +462,7 @@ fn run_load_test(py: Python<'_>, config: TestConfig) -> PyResult<metrics::TestSu
         let engine: Arc<dyn ProtocolEngine> =
             if url.starts_with("ws://") || url.starts_with("wss://") {
                 let ws_payload = config.ws_payload.clone();
-                protocols::detect_protocol(&url, ws_headers, ws_mode, ws_payload)
+                protocols::detect_protocol(&url, ws_headers, ws_mode, ws_payload, chaos)
             } else {
                 let client = build_client(config.concurrency, config.timeout_secs, header_map)
                     .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
@@ -550,7 +550,13 @@ fn run_load_profiles(
         // Build protocol engine based on URL scheme
         let engine: Arc<dyn ProtocolEngine> =
             if url.starts_with("ws://") || url.starts_with("wss://") {
-                protocols::detect_protocol(&url, ws_headers, config::WsMode::Handshake, None)
+                protocols::detect_protocol(
+                    &url,
+                    ws_headers,
+                    config::WsMode::Handshake,
+                    None,
+                    chaos_engine,
+                )
             } else {
                 let client = build_client(profile.max_concurrency(), timeout_secs, header_map)
                     .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;

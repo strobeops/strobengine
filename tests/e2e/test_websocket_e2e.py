@@ -101,3 +101,22 @@ class TestWebSocketLoadTest:
         assert summary.total_errors == 0
         assert summary.total_bytes_received > 0
         assert summary.duration_secs >= 1.5
+
+    async def test_websocket_chaos_mode(self, mock_server: str):
+        ws_url = mock_server.replace("http://", "ws://") + "/ws"
+        engine = StrobEngine(
+            url=ws_url,
+            concurrency=3,
+            duration=2,
+            options=RequestOptions(
+                no_progress=True,
+                ws_mode="stream",
+                ws_payload="hello",
+                chaos=True,
+            ),
+        )
+        summary = await engine.run_async()
+
+        # Chaos may cause some errors but engine should not crash
+        assert summary.total_requests > 0
+        assert summary.duration_secs >= 1.5

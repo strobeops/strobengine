@@ -5,6 +5,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 
+use crate::chaos::ChaosEngine;
 use crate::config::WsMode;
 use crate::metrics::RequestMetric;
 
@@ -24,10 +25,11 @@ pub fn detect_protocol(
     headers: Vec<(String, String)>,
     ws_mode: WsMode,
     ws_payload: Option<String>,
+    chaos: ChaosEngine,
 ) -> Arc<dyn ProtocolEngine> {
     if url.starts_with("ws://") || url.starts_with("wss://") {
         Arc::new(websocket::WebSocketEngine::new(
-            headers, ws_mode, ws_payload,
+            headers, ws_mode, ws_payload, chaos,
         ))
     } else {
         Arc::new(http::HttpEngine::new())
