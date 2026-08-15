@@ -59,6 +59,14 @@ pub struct TestConfig {
     pub ws_mode: WsMode,
     #[pyo3(get, set)]
     pub ws_payload: Option<String>,
+    #[pyo3(get, set)]
+    pub grpc_service: Option<String>,
+    #[pyo3(get, set)]
+    pub grpc_method: Option<String>,
+    #[pyo3(get, set)]
+    pub grpc_payload: Option<String>,
+    #[pyo3(get, set)]
+    pub grpc_deadline_ms: Option<u64>,
 }
 
 #[pymethods]
@@ -78,6 +86,10 @@ impl TestConfig {
         headers=None,
         ws_mode=WsMode::Handshake,
         ws_payload=None,
+        grpc_service=None,
+        grpc_method=None,
+        grpc_payload=None,
+        grpc_deadline_ms=None,
     ))]
     #[allow(clippy::too_many_arguments)]
     pub fn new(
@@ -94,6 +106,10 @@ impl TestConfig {
         headers: Option<Vec<(String, String)>>,
         ws_mode: WsMode,
         ws_payload: Option<String>,
+        grpc_service: Option<String>,
+        grpc_method: Option<String>,
+        grpc_payload: Option<String>,
+        grpc_deadline_ms: Option<u64>,
     ) -> Self {
         Self {
             url,
@@ -109,6 +125,10 @@ impl TestConfig {
             headers,
             ws_mode,
             ws_payload,
+            grpc_service,
+            grpc_method,
+            grpc_payload,
+            grpc_deadline_ms,
         }
     }
 }
@@ -267,6 +287,10 @@ mod tests {
             None,
             WsMode::Handshake,
             None,
+            None,
+            None,
+            None,
+            None,
         );
         assert_eq!(c.url, "http://127.0.0.1:8080");
         assert_eq!(c.concurrency, 10);
@@ -279,6 +303,8 @@ mod tests {
         assert!(c.headers.is_none());
         assert_eq!(c.ws_mode, WsMode::Handshake);
         assert!(c.ws_payload.is_none());
+        assert!(c.grpc_service.is_none());
+        assert!(c.grpc_method.is_none());
     }
 
     #[test]
@@ -298,6 +324,10 @@ mod tests {
             Some(headers),
             WsMode::PingPong,
             None,
+            Some("mypackage.MyService".into()),
+            Some("MyMethod".into()),
+            Some("dGVzdA==".into()),
+            Some(5000),
         );
         assert_eq!(c.url, "http://127.0.0.1:8080");
         assert_eq!(c.concurrency, 50);
@@ -309,6 +339,8 @@ mod tests {
         assert!(c.body.is_some());
         assert!(c.headers.is_some());
         assert_eq!(c.ws_mode, WsMode::PingPong);
+        assert_eq!(c.grpc_service.as_deref(), Some("mypackage.MyService"));
+        assert_eq!(c.grpc_method.as_deref(), Some("MyMethod"));
     }
 
     #[test]
@@ -326,6 +358,10 @@ mod tests {
             None,
             None,
             WsMode::Handshake,
+            None,
+            None,
+            None,
+            None,
             None,
         );
         assert_eq!(c.url, "http://127.0.0.1:8080");
