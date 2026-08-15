@@ -201,6 +201,17 @@ def load(
     log_file: Annotated[
         str | None, typer.Option("--log-file", help="Write logs to file")
     ] = None,
+    ws_mode: Annotated[
+        str | None,
+        typer.Option(
+            "--ws-mode",
+            help="WebSocket mode: handshake, ping_pong, stream",
+        ),
+    ] = None,
+    ws_payload: Annotated[
+        str | None,
+        typer.Option("--ws-payload", help="WebSocket payload for stream mode"),
+    ] = None,
 ) -> None:
     _configure_logging(_resolve_log_level(verbose, quiet), log_file)
     method = _validate_method(method)
@@ -216,6 +227,8 @@ def load(
             body=body,
             form=_parse_form(form),
             headers=_parse_headers(header),
+            ws_mode=ws_mode or "handshake",
+            ws_payload=ws_payload,
         ),
     )
     summary = engine.run()
@@ -282,6 +295,17 @@ def stress(
     log_file: Annotated[
         str | None, typer.Option("--log-file", help="Write logs to file")
     ] = None,
+    ws_mode: Annotated[
+        str | None,
+        typer.Option(
+            "--ws-mode",
+            help="WebSocket mode: handshake, ping_pong, stream",
+        ),
+    ] = None,
+    ws_payload: Annotated[
+        str | None,
+        typer.Option("--ws-payload", help="WebSocket payload for stream mode"),
+    ] = None,
 ) -> None:
     _configure_logging(_resolve_log_level(verbose, quiet), log_file)
     method = _validate_method(method)
@@ -299,6 +323,8 @@ def stress(
             body=body,
             form=_parse_form(form),
             headers=_parse_headers(header),
+            ws_mode=ws_mode or "handshake",
+            ws_payload=ws_payload,
         ),
     )
     summary = engine.run()
@@ -369,6 +395,17 @@ def spike(
     log_file: Annotated[
         str | None, typer.Option("--log-file", help="Write logs to file")
     ] = None,
+    ws_mode: Annotated[
+        str | None,
+        typer.Option(
+            "--ws-mode",
+            help="WebSocket mode: handshake, ping_pong, stream",
+        ),
+    ] = None,
+    ws_payload: Annotated[
+        str | None,
+        typer.Option("--ws-payload", help="WebSocket payload for stream mode"),
+    ] = None,
 ) -> None:
     _configure_logging(_resolve_log_level(verbose, quiet), log_file)
     method = _validate_method(method)
@@ -387,6 +424,8 @@ def spike(
             body=body,
             form=_parse_form(form),
             headers=_parse_headers(header),
+            ws_mode=ws_mode or "handshake",
+            ws_payload=ws_payload,
         ),
     )
     summary = engine.run()
