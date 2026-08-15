@@ -1,3 +1,4 @@
+pub mod grpc;
 pub mod http;
 pub mod websocket;
 
@@ -6,7 +7,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 
 use crate::chaos::ChaosEngine;
-use crate::config::WsMode;
+use crate::config::TestConfig;
 use crate::metrics::RequestMetric;
 
 /// A protocol engine that executes a single load-test iteration.
@@ -19,17 +20,28 @@ pub trait ProtocolEngine: Send + Sync {
     async fn execute_iteration(&self, target_url: &str) -> RequestMetric;
 }
 
-/// Detect the appropriate protocol engine from the URL scheme.
+/// Detect the appropriate protocol engine from the URL scheme and config.
 pub fn detect_protocol(
     url: &str,
-    headers: Vec<(String, String)>,
-    ws_mode: WsMode,
-    ws_payload: Option<String>,
+    config: &TestConfig,
     chaos: ChaosEngine,
 ) -> Arc<dyn ProtocolEngine> {
     if url.starts_with("ws://") || url.starts_with("wss://") {
         Arc::new(websocket::WebSocketEngine::new(
-            headers, ws_mode, ws_payload, chaos,
+            config.headers.clone().unwrap_or_default(),
+            config.ws_mode,
+            config.ws_payload.clone(),
+            chaos,
+        ))
+    } else if url.starts_with("grpc://") || url.starts_with("grpcs://") {
+        Arc::new(grpc::GrpcEngine::new(
+            url,
+            config.headers.clone().unwrap_or_default(),
+            chaos,
+            config.grpc_service.clone(),
+            config.grpc_method.clone(),
+            config.grpc_payload.clone(),
+            config.grpc_deadline_ms,
         ))
     } else {
         Arc::new(http::HttpEngine::new())
