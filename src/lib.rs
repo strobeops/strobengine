@@ -425,55 +425,56 @@ async fn execute_test(
 #[pyfunction]
 fn run_load_test(py: Python<'_>, config: TestConfig) -> PyResult<metrics::TestSummary> {
     py.detach(move || {
-        let url = config.url;
+        let url = config.url.clone();
         let chaos = ChaosEngine::new(config.chaos, config.chaos_rate);
         let no_progress = config.no_progress;
-        let ws_mode = config.ws_mode;
-        let ws_headers = config.headers.clone().unwrap_or_default();
-
-        let method = parse_method(&config.method)?;
-        let body = parse_body(config.body);
-        let form = parse_form(config.form);
-        let mut header_map = parse_headers(config.headers)?;
-
-        // Resolve payload and auto-inject Content-Type
-        let is_form = form.is_some();
-        let final_body = if form.is_some() {
-            if body.is_some() {
-                return Err(pyo3::exceptions::PyValueError::new_err(
-                    "Cannot specify both --body and --form simultaneously",
-                ));
-            }
-            form
-        } else {
-            body
-        };
-
-        if final_body.is_some() && !header_map.contains_key(CONTENT_TYPE) {
-            let ct = if is_form {
-                "application/x-www-form-urlencoded"
-            } else {
-                "application/json"
-            };
-            header_map.insert(CONTENT_TYPE, HeaderValue::from_static(ct));
-        }
 
         // Build protocol engine based on URL scheme
-        let engine: Arc<dyn ProtocolEngine> =
-            if url.starts_with("ws://") || url.starts_with("wss://") {
-                let ws_payload = config.ws_payload.clone();
-                protocols::detect_protocol(&url, ws_headers, ws_mode, ws_payload, chaos)
+        let engine: Arc<dyn ProtocolEngine> = if url.starts_with("ws://")
+            || url.starts_with("wss://")
+            || url.starts_with("grpc://")
+            || url.starts_with("grpcs://")
+        {
+            protocols::detect_protocol(&url, &config, chaos)
+        } else {
+            let method = parse_method(&config.method)?;
+            let body = parse_body(config.body);
+            let form = parse_form(config.form);
+            let header_map = parse_headers(config.headers.clone())?;
+
+            // Resolve payload and auto-inject Content-Type
+            let is_form = form.is_some();
+            let final_body = if form.is_some() {
+                if body.is_some() {
+                    return Err(pyo3::exceptions::PyValueError::new_err(
+                        "Cannot specify both --body and --form simultaneously",
+                    ));
+                }
+                form
             } else {
-                let client = build_client(config.concurrency, config.timeout_secs, header_map)
-                    .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
-                Arc::new(
-                    protocols::http::HttpEngine::new()
-                        .with_client(client)
-                        .with_method(method)
-                        .with_body(final_body)
-                        .with_chaos(chaos),
-                )
+                body
             };
+
+            let mut header_map = header_map;
+            if final_body.is_some() && !header_map.contains_key(CONTENT_TYPE) {
+                let ct = if is_form {
+                    "application/x-www-form-urlencoded"
+                } else {
+                    "application/json"
+                };
+                header_map.insert(CONTENT_TYPE, HeaderValue::from_static(ct));
+            }
+
+            let client = build_client(config.concurrency, config.timeout_secs, header_map)
+                .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
+            Arc::new(
+                protocols::http::HttpEngine::new()
+                    .with_client(client)
+                    .with_method(method)
+                    .with_body(final_body)
+                    .with_chaos(chaos),
+            )
+        };
 
         let strategy = ConcurrencyStrategy::Constant {
             concurrency: config.concurrency,
@@ -522,8 +523,7 @@ fn run_load_profiles(
         let method = parse_method(method)?;
         let raw_body = parse_body(body);
         let raw_form = parse_form(form);
-        let ws_headers = headers.clone().unwrap_or_default();
-        let mut header_map = parse_headers(headers)?;
+        let mut header_map = parse_headers(headers.clone())?;
 
         // Resolve payload and auto-inject Content-Type
         let is_form = raw_form.is_some();
@@ -548,26 +548,45 @@ fn run_load_profiles(
         }
 
         // Build protocol engine based on URL scheme
-        let engine: Arc<dyn ProtocolEngine> =
-            if url.starts_with("ws://") || url.starts_with("wss://") {
-                protocols::detect_protocol(
-                    &url,
-                    ws_headers,
-                    config::WsMode::Handshake,
-                    None,
-                    chaos_engine,
-                )
-            } else {
-                let client = build_client(profile.max_concurrency(), timeout_secs, header_map)
-                    .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
-                Arc::new(
-                    protocols::http::HttpEngine::new()
-                        .with_client(client)
-                        .with_method(method)
-                        .with_body(final_body)
-                        .with_chaos(chaos_engine),
-                )
-            };
+        let engine: Arc<dyn ProtocolEngine> = if url.starts_with("ws://")
+            || url.starts_with("wss://")
+            || url.starts_with("grpc://")
+            || url.starts_with("grpcs://")
+        {
+            // Build a minimal TestConfig for protocol detection
+            let ws_config = TestConfig::new(
+                url.clone(),
+                profile.max_concurrency(),
+                profile.total_duration(),
+                timeout_secs,
+                chaos,
+                chaos_rate,
+                no_progress,
+                method.as_str(),
+                final_body
+                    .as_ref()
+                    .and_then(|b| String::from_utf8(b.to_vec()).ok()),
+                None,
+                headers,
+                config::WsMode::Handshake,
+                None,
+                None,
+                None,
+                None,
+                None,
+            );
+            protocols::detect_protocol(&url, &ws_config, chaos_engine)
+        } else {
+            let client = build_client(profile.max_concurrency(), timeout_secs, header_map)
+                .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
+            Arc::new(
+                protocols::http::HttpEngine::new()
+                    .with_client(client)
+                    .with_method(method)
+                    .with_body(final_body)
+                    .with_chaos(chaos_engine),
+            )
+        };
 
         let strategy = ConcurrencyStrategy::Dynamic { profile };
 
