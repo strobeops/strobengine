@@ -44,6 +44,10 @@ class TestConfig:
     headers: list[tuple[str, str]] | None
     ws_mode: WsMode
     ws_payload: str | None
+    grpc_service: str | None
+    grpc_method: str | None
+    grpc_payload: str | None
+    grpc_deadline_ms: int | None
     def __init__(
         self,
         url: str,
@@ -59,6 +63,10 @@ class TestConfig:
         headers: list[tuple[str, str]] | None = None,
         ws_mode: WsMode | None = None,
         ws_payload: str | None = None,
+        grpc_service: str | None = None,
+        grpc_method: str | None = None,
+        grpc_payload: str | None = None,
+        grpc_deadline_ms: int | None = None,
     ) -> None: ...
 
 class TestSummary:
