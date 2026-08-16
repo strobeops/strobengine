@@ -32,6 +32,7 @@ pub fn detect_protocol(
             config.ws_mode,
             config.ws_payload.clone(),
             chaos,
+            config.timeout_secs,
         ))
     } else if url.starts_with("grpc://") || url.starts_with("grpcs://") {
         Arc::new(grpc::GrpcEngine::new(
