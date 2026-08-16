@@ -60,11 +60,18 @@ async def handle_flaky(request: web.Request) -> web.Response:
 async def handle_websocket(request: web.Request) -> web.WebSocketResponse:
     ws = web.WebSocketResponse()
     await ws.prepare(request)
-    async for msg in ws:
-        if msg.type == web.WSMsgType.TEXT:
-            await ws.send_str(msg.data)
-        elif msg.type in (web.WSMsgType.CLOSED, web.WSMsgType.ERROR):
-            break
+    try:
+        async for msg in ws:
+            if msg.type == web.WSMsgType.TEXT:
+                await ws.send_str(msg.data)
+            elif msg.type == web.WSMsgType.BINARY:
+                await ws.send_bytes(msg.data)
+            elif msg.type in (web.WSMsgType.CLOSED, web.WSMsgType.ERROR):
+                break
+    except Exception:
+        pass
+    finally:
+        await ws.close()
     return ws
 
 
