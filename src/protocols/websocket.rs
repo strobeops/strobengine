@@ -4,6 +4,7 @@ use async_trait::async_trait;
 use bytes::Bytes;
 use futures_util::{SinkExt, StreamExt};
 use http::header::HeaderName;
+use tokio_tungstenite::WebSocketStream;
 use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 
@@ -18,6 +19,7 @@ pub struct WebSocketEngine {
     ws_mode: WsMode,
     payload: Option<String>,
     chaos: ChaosEngine,
+    timeout_secs: u64,
 }
 
 impl WebSocketEngine {
@@ -26,13 +28,56 @@ impl WebSocketEngine {
         ws_mode: WsMode,
         payload: Option<String>,
         chaos: ChaosEngine,
+        timeout_secs: u64,
     ) -> Self {
         Self {
             headers,
             ws_mode,
             payload,
             chaos,
+            timeout_secs,
         }
+    }
+
+    fn effective_timeout(&self) -> Duration {
+        Duration::from_secs(if self.timeout_secs > 0 {
+            self.timeout_secs
+        } else {
+            5
+        })
+    }
+
+    /// Read from WebSocket stream with timeout, returning bytes received.
+    async fn read_with_timeout(
+        &self,
+        ws_stream: &mut WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>,
+    ) -> u64 {
+        let timeout = self.effective_timeout();
+        let read_result = tokio::time::timeout(timeout, async {
+            let mut total_bytes = 0u64;
+            while let Some(Ok(msg)) = ws_stream.next().await {
+                match msg {
+                    Message::Text(text) => {
+                        total_bytes += text.len() as u64;
+                        break;
+                    }
+                    Message::Binary(bin) => {
+                        total_bytes += bin.len() as u64;
+                        break;
+                    }
+                    Message::Pong(_) => {
+                        total_bytes += 1;
+                        break;
+                    }
+                    Message::Close(_) => break,
+                    _ => {}
+                }
+            }
+            total_bytes
+        })
+        .await;
+
+        read_result.unwrap_or(0)
     }
 }
 
@@ -97,22 +142,7 @@ impl ProtocolEngine for WebSocketEngine {
                         let _ = ws_stream
                             .send(Message::Binary(Bytes::from_static(b"\xff\xfe\xbd\xef")))
                             .await;
-                        // Still try to read response
-                        let mut total_bytes = 0u64;
-                        while let Some(Ok(msg)) = ws_stream.next().await {
-                            match msg {
-                                Message::Text(text) => {
-                                    total_bytes += text.len() as u64;
-                                    break;
-                                }
-                                Message::Binary(bin) => {
-                                    total_bytes += bin.len() as u64;
-                                    break;
-                                }
-                                Message::Close(_) => break,
-                                _ => {}
-                            }
-                        }
+                        let total_bytes = self.read_with_timeout(&mut ws_stream).await;
                         let _ = ws_stream.close(None).await;
                         (200, total_bytes)
                     }
@@ -125,38 +155,18 @@ impl ProtocolEngine for WebSocketEngine {
                             }
                             WsMode::PingPong => {
                                 let _ = ws_stream.send(Message::Ping(Bytes::new())).await;
-                                let mut got_pong = false;
-                                while let Some(Ok(msg)) = ws_stream.next().await {
-                                    match msg {
-                                        Message::Pong(_) => {
-                                            got_pong = true;
-                                            break;
-                                        }
-                                        Message::Close(_) => break,
-                                        _ => {}
-                                    }
-                                }
+                                let total_bytes = self.read_with_timeout(&mut ws_stream).await;
                                 let _ = ws_stream.close(None).await;
-                                if got_pong { (200, 1) } else { (0, 0) }
+                                if total_bytes > 0 {
+                                    (200, total_bytes)
+                                } else {
+                                    (0, 0)
+                                }
                             }
                             WsMode::Stream => {
                                 let payload_str = self.payload.as_deref().unwrap_or("ping");
                                 let _ = ws_stream.send(Message::Text(payload_str.into())).await;
-                                let mut total_bytes = 0u64;
-                                while let Some(Ok(msg)) = ws_stream.next().await {
-                                    match msg {
-                                        Message::Text(text) => {
-                                            total_bytes += text.len() as u64;
-                                            break;
-                                        }
-                                        Message::Binary(bin) => {
-                                            total_bytes += bin.len() as u64;
-                                            break;
-                                        }
-                                        Message::Close(_) => break,
-                                        _ => {}
-                                    }
-                                }
+                                let total_bytes = self.read_with_timeout(&mut ws_stream).await;
                                 let _ = ws_stream.close(None).await;
                                 (200, total_bytes)
                             }
@@ -208,7 +218,8 @@ mod tests {
         });
 
         let ws_url = format!("ws://{}", local_addr);
-        let engine = WebSocketEngine::new(vec![], WsMode::Handshake, None, ChaosEngine::default());
+        let engine =
+            WebSocketEngine::new(vec![], WsMode::Handshake, None, ChaosEngine::default(), 5);
         let metric = engine.execute_iteration(&ws_url).await;
 
         assert_eq!(metric.status_code, 200);
@@ -233,7 +244,8 @@ mod tests {
         });
 
         let ws_url = format!("ws://{}", local_addr);
-        let engine = WebSocketEngine::new(vec![], WsMode::PingPong, None, ChaosEngine::default());
+        let engine =
+            WebSocketEngine::new(vec![], WsMode::PingPong, None, ChaosEngine::default(), 10);
         let metric = engine.execute_iteration(&ws_url).await;
 
         assert_eq!(metric.status_code, 200);
@@ -256,7 +268,8 @@ mod tests {
 
         let ws_url = format!("ws://{}", local_addr);
         let headers = vec![("X-Custom-Test".to_string(), "e2e-value".to_string())];
-        let engine = WebSocketEngine::new(headers, WsMode::Handshake, None, ChaosEngine::default());
+        let engine =
+            WebSocketEngine::new(headers, WsMode::Handshake, None, ChaosEngine::default(), 5);
         let metric = engine.execute_iteration(&ws_url).await;
 
         assert_eq!(metric.status_code, 200);
@@ -285,6 +298,7 @@ mod tests {
             WsMode::Stream,
             Some("hello".to_string()),
             ChaosEngine::default(),
+            5,
         );
         let metric = engine.execute_iteration(&ws_url).await;
 
