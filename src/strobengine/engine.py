@@ -39,6 +39,10 @@ class RequestOptions:
     headers: list[tuple[str, str]] = field(default_factory=list)
     ws_mode: str = "handshake"
     ws_payload: str | None = None
+    grpc_service: str | None = None
+    grpc_method: str | None = None
+    grpc_payload: str | None = None
+    grpc_deadline_ms: int | None = None
 
     def __post_init__(self) -> None:
         if self.timeout <= 0:
@@ -81,6 +85,10 @@ class StrobEngine:
                 if self._options.ws_mode == "stream"
                 else WsMode.handshake(),
                 ws_payload=self._options.ws_payload,
+                grpc_service=self._options.grpc_service,
+                grpc_method=self._options.grpc_method,
+                grpc_payload=self._options.grpc_payload,
+                grpc_deadline_ms=self._options.grpc_deadline_ms,
             )
             self._profile = None
         else:

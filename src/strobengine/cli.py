@@ -212,6 +212,24 @@ def load(
         str | None,
         typer.Option("--ws-payload", help="WebSocket payload for stream mode"),
     ] = None,
+    grpc_service: Annotated[
+        str | None,
+        typer.Option(
+            "--grpc-service", help="gRPC service name (e.g. helloworld.Greeter)"
+        ),
+    ] = None,
+    grpc_method: Annotated[
+        str | None,
+        typer.Option("--grpc-method", help="gRPC method name (e.g. SayHello)"),
+    ] = None,
+    grpc_payload: Annotated[
+        str | None,
+        typer.Option("--grpc-payload", help="Base64-encoded protobuf payload"),
+    ] = None,
+    grpc_deadline_ms: Annotated[
+        int | None,
+        typer.Option("--grpc-deadline-ms", help="gRPC deadline in milliseconds"),
+    ] = None,
 ) -> None:
     _configure_logging(_resolve_log_level(verbose, quiet), log_file)
     method = _validate_method(method)
@@ -229,6 +247,10 @@ def load(
             headers=_parse_headers(header),
             ws_mode=ws_mode or "handshake",
             ws_payload=ws_payload,
+            grpc_service=grpc_service,
+            grpc_method=grpc_method,
+            grpc_payload=grpc_payload,
+            grpc_deadline_ms=grpc_deadline_ms,
         ),
     )
     summary = engine.run()
@@ -306,6 +328,24 @@ def stress(
         str | None,
         typer.Option("--ws-payload", help="WebSocket payload for stream mode"),
     ] = None,
+    grpc_service: Annotated[
+        str | None,
+        typer.Option(
+            "--grpc-service", help="gRPC service name (e.g. helloworld.Greeter)"
+        ),
+    ] = None,
+    grpc_method: Annotated[
+        str | None,
+        typer.Option("--grpc-method", help="gRPC method name (e.g. SayHello)"),
+    ] = None,
+    grpc_payload: Annotated[
+        str | None,
+        typer.Option("--grpc-payload", help="Base64-encoded protobuf payload"),
+    ] = None,
+    grpc_deadline_ms: Annotated[
+        int | None,
+        typer.Option("--grpc-deadline-ms", help="gRPC deadline in milliseconds"),
+    ] = None,
 ) -> None:
     _configure_logging(_resolve_log_level(verbose, quiet), log_file)
     method = _validate_method(method)
@@ -325,6 +365,10 @@ def stress(
             headers=_parse_headers(header),
             ws_mode=ws_mode or "handshake",
             ws_payload=ws_payload,
+            grpc_service=grpc_service,
+            grpc_method=grpc_method,
+            grpc_payload=grpc_payload,
+            grpc_deadline_ms=grpc_deadline_ms,
         ),
     )
     summary = engine.run()
@@ -406,6 +450,24 @@ def spike(
         str | None,
         typer.Option("--ws-payload", help="WebSocket payload for stream mode"),
     ] = None,
+    grpc_service: Annotated[
+        str | None,
+        typer.Option(
+            "--grpc-service", help="gRPC service name (e.g. helloworld.Greeter)"
+        ),
+    ] = None,
+    grpc_method: Annotated[
+        str | None,
+        typer.Option("--grpc-method", help="gRPC method name (e.g. SayHello)"),
+    ] = None,
+    grpc_payload: Annotated[
+        str | None,
+        typer.Option("--grpc-payload", help="Base64-encoded protobuf payload"),
+    ] = None,
+    grpc_deadline_ms: Annotated[
+        int | None,
+        typer.Option("--grpc-deadline-ms", help="gRPC deadline in milliseconds"),
+    ] = None,
 ) -> None:
     _configure_logging(_resolve_log_level(verbose, quiet), log_file)
     method = _validate_method(method)
@@ -426,6 +488,10 @@ def spike(
             headers=_parse_headers(header),
             ws_mode=ws_mode or "handshake",
             ws_payload=ws_payload,
+            grpc_service=grpc_service,
+            grpc_method=grpc_method,
+            grpc_payload=grpc_payload,
+            grpc_deadline_ms=grpc_deadline_ms,
         ),
     )
     summary = engine.run()
