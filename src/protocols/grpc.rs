@@ -177,6 +177,10 @@ impl ProtocolEngine for GrpcEngine {
                 tracing::trace!("grpc chaos: corrupted payload");
                 Bytes::from_static(b"\xff\xfe\xbd\xef")
             }
+            Some(ChaosFault::MetadataCorruption) => {
+                tracing::trace!("grpc chaos: metadata corruption");
+                Bytes::from(self.payload.clone())
+            }
             _ => Bytes::from(self.payload.clone()),
         };
 
@@ -199,12 +203,17 @@ impl ProtocolEngine for GrpcEngine {
         // Build gRPC client
         let mut client = Grpc::new(channel);
 
+        // Build request with optional metadata corruption
+        let mut request = tonic::Request::new(payload);
+        if let Some(ChaosFault::MetadataCorruption) = fault {
+            request.metadata_mut().insert(
+                "x-chaos-fault",
+                tonic::metadata::MetadataValue::from_static("corrupted_value"),
+            );
+        }
+
         // Make unary gRPC call with optional deadline
-        let call = async {
-            client
-                .unary(tonic::Request::new(payload), path, RawCodec)
-                .await
-        };
+        let call = async { client.unary(request, path, RawCodec).await };
 
         let response = if let Some(deadline_ms) = self.deadline_ms {
             match tokio::time::timeout(Duration::from_millis(deadline_ms), call).await {
