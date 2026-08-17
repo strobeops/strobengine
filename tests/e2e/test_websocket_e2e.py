@@ -120,3 +120,7 @@ class TestWebSocketLoadTest:
         # Chaos may cause some errors but engine should not crash
         assert summary.total_requests > 0
         assert summary.duration_secs >= 1.5
+        # Assert chaos caused errors (ConnectionDrop or CorruptedPayload)
+        assert summary.total_errors > 0
+        # Assert status codes include chaos-related codes
+        assert 0 in summary.status_codes or any(k >= 400 for k in summary.status_codes)
