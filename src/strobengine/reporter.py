@@ -51,8 +51,19 @@ def _error_rate(total: int, errors: int) -> str:
 def _format_status_codes(codes: dict[int, int]) -> str:
     if not codes:
         return "none"
-    parts = [f"{code}: {count}" for code, count in sorted(codes.items())]
+    parts = []
+    for code, count in sorted(codes.items()):
+        if code == 0:
+            parts.append(f"{code} (conn fail/timeout): {count}")
+        else:
+            parts.append(f"{code}: {count}")
     return " | ".join(parts)
+
+
+def _is_grpc_mapped(codes: dict[int, int]) -> bool:
+    """Check if status codes contain gRPC-mapped HTTP equivalents."""
+    grpc_mapped_codes = {499, 504}  # Cancelled, DeadlineExceeded
+    return any(code in grpc_mapped_codes for code in codes)
 
 
 def _print_rich(
@@ -100,6 +111,10 @@ def _print_rich(
             f"[green]{_format_number(summary.total_errors)} (0.00%)[/]",
         )
     table.add_row("Status Codes", _format_status_codes(summary.status_codes))
+
+    # gRPC protocol note
+    if _is_grpc_mapped(summary.status_codes):
+        table.add_row("Protocol", "gRPC (status codes mapped to HTTP equivalents)")
 
     console.print()
     console.print(table)
@@ -158,6 +173,8 @@ def _print_plain(
             f"  Errors:         {GREEN}{_format_number(summary.total_errors)} (0.00%){RESET}"
         )
     lines.append(f"  Status Codes:   {_format_status_codes(summary.status_codes)}")
+    if _is_grpc_mapped(summary.status_codes):
+        lines.append("  Protocol:       gRPC (status codes mapped to HTTP equivalents)")
     lines.append(sep)
 
     print("\n".join(lines))
