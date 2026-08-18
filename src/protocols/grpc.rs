@@ -98,9 +98,12 @@ pub struct GrpcEngine {
     method: String,
     payload: Vec<u8>,
     deadline_ms: Option<u64>,
+    #[allow(dead_code)] // Stored for future use (e.g., dynamic response decoding)
+    proto_schema: Option<crate::protocols::grpc_parser::ProtoSchema>,
 }
 
 impl GrpcEngine {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         url: &str,
         headers: Vec<(String, String)>,
@@ -109,35 +112,56 @@ impl GrpcEngine {
         method: Option<String>,
         grpc_payload: Option<String>,
         deadline_ms: Option<u64>,
-    ) -> Self {
+        proto_path: Option<String>,
+    ) -> Result<Self, crate::protocols::grpc_parser::ProtoError> {
         // Parse the URL directly - tonic handles scheme normalization
         let uri: http::Uri = url.parse().expect("invalid gRPC endpoint URL");
 
         let endpoint = Endpoint::new(uri).expect("failed to create gRPC endpoint");
 
-        // Decode payload: try hex (0x prefix) first, then base64
-        let payload = grpc_payload
-            .as_deref()
-            .map(|s| {
-                if let Some(hex_str) = s.strip_prefix("0x") {
-                    hex::decode(hex_str).unwrap_or_default()
-                } else {
-                    base64::engine::general_purpose::STANDARD
-                        .decode(s)
-                        .unwrap_or_default()
-                }
-            })
-            .unwrap_or_default();
+        let svc = service.clone().unwrap_or_default();
+        let mth = method.clone().unwrap_or_default();
 
-        Self {
+        // If proto_path is provided, parse schema and convert JSON to protobuf
+        let (payload, proto_schema) = if let (Some(path), Some(json)) = (&proto_path, &grpc_payload)
+        {
+            let schema = crate::protocols::grpc_parser::ProtoSchema::new(path, &svc, &mth)?;
+            let bytes = schema.json_to_protobuf(json)?;
+            tracing::info!(
+                proto_path = %path,
+                service = %svc,
+                method = %mth,
+                payload_bytes = bytes.len(),
+                "JSON payload converted to protobuf"
+            );
+            (bytes, Some(schema))
+        } else {
+            // Decode payload: try hex (0x prefix) first, then base64
+            let payload = grpc_payload
+                .as_deref()
+                .map(|s| {
+                    if let Some(hex_str) = s.strip_prefix("0x") {
+                        hex::decode(hex_str).unwrap_or_default()
+                    } else {
+                        base64::engine::general_purpose::STANDARD
+                            .decode(s)
+                            .unwrap_or_default()
+                    }
+                })
+                .unwrap_or_default();
+            (payload, None)
+        };
+
+        Ok(Self {
             endpoint,
             headers,
             chaos,
-            service: service.unwrap_or_default(),
-            method: method.unwrap_or_default(),
+            service: svc,
+            method: mth,
             payload,
             deadline_ms,
-        }
+            proto_schema,
+        })
     }
 }
 
@@ -298,7 +322,9 @@ mod tests {
             Some("Method".into()),
             None,
             None,
-        );
+            None,
+        )
+        .unwrap();
         // tonic accepts grpc:// scheme directly
         let uri_str = engine.endpoint.uri().to_string();
         assert!(uri_str.contains("127.0.0.1:50051"));
@@ -311,7 +337,9 @@ mod tests {
             None,
             None,
             None,
-        );
+            None,
+        )
+        .unwrap();
         let uri_str = engine.endpoint.uri().to_string();
         assert!(uri_str.contains("127.0.0.1:50051"));
     }
@@ -326,7 +354,9 @@ mod tests {
             None,
             Some("dGVzdA==".into()), // base64 for "test"
             None,
-        );
+            None,
+        )
+        .unwrap();
         assert_eq!(engine.payload, b"test");
     }
 
@@ -340,7 +370,9 @@ mod tests {
             None,
             Some("not-valid-base64!!!".into()),
             None,
-        );
+            None,
+        )
+        .unwrap();
         assert!(engine.payload.is_empty());
     }
 
@@ -354,7 +386,9 @@ mod tests {
             None,
             Some("0x0801".into()), // hex for protobuf varint 1
             None,
-        );
+            None,
+        )
+        .unwrap();
         assert_eq!(engine.payload, vec![0x08, 0x01]);
     }
 
@@ -368,7 +402,9 @@ mod tests {
             None,
             Some("0xdeadbeef".into()),
             None,
-        );
+            None,
+        )
+        .unwrap();
         assert_eq!(engine.payload, vec![0xde, 0xad, 0xbe, 0xef]);
     }
 }
