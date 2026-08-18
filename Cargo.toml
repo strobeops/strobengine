@@ -32,3 +32,4 @@ tonic = { version = "0.14.6", features = ["tls-webpki-roots"] }
 prost = "0.14.4"
 prost-types = "0.14.4"
 base64 = "0.22"
+hex = "0.4"
