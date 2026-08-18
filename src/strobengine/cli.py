@@ -230,6 +230,12 @@ def load(
         int | None,
         typer.Option("--grpc-deadline-ms", help="gRPC deadline in milliseconds"),
     ] = None,
+    proto_path: Annotated[
+        str | None,
+        typer.Option(
+            "--proto-path", help="Path to .proto file for JSON payload conversion"
+        ),
+    ] = None,
 ) -> None:
     _configure_logging(_resolve_log_level(verbose, quiet), log_file)
     method = _validate_method(method)
@@ -251,6 +257,7 @@ def load(
             grpc_method=grpc_method,
             grpc_payload=grpc_payload,
             grpc_deadline_ms=grpc_deadline_ms,
+            proto_path=proto_path,
         ),
     )
     summary = engine.run()
@@ -346,6 +353,12 @@ def stress(
         int | None,
         typer.Option("--grpc-deadline-ms", help="gRPC deadline in milliseconds"),
     ] = None,
+    proto_path: Annotated[
+        str | None,
+        typer.Option(
+            "--proto-path", help="Path to .proto file for JSON payload conversion"
+        ),
+    ] = None,
 ) -> None:
     _configure_logging(_resolve_log_level(verbose, quiet), log_file)
     method = _validate_method(method)
@@ -369,6 +382,7 @@ def stress(
             grpc_method=grpc_method,
             grpc_payload=grpc_payload,
             grpc_deadline_ms=grpc_deadline_ms,
+            proto_path=proto_path,
         ),
     )
     summary = engine.run()
@@ -468,6 +482,12 @@ def spike(
         int | None,
         typer.Option("--grpc-deadline-ms", help="gRPC deadline in milliseconds"),
     ] = None,
+    proto_path: Annotated[
+        str | None,
+        typer.Option(
+            "--proto-path", help="Path to .proto file for JSON payload conversion"
+        ),
+    ] = None,
 ) -> None:
     _configure_logging(_resolve_log_level(verbose, quiet), log_file)
     method = _validate_method(method)
@@ -492,6 +512,7 @@ def spike(
             grpc_method=grpc_method,
             grpc_payload=grpc_payload,
             grpc_deadline_ms=grpc_deadline_ms,
+            proto_path=proto_path,
         ),
     )
     summary = engine.run()
