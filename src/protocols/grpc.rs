@@ -115,10 +115,18 @@ impl GrpcEngine {
 
         let endpoint = Endpoint::new(uri).expect("failed to create gRPC endpoint");
 
-        // Decode base64 payload
+        // Decode payload: try hex (0x prefix) first, then base64
         let payload = grpc_payload
             .as_deref()
-            .and_then(|s| base64::engine::general_purpose::STANDARD.decode(s).ok())
+            .map(|s| {
+                if let Some(hex_str) = s.strip_prefix("0x") {
+                    hex::decode(hex_str).unwrap_or_default()
+                } else {
+                    base64::engine::general_purpose::STANDARD
+                        .decode(s)
+                        .unwrap_or_default()
+                }
+            })
             .unwrap_or_default();
 
         Self {
@@ -334,5 +342,33 @@ mod tests {
             None,
         );
         assert!(engine.payload.is_empty());
+    }
+
+    #[test]
+    fn test_hex_payload_decoding() {
+        let engine = GrpcEngine::new(
+            "grpc://127.0.0.1:50051",
+            vec![],
+            ChaosEngine::default(),
+            None,
+            None,
+            Some("0x0801".into()), // hex for protobuf varint 1
+            None,
+        );
+        assert_eq!(engine.payload, vec![0x08, 0x01]);
+    }
+
+    #[test]
+    fn test_hex_payload_deadbeef() {
+        let engine = GrpcEngine::new(
+            "grpc://127.0.0.1:50051",
+            vec![],
+            ChaosEngine::default(),
+            None,
+            None,
+            Some("0xdeadbeef".into()),
+            None,
+        );
+        assert_eq!(engine.payload, vec![0xde, 0xad, 0xbe, 0xef]);
     }
 }
