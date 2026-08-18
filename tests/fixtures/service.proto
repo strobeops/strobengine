@@ -1,0 +1,16 @@
+syntax = "proto3";
+package test.v1;
+
+service TestService {
+    rpc Execute (ExecuteRequest) returns (ExecuteResponse);
+}
+
+message ExecuteRequest {
+    int32 id = 1;
+    string name = 2;
+}
+
+message ExecuteResponse {
+    bool success = 1;
+    string message = 2;
+}
