@@ -1,6 +1,6 @@
 # strobengine
 
-A high-performance HTTP and WebSocket load testing engine with a Python API and a bare-metal Rust core.
+A high-performance HTTP, WebSocket, and gRPC load testing engine with a Python API and a bare-metal Rust core.
 
 ## Dependencies
 
@@ -14,6 +14,7 @@ A high-performance HTTP and WebSocket load testing engine with a Python API and 
 |-------|---------|---------|
 | pyo3 | 0.29 | Python FFI bindings (stable ABI, abi3-py311) |
 | reqwest | 0.13 | HTTP client with connection pooling |
+| tonic | 0.14 | gRPC framework with TLS support |
 | tokio | 1.53 | Multi-threaded async runtime |
 | tokio-util | 0.7 | CancellationToken for graceful worker shutdown |
 | tracing | 0.1 | Structured logging instrumentation |
@@ -90,6 +91,19 @@ engine = StrobEngine(
     headers=[("Authorization", "Bearer token123")],
 )
 summary = engine.run()
+
+# gRPC unary call
+engine = StrobEngine(
+    url="grpc://localhost:50051",
+    concurrency=10,
+    duration=30,
+    options=RequestOptions(
+        grpc_service="helloworld.Greeter",
+        grpc_method="SayHello",
+        grpc_payload="CgR0ZXN0",
+    ),
+)
+summary = engine.run()
 ```
 
 For async contexts (FastAPI, Typer, etc.):
@@ -141,6 +155,13 @@ strobengine load http://localhost:8080/api/health -vv
 
 # Quiet mode (suppress logs, keep progress bar)
 strobengine load http://localhost:8080/api/health -q
+
+# gRPC unary call
+strobengine load grpc://localhost:50051 \
+  --grpc-service helloworld.Greeter \
+  --grpc-method SayHello \
+  --grpc-payload CgR0ZXN0 \
+  -c 10 -d 30
 ```
 
 By default, this spawns **10 concurrent workers** for **10 seconds** with a **10-second request timeout**. Results are displayed as a formatted table with total requests, errors, requests/sec, and latency percentiles (min, avg, p50, p90, p95, p99, max).
@@ -170,6 +191,10 @@ By default, this spawns **10 concurrent workers** for **10 seconds** with a **10
 | `-q`, `--quiet` | off | Suppress all output |
 | `--log-file <path>` | none | Write logs to file |
 | `--json` | off | Output raw JSON instead of formatted table |
+| `--grpc-service` | none | gRPC service name (e.g. helloworld.Greeter) |
+| `--grpc-method` | none | gRPC method name (e.g. SayHello) |
+| `--grpc-payload` | none | Base64-encoded protobuf payload |
+| `--grpc-deadline-ms` | none | gRPC deadline in milliseconds |
 
 ### Stress Subcommand Options
 
@@ -190,6 +215,10 @@ By default, this spawns **10 concurrent workers** for **10 seconds** with a **10
 | `-q`, `--quiet` | off | Suppress all output |
 | `--log-file <path>` | none | Write logs to file |
 | `--json` | off | Output raw JSON |
+| `--grpc-service` | none | gRPC service name (e.g. helloworld.Greeter) |
+| `--grpc-method` | none | gRPC method name (e.g. SayHello) |
+| `--grpc-payload` | none | Base64-encoded protobuf payload |
+| `--grpc-deadline-ms` | none | gRPC deadline in milliseconds |
 
 ### Spike Subcommand Options
 
@@ -211,6 +240,10 @@ By default, this spawns **10 concurrent workers** for **10 seconds** with a **10
 | `-q`, `--quiet` | off | Suppress all output |
 | `--log-file <path>` | none | Write logs to file |
 | `--json` | off | Output raw JSON |
+| `--grpc-service` | none | gRPC service name (e.g. helloworld.Greeter) |
+| `--grpc-method` | none | gRPC method name (e.g. SayHello) |
+| `--grpc-payload` | none | Base64-encoded protobuf payload |
+| `--grpc-deadline-ms` | none | gRPC deadline in milliseconds |
 
 ### Global Options
 
