@@ -33,3 +33,6 @@ prost = "0.14.4"
 prost-types = "0.14.4"
 base64 = "0.22"
 hex = "0.4"
+prost-reflect = { version = "0.16.5", features = ["serde"] }
+protox = "0.9.1"
+serde_json = "1.0.151"

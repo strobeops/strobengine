@@ -1,4 +1,5 @@
 pub mod grpc;
+pub mod grpc_parser;
 pub mod http;
 pub mod websocket;
 
@@ -35,7 +36,7 @@ pub fn detect_protocol(
             config.timeout_secs,
         ))
     } else if url.starts_with("grpc://") || url.starts_with("grpcs://") {
-        Arc::new(grpc::GrpcEngine::new(
+        match grpc::GrpcEngine::new(
             url,
             config.headers.clone().unwrap_or_default(),
             chaos,
@@ -43,7 +44,27 @@ pub fn detect_protocol(
             config.grpc_method.clone(),
             config.grpc_payload.clone(),
             config.grpc_deadline_ms,
-        ))
+            config.proto_path.clone(),
+        ) {
+            Ok(engine) => Arc::new(engine),
+            Err(e) => {
+                tracing::warn!(error = %e, "failed to create gRPC engine, falling back to raw payload");
+                // Fallback: create engine without proto schema
+                Arc::new(
+                    grpc::GrpcEngine::new(
+                        url,
+                        config.headers.clone().unwrap_or_default(),
+                        chaos,
+                        config.grpc_service.clone(),
+                        config.grpc_method.clone(),
+                        config.grpc_payload.clone(),
+                        config.grpc_deadline_ms,
+                        None,
+                    )
+                    .expect("failed to create fallback gRPC engine"),
+                )
+            }
+        }
     } else {
         Arc::new(http::HttpEngine::new())
     }
