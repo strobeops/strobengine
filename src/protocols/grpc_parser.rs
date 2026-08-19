@@ -10,6 +10,8 @@ pub enum ProtoError {
     MessageNotFound(String),
     JsonError(String),
     EncodeError(String),
+    ConnectionError(String),
+    ReflectionError(String),
 }
 
 impl std::fmt::Display for ProtoError {
@@ -21,6 +23,8 @@ impl std::fmt::Display for ProtoError {
             Self::MessageNotFound(m) => write!(f, "message not found: {}", m),
             Self::JsonError(e) => write!(f, "JSON error: {}", e),
             Self::EncodeError(e) => write!(f, "protobuf encode error: {}", e),
+            Self::ConnectionError(e) => write!(f, "connection error: {}", e),
+            Self::ReflectionError(e) => write!(f, "reflection error: {}", e),
         }
     }
 }
@@ -37,6 +41,21 @@ pub struct ProtoSchema {
 }
 
 impl ProtoSchema {
+    /// Create a ProtoSchema from pre-built components (used by reflection).
+    pub fn from_parts(
+        pool: DescriptorPool,
+        service_name: String,
+        method_name: String,
+        message_name: String,
+    ) -> Self {
+        Self {
+            pool,
+            service_name,
+            method_name,
+            message_name,
+        }
+    }
+
     /// Parse a .proto file and extract service/method/message descriptors.
     pub fn new(proto_path: &str, service: &str, method: &str) -> Result<Self, ProtoError> {
         // Add parent directory of proto file as include path
