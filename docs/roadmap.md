@@ -60,12 +60,16 @@ This document outlines the planned trajectory and upcoming feature epics for **s
 ### Epic: Modern Web APIs
 *Target Focus: Protocol Expansion*
 
-- [ ] **WebSockets (`ws://`, `wss://`)**
-  - [ ] Full-duplex connection handshakes.
-  - [ ] Frame broadcasting and continuous message load generation.
-- [ ] **gRPC**
-  - [ ] Protobuf service definition parsing.
-  - [ ] HTTP/2 multiplexing and stream management.
+- [x] **WebSockets (`ws://`, `wss://`)** `[unreleased]`
+  - [x] Full-duplex connection handshakes. `[unreleased]`
+  - [x] Three execution modes: handshake, ping-pong, stream. `[unreleased]`
+  - [x] Custom headers and per-iteration timeout. `[unreleased]`
+  - [x] Chaos injection (latency spikes, corrupted payloads, connection drops). `[unreleased]`
+  - [ ] Frame broadcasting and multi-message-per-connection streaming.
+  - [ ] Server-push and pub/sub patterns.
+- [x] **gRPC** `[unreleased]`
+  - [x] Protobuf service definition parsing (base64/hex payloads, .proto file parsing, server reflection). `[unreleased]`
+  - [x] Unary RPC calls with deadline support and chaos injection. `[unreleased]`
 - [ ] **HTTP/3 (QUIC)**
   - [ ] UDP-based QUIC transport layer support.
   - [ ] Zero-RTT connection testing and loss recovery benchmarking.
