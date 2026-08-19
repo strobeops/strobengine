@@ -97,9 +97,13 @@ pub struct GrpcEngine {
     service: String,
     method: String,
     payload: Vec<u8>,
+    #[allow(dead_code)] // Stored for post-reflection JSON encoding
+    grpc_payload: Option<String>,
     deadline_ms: Option<u64>,
-    #[allow(dead_code)] // Stored for future use (e.g., dynamic response decoding)
-    proto_schema: Option<crate::protocols::grpc_parser::ProtoSchema>,
+    #[allow(dead_code)] // Used for lazy reflection initialization
+    grpc_use_reflection: bool,
+    #[allow(dead_code)] // Used for lazy reflection initialization
+    schema_cell: tokio::sync::OnceCell<crate::protocols::grpc_parser::ProtoSchema>,
 }
 
 impl GrpcEngine {
@@ -113,6 +117,7 @@ impl GrpcEngine {
         grpc_payload: Option<String>,
         deadline_ms: Option<u64>,
         proto_path: Option<String>,
+        grpc_use_reflection: bool,
     ) -> Result<Self, crate::protocols::grpc_parser::ProtoError> {
         // Parse the URL directly - tonic handles scheme normalization
         let uri: http::Uri = url.parse().expect("invalid gRPC endpoint URL");
@@ -123,34 +128,34 @@ impl GrpcEngine {
         let mth = method.clone().unwrap_or_default();
 
         // If proto_path is provided, parse schema and convert JSON to protobuf
-        let (payload, proto_schema) = if let (Some(path), Some(json)) = (&proto_path, &grpc_payload)
-        {
-            let schema = crate::protocols::grpc_parser::ProtoSchema::new(path, &svc, &mth)?;
-            let bytes = schema.json_to_protobuf(json)?;
-            tracing::info!(
-                proto_path = %path,
-                service = %svc,
-                method = %mth,
-                payload_bytes = bytes.len(),
-                "JSON payload converted to protobuf"
-            );
-            (bytes, Some(schema))
-        } else {
-            // Decode payload: try hex (0x prefix) first, then base64
-            let payload = grpc_payload
-                .as_deref()
-                .map(|s| {
-                    if let Some(hex_str) = s.strip_prefix("0x") {
-                        hex::decode(hex_str).unwrap_or_default()
-                    } else {
-                        base64::engine::general_purpose::STANDARD
-                            .decode(s)
-                            .unwrap_or_default()
-                    }
-                })
-                .unwrap_or_default();
-            (payload, None)
-        };
+        let (payload, _proto_schema) =
+            if let (Some(path), Some(json)) = (&proto_path, &grpc_payload) {
+                let schema = crate::protocols::grpc_parser::ProtoSchema::new(path, &svc, &mth)?;
+                let bytes = schema.json_to_protobuf(json)?;
+                tracing::info!(
+                    proto_path = %path,
+                    service = %svc,
+                    method = %mth,
+                    payload_bytes = bytes.len(),
+                    "JSON payload converted to protobuf"
+                );
+                (bytes, Some(schema))
+            } else {
+                // Decode payload: try hex (0x prefix) first, then base64
+                let payload = grpc_payload
+                    .as_deref()
+                    .map(|s| {
+                        if let Some(hex_str) = s.strip_prefix("0x") {
+                            hex::decode(hex_str).unwrap_or_default()
+                        } else {
+                            base64::engine::general_purpose::STANDARD
+                                .decode(s)
+                                .unwrap_or_default()
+                        }
+                    })
+                    .unwrap_or_default();
+                (payload, None)
+            };
 
         Ok(Self {
             endpoint,
@@ -159,9 +164,31 @@ impl GrpcEngine {
             service: svc,
             method: mth,
             payload,
+            grpc_payload,
             deadline_ms,
-            proto_schema,
+            grpc_use_reflection,
+            schema_cell: tokio::sync::OnceCell::new(),
         })
+    }
+
+    /// Lazily initialize the schema via server reflection (called once, thread-safe).
+    #[allow(dead_code)] // Used for lazy reflection initialization
+    async fn get_or_init_schema(
+        &self,
+    ) -> Result<
+        &crate::protocols::grpc_parser::ProtoSchema,
+        crate::protocols::grpc_parser::ProtoError,
+    > {
+        self.schema_cell
+            .get_or_try_init(|| async {
+                crate::protocols::grpc_reflection::fetch_schema_via_reflection(
+                    self.endpoint.clone(),
+                    &self.service,
+                    &self.method,
+                )
+                .await
+            })
+            .await
     }
 }
 
@@ -323,6 +350,7 @@ mod tests {
             None,
             None,
             None,
+            false,
         )
         .unwrap();
         // tonic accepts grpc:// scheme directly
@@ -338,6 +366,7 @@ mod tests {
             None,
             None,
             None,
+            false,
         )
         .unwrap();
         let uri_str = engine.endpoint.uri().to_string();
@@ -355,6 +384,7 @@ mod tests {
             Some("dGVzdA==".into()), // base64 for "test"
             None,
             None,
+            false,
         )
         .unwrap();
         assert_eq!(engine.payload, b"test");
@@ -371,6 +401,7 @@ mod tests {
             Some("not-valid-base64!!!".into()),
             None,
             None,
+            false,
         )
         .unwrap();
         assert!(engine.payload.is_empty());
@@ -387,6 +418,7 @@ mod tests {
             Some("0x0801".into()), // hex for protobuf varint 1
             None,
             None,
+            false,
         )
         .unwrap();
         assert_eq!(engine.payload, vec![0x08, 0x01]);
@@ -403,6 +435,7 @@ mod tests {
             Some("0xdeadbeef".into()),
             None,
             None,
+            false,
         )
         .unwrap();
         assert_eq!(engine.payload, vec![0xde, 0xad, 0xbe, 0xef]);
