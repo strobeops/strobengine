@@ -69,6 +69,8 @@ pub struct TestConfig {
     pub grpc_deadline_ms: Option<u64>,
     #[pyo3(get, set)]
     pub proto_path: Option<String>,
+    #[pyo3(get, set)]
+    pub grpc_use_reflection: bool,
 }
 
 #[pymethods]
@@ -93,6 +95,7 @@ impl TestConfig {
         grpc_payload=None,
         grpc_deadline_ms=None,
         proto_path=None,
+        grpc_use_reflection=false,
     ))]
     #[allow(clippy::too_many_arguments)]
     pub fn new(
@@ -114,6 +117,7 @@ impl TestConfig {
         grpc_payload: Option<String>,
         grpc_deadline_ms: Option<u64>,
         proto_path: Option<String>,
+        grpc_use_reflection: bool,
     ) -> Self {
         Self {
             url,
@@ -134,6 +138,7 @@ impl TestConfig {
             grpc_payload,
             grpc_deadline_ms,
             proto_path,
+            grpc_use_reflection,
         }
     }
 }
@@ -297,6 +302,7 @@ mod tests {
             None,
             None,
             None,
+            false,
         );
         assert_eq!(c.url, "http://127.0.0.1:8080");
         assert_eq!(c.concurrency, 10);
@@ -335,6 +341,7 @@ mod tests {
             Some("dGVzdA==".into()),
             Some(5000),
             None,
+            false,
         );
         assert_eq!(c.url, "http://127.0.0.1:8080");
         assert_eq!(c.concurrency, 50);
@@ -371,6 +378,7 @@ mod tests {
             None,
             None,
             None,
+            false,
         );
         assert_eq!(c.url, "http://127.0.0.1:8080");
         assert_eq!(c.concurrency, 1);

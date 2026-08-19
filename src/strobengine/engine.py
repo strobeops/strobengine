@@ -44,6 +44,7 @@ class RequestOptions:
     grpc_payload: str | None = None
     grpc_deadline_ms: int | None = None
     proto_path: str | None = None
+    grpc_use_reflection: bool = False
 
     def __post_init__(self) -> None:
         if self.timeout <= 0:
@@ -91,6 +92,7 @@ class StrobEngine:
                 grpc_payload=self._options.grpc_payload,
                 grpc_deadline_ms=self._options.grpc_deadline_ms,
                 proto_path=self._options.proto_path,
+                grpc_use_reflection=self._options.grpc_use_reflection,
             )
             self._profile = None
         else:

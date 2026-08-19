@@ -236,6 +236,13 @@ def load(
             "--proto-path", help="Path to .proto file for JSON payload conversion"
         ),
     ] = None,
+    grpc_use_reflection: Annotated[
+        bool,
+        typer.Option(
+            "--grpc-use-reflection",
+            help="Use server reflection for schema discovery",
+        ),
+    ] = False,
 ) -> None:
     _configure_logging(_resolve_log_level(verbose, quiet), log_file)
     method = _validate_method(method)
@@ -258,6 +265,7 @@ def load(
             grpc_payload=grpc_payload,
             grpc_deadline_ms=grpc_deadline_ms,
             proto_path=proto_path,
+            grpc_use_reflection=grpc_use_reflection,
         ),
     )
     summary = engine.run()
@@ -359,6 +367,13 @@ def stress(
             "--proto-path", help="Path to .proto file for JSON payload conversion"
         ),
     ] = None,
+    grpc_use_reflection: Annotated[
+        bool,
+        typer.Option(
+            "--grpc-use-reflection",
+            help="Use server reflection for schema discovery",
+        ),
+    ] = False,
 ) -> None:
     _configure_logging(_resolve_log_level(verbose, quiet), log_file)
     method = _validate_method(method)
@@ -383,6 +398,7 @@ def stress(
             grpc_payload=grpc_payload,
             grpc_deadline_ms=grpc_deadline_ms,
             proto_path=proto_path,
+            grpc_use_reflection=grpc_use_reflection,
         ),
     )
     summary = engine.run()
@@ -488,6 +504,13 @@ def spike(
             "--proto-path", help="Path to .proto file for JSON payload conversion"
         ),
     ] = None,
+    grpc_use_reflection: Annotated[
+        bool,
+        typer.Option(
+            "--grpc-use-reflection",
+            help="Use server reflection for schema discovery",
+        ),
+    ] = False,
 ) -> None:
     _configure_logging(_resolve_log_level(verbose, quiet), log_file)
     method = _validate_method(method)
@@ -513,6 +536,7 @@ def spike(
             grpc_payload=grpc_payload,
             grpc_deadline_ms=grpc_deadline_ms,
             proto_path=proto_path,
+            grpc_use_reflection=grpc_use_reflection,
         ),
     )
     summary = engine.run()

@@ -1,5 +1,6 @@
 pub mod grpc;
 pub mod grpc_parser;
+pub mod grpc_reflection;
 pub mod http;
 pub mod websocket;
 
@@ -45,6 +46,7 @@ pub fn detect_protocol(
             config.grpc_payload.clone(),
             config.grpc_deadline_ms,
             config.proto_path.clone(),
+            config.grpc_use_reflection,
         ) {
             Ok(engine) => Arc::new(engine),
             Err(e) => {
@@ -60,6 +62,7 @@ pub fn detect_protocol(
                         config.grpc_payload.clone(),
                         config.grpc_deadline_ms,
                         None,
+                        false,
                     )
                     .expect("failed to create fallback gRPC engine"),
                 )
