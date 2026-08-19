@@ -71,6 +71,12 @@ pub struct TestConfig {
     pub proto_path: Option<String>,
     #[pyo3(get, set)]
     pub grpc_use_reflection: bool,
+    #[pyo3(get, set)]
+    pub ws_persistent: bool,
+    #[pyo3(get, set)]
+    pub ws_keepalive_secs: Option<u64>,
+    #[pyo3(get, set)]
+    pub ws_max_messages: Option<u64>,
 }
 
 #[pymethods]
@@ -96,6 +102,9 @@ impl TestConfig {
         grpc_deadline_ms=None,
         proto_path=None,
         grpc_use_reflection=false,
+        ws_persistent=false,
+        ws_keepalive_secs=None,
+        ws_max_messages=None,
     ))]
     #[allow(clippy::too_many_arguments)]
     pub fn new(
@@ -118,6 +127,9 @@ impl TestConfig {
         grpc_deadline_ms: Option<u64>,
         proto_path: Option<String>,
         grpc_use_reflection: bool,
+        ws_persistent: bool,
+        ws_keepalive_secs: Option<u64>,
+        ws_max_messages: Option<u64>,
     ) -> Self {
         Self {
             url,
@@ -139,6 +151,9 @@ impl TestConfig {
             grpc_deadline_ms,
             proto_path,
             grpc_use_reflection,
+            ws_persistent,
+            ws_keepalive_secs,
+            ws_max_messages,
         }
     }
 }
@@ -303,6 +318,9 @@ mod tests {
             None,
             None,
             false,
+            false,
+            None,
+            None,
         );
         assert_eq!(c.url, "http://127.0.0.1:8080");
         assert_eq!(c.concurrency, 10);
@@ -317,6 +335,7 @@ mod tests {
         assert!(c.ws_payload.is_none());
         assert!(c.grpc_service.is_none());
         assert!(c.grpc_method.is_none());
+        assert!(!c.ws_persistent);
     }
 
     #[test]
@@ -342,6 +361,9 @@ mod tests {
             Some(5000),
             None,
             false,
+            false,
+            None,
+            None,
         );
         assert_eq!(c.url, "http://127.0.0.1:8080");
         assert_eq!(c.concurrency, 50);
@@ -379,6 +401,9 @@ mod tests {
             None,
             None,
             false,
+            false,
+            None,
+            None,
         );
         assert_eq!(c.url, "http://127.0.0.1:8080");
         assert_eq!(c.concurrency, 1);
