@@ -233,16 +233,29 @@ async fn execute_test(
                     let _guard = WorkerGuard(Arc::clone(&counters));
                     counters.active_workers.fetch_add(1, Ordering::Relaxed);
 
+                    // Create worker-local context for persistent connections
+                    let mut worker_ctx = engine.create_worker_context().await;
+
                     let start = Instant::now();
                     while start.elapsed() < duration && !token.is_cancelled() {
                         counters.total_requests.fetch_add(1, Ordering::Relaxed);
 
-                        let metric = tokio::select! {
-                            _ = token.cancelled() => {
-                                tracing::debug!("worker cancelled");
-                                break;
+                        let metric = if let Some(ref mut ctx) = worker_ctx {
+                            tokio::select! {
+                                _ = token.cancelled() => {
+                                    tracing::debug!("worker cancelled");
+                                    break;
+                                }
+                                m = engine.execute_iteration_with_context(&url, ctx.as_mut()) => m,
                             }
-                            m = engine.execute_iteration(&url) => m,
+                        } else {
+                            tokio::select! {
+                                _ = token.cancelled() => {
+                                    tracing::debug!("worker cancelled");
+                                    break;
+                                }
+                                m = engine.execute_iteration(&url) => m,
+                            }
                         };
 
                         counters.completed_requests.fetch_add(1, Ordering::Relaxed);
@@ -259,6 +272,14 @@ async fn execute_test(
                         }
 
                         let _ = tx.send(metric).await;
+                    }
+
+                    // Clean up persistent session if any
+                    if let Some(mut ctx) = worker_ctx
+                        && let Some(session) =
+                            ctx.downcast_mut::<crate::protocols::websocket::PersistentWsSession>()
+                    {
+                        session.close().await;
                     }
                 }));
             }
@@ -315,13 +336,23 @@ async fn execute_test(
                             let _guard = WorkerGuard(Arc::clone(&counters));
                             counters.active_workers.fetch_add(1, Ordering::Relaxed);
 
+                            // Create worker-local context for persistent connections
+                            let mut worker_ctx = engine.create_worker_context().await;
+
                             let start = Instant::now();
                             while start.elapsed() < remaining && !token.is_cancelled() {
                                 counters.total_requests.fetch_add(1, Ordering::Relaxed);
 
-                                let metric = tokio::select! {
-                                    _ = token.cancelled() => break,
-                                    m = engine.execute_iteration(&url) => m,
+                                let metric = if let Some(ref mut ctx) = worker_ctx {
+                                    tokio::select! {
+                                        _ = token.cancelled() => break,
+                                        m = engine.execute_iteration_with_context(&url, ctx.as_mut()) => m,
+                                    }
+                                } else {
+                                    tokio::select! {
+                                        _ = token.cancelled() => break,
+                                        m = engine.execute_iteration(&url) => m,
+                                    }
                                 };
 
                                 counters.completed_requests.fetch_add(1, Ordering::Relaxed);
@@ -338,6 +369,13 @@ async fn execute_test(
                                 }
 
                                 let _ = tx.send(metric).await;
+                            }
+
+                            // Clean up persistent session if any
+                            if let Some(mut ctx) = worker_ctx
+                                && let Some(session) = ctx.downcast_mut::<crate::protocols::websocket::PersistentWsSession>()
+                            {
+                                session.close().await;
                             }
                         });
                         child_tokens.push(child_token);
@@ -576,6 +614,9 @@ fn run_load_profiles(
                 None,
                 None,
                 false,
+                false,
+                None,
+                None,
             );
             protocols::detect_protocol(&url, &ws_config, chaos_engine)
         } else {
