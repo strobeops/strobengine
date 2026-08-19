@@ -1,3 +1,5 @@
+import asyncio
+
 from strobengine.engine import RequestOptions, StrobEngine
 
 
@@ -14,7 +16,7 @@ class TestGrpcE2E:
                 grpc_method="TestMethod",
             ),
         )
-        summary = await engine.run_async()
+        summary = await asyncio.wait_for(engine.run_async(), timeout=5.0)
 
         assert summary.total_requests > 0
         assert summary.total_errors == summary.total_requests
@@ -33,7 +35,7 @@ class TestGrpcE2E:
                 chaos=True,
             ),
         )
-        summary = await engine.run_async()
+        summary = await asyncio.wait_for(engine.run_async(), timeout=5.0)
 
         assert summary.total_requests > 0
         assert summary.total_errors > 0
@@ -52,7 +54,7 @@ class TestGrpcE2E:
                 headers=[("Authorization", "Bearer token123")],
             ),
         )
-        summary = await engine.run_async()
+        summary = await asyncio.wait_for(engine.run_async(), timeout=5.0)
 
         assert summary.total_requests > 0
         assert summary.total_errors == summary.total_requests
@@ -70,7 +72,7 @@ class TestGrpcE2E:
                 grpc_deadline_ms=1000,
             ),
         )
-        summary = await engine.run_async()
+        summary = await asyncio.wait_for(engine.run_async(), timeout=5.0)
 
         assert summary.total_requests > 0
         assert summary.total_errors == summary.total_requests
