@@ -19,6 +19,7 @@ http = "1"
 bytes = "1"
 tokio = { version = "1.53.0", features = ["sync", "time", "rt", "rt-multi-thread", "macros", "signal"] }
 tokio-util = { version = "0.7", features = ["rt"] }
+tokio-stream = "0.1"
 tokio-tungstenite = { version = "0.26", features = ["rustls-tls-webpki-roots"] }
 async-trait = "0.1"
 tracing = "0.1"
@@ -36,3 +37,4 @@ hex = "0.4"
 prost-reflect = { version = "0.16.5", features = ["serde"] }
 protox = "0.9.1"
 serde_json = "1.0.151"
+tonic-reflection = { version = "0.14.6", default-features = false }
