@@ -219,9 +219,5 @@ summary = engine.run()
 
 - **Unary calls only** -- server-streaming, client-streaming, and bidirectional
   streaming are not yet supported.
-- **No proto compilation** -- payloads must be pre-encoded as base64. Dynamic
-  `.proto` file loading is planned for a future release.
-- **No server reflection** -- the engine does not query gRPC server reflection
-  for service/method discovery.
 - **Profile-based tests** (`stress_test`, `spike_test`) with gRPC URLs are
   not yet fully supported -- gRPC fields may be silently dropped.
