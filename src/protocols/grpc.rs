@@ -208,6 +208,8 @@ impl ProtocolEngine for GrpcEngine {
                 latency_micros: req_start.elapsed().as_micros(),
                 status_code: 0,
                 bytes_received: 0,
+                is_reconnect: false,
+                connection_latency_us: None,
             };
         }
 
@@ -226,6 +228,8 @@ impl ProtocolEngine for GrpcEngine {
                     latency_micros: req_start.elapsed().as_micros(),
                     status_code: 0,
                     bytes_received: 0,
+                    is_reconnect: false,
+                    connection_latency_us: None,
                 };
             }
         };
@@ -255,6 +259,8 @@ impl ProtocolEngine for GrpcEngine {
                     latency_micros: req_start.elapsed().as_micros(),
                     status_code: 0,
                     bytes_received: 0,
+                    is_reconnect: false,
+                    connection_latency_us: None,
                 };
             }
         };
@@ -283,6 +289,8 @@ impl ProtocolEngine for GrpcEngine {
                         latency_micros: req_start.elapsed().as_micros(),
                         status_code: 0,
                         bytes_received: 0,
+                        is_reconnect: false,
+                        connection_latency_us: None,
                     };
                 }
             }
@@ -322,6 +330,8 @@ impl ProtocolEngine for GrpcEngine {
             latency_micros,
             status_code,
             bytes_received,
+            is_reconnect: false,
+            connection_latency_us: None,
         }
     }
 }
