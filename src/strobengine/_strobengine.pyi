@@ -49,6 +49,7 @@ class TestConfig:
     grpc_payload: str | None
     grpc_deadline_ms: int | None
     proto_path: str | None
+    grpc_use_reflection: bool
     def __init__(
         self,
         url: str,
@@ -69,6 +70,7 @@ class TestConfig:
         grpc_payload: str | None = None,
         grpc_deadline_ms: int | None = None,
         proto_path: str | None = None,
+        grpc_use_reflection: bool = False,
     ) -> None: ...
 
 class TestSummary:
