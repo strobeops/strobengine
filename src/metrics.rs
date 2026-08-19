@@ -11,6 +11,8 @@ pub struct RequestMetric {
     pub latency_micros: u128,
     pub status_code: u16,
     pub bytes_received: u64,
+    pub is_reconnect: bool,
+    pub connection_latency_us: Option<u128>,
 }
 
 pub struct LiveCounters {
