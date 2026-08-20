@@ -191,6 +191,11 @@ By default, this spawns **10 concurrent workers** for **10 seconds** with a **10
 | `-q`, `--quiet` | off | Suppress all output |
 | `--log-file <path>` | none | Write logs to file |
 | `--json` | off | Output raw JSON instead of formatted table |
+| `--ws-mode` | `handshake` | WebSocket mode: `handshake`, `ping_pong`, `stream` |
+| `--ws-payload` | none | WebSocket text payload for stream mode |
+| `--ws-role` | none | WebSocket Pub/Sub role: `publisher`, `subscriber` |
+| `--ws-publish-interval` | none | Publisher send interval in milliseconds |
+| `--ws-subscribers` | none | Number of subscriber workers |
 | `--grpc-service` | none | gRPC service name (e.g. helloworld.Greeter) |
 | `--grpc-method` | none | gRPC method name (e.g. SayHello) |
 | `--grpc-payload` | none | Base64-encoded protobuf payload |
@@ -215,6 +220,11 @@ By default, this spawns **10 concurrent workers** for **10 seconds** with a **10
 | `-q`, `--quiet` | off | Suppress all output |
 | `--log-file <path>` | none | Write logs to file |
 | `--json` | off | Output raw JSON |
+| `--ws-mode` | `handshake` | WebSocket mode: `handshake`, `ping_pong`, `stream` |
+| `--ws-payload` | none | WebSocket text payload for stream mode |
+| `--ws-role` | none | WebSocket Pub/Sub role: `publisher`, `subscriber` |
+| `--ws-publish-interval` | none | Publisher send interval in milliseconds |
+| `--ws-subscribers` | none | Number of subscriber workers |
 | `--grpc-service` | none | gRPC service name (e.g. helloworld.Greeter) |
 | `--grpc-method` | none | gRPC method name (e.g. SayHello) |
 | `--grpc-payload` | none | Base64-encoded protobuf payload |
@@ -240,6 +250,11 @@ By default, this spawns **10 concurrent workers** for **10 seconds** with a **10
 | `-q`, `--quiet` | off | Suppress all output |
 | `--log-file <path>` | none | Write logs to file |
 | `--json` | off | Output raw JSON |
+| `--ws-mode` | `handshake` | WebSocket mode: `handshake`, `ping_pong`, `stream` |
+| `--ws-payload` | none | WebSocket text payload for stream mode |
+| `--ws-role` | none | WebSocket Pub/Sub role: `publisher`, `subscriber` |
+| `--ws-publish-interval` | none | Publisher send interval in milliseconds |
+| `--ws-subscribers` | none | Number of subscriber workers |
 | `--grpc-service` | none | gRPC service name (e.g. helloworld.Greeter) |
 | `--grpc-method` | none | gRPC method name (e.g. SayHello) |
 | `--grpc-payload` | none | Base64-encoded protobuf payload |

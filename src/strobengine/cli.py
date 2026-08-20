@@ -214,11 +214,7 @@ def load(
     ] = None,
     ws_role: Annotated[
         str | None,
-        typer.Option(
-            "--ws-role",
-            help="WebSocket Pub/Sub role: publisher, subscriber",
-            click_type=typer.Choice(["publisher", "subscriber"], case_sensitive=False),
-        ),
+        typer.Option("--ws-role", help="WebSocket Pub/Sub role: publisher, subscriber"),
     ] = None,
     ws_publish_interval_ms: Annotated[
         int | None,
@@ -364,11 +360,7 @@ def stress(
     ] = None,
     ws_role: Annotated[
         str | None,
-        typer.Option(
-            "--ws-role",
-            help="WebSocket Pub/Sub role: publisher, subscriber",
-            click_type=typer.Choice(["publisher", "subscriber"], case_sensitive=False),
-        ),
+        typer.Option("--ws-role", help="WebSocket Pub/Sub role: publisher, subscriber"),
     ] = None,
     ws_publish_interval_ms: Annotated[
         int | None,
@@ -520,11 +512,7 @@ def spike(
     ] = None,
     ws_role: Annotated[
         str | None,
-        typer.Option(
-            "--ws-role",
-            help="WebSocket Pub/Sub role: publisher, subscriber",
-            click_type=typer.Choice(["publisher", "subscriber"], case_sensitive=False),
-        ),
+        typer.Option("--ws-role", help="WebSocket Pub/Sub role: publisher, subscriber"),
     ] = None,
     ws_publish_interval_ms: Annotated[
         int | None,
