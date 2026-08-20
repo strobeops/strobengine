@@ -76,11 +76,7 @@ impl ProtocolEngine for HttpEngine {
             Ok(u) => u,
             Err(e) => {
                 tracing::error!(error = %e, "failed to parse URL");
-                return RequestMetric {
-                    latency_micros: req_start.elapsed().as_micros(),
-                    status_code: 0,
-                    bytes_received: 0,
-                };
+                return RequestMetric::error(req_start.elapsed().as_micros());
             }
         };
 
@@ -142,6 +138,10 @@ impl ProtocolEngine for HttpEngine {
             latency_micros,
             status_code,
             bytes_received,
+            is_reconnect: false,
+            connection_latency_us: None,
+            timestamp_sent_ns: None,
+            e2e_latency_us: None,
         }
     }
 }

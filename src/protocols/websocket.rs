@@ -51,11 +51,7 @@ impl ProtocolEngine for WebSocketEngine {
                 let _ = target_url.into_client_request();
             })
             .await;
-            return RequestMetric {
-                latency_micros: req_start.elapsed().as_micros(),
-                status_code: 0,
-                bytes_received: 0,
-            };
+            return RequestMetric::error(req_start.elapsed().as_micros());
         }
 
         // LatencySpike: sleep before connecting
@@ -69,11 +65,7 @@ impl ProtocolEngine for WebSocketEngine {
             Ok(r) => r,
             Err(e) => {
                 tracing::debug!(error = %e, "invalid WebSocket URL");
-                return RequestMetric {
-                    latency_micros: req_start.elapsed().as_micros(),
-                    status_code: 0,
-                    bytes_received: 0,
-                };
+                return RequestMetric::error(req_start.elapsed().as_micros());
             }
         };
 
@@ -184,6 +176,10 @@ impl ProtocolEngine for WebSocketEngine {
             latency_micros,
             status_code,
             bytes_received,
+            is_reconnect: false,
+            connection_latency_us: None,
+            timestamp_sent_ns: None,
+            e2e_latency_us: None,
         }
     }
 }
