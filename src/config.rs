@@ -59,6 +59,12 @@ pub struct TestConfig {
     pub ws_mode: WsMode,
     #[pyo3(get, set)]
     pub ws_payload: Option<String>,
+    #[pyo3(get, set)]
+    pub ws_role: Option<String>,
+    #[pyo3(get, set)]
+    pub ws_publish_interval_ms: Option<u64>,
+    #[pyo3(get, set)]
+    pub ws_subscribers: Option<usize>,
 }
 
 #[pymethods]
@@ -78,6 +84,9 @@ impl TestConfig {
         headers=None,
         ws_mode=WsMode::Handshake,
         ws_payload=None,
+        ws_role=None,
+        ws_publish_interval_ms=None,
+        ws_subscribers=None,
     ))]
     #[allow(clippy::too_many_arguments)]
     pub fn new(
@@ -94,6 +103,9 @@ impl TestConfig {
         headers: Option<Vec<(String, String)>>,
         ws_mode: WsMode,
         ws_payload: Option<String>,
+        ws_role: Option<String>,
+        ws_publish_interval_ms: Option<u64>,
+        ws_subscribers: Option<usize>,
     ) -> Self {
         Self {
             url,
@@ -109,6 +121,9 @@ impl TestConfig {
             headers,
             ws_mode,
             ws_payload,
+            ws_role,
+            ws_publish_interval_ms,
+            ws_subscribers,
         }
     }
 }
@@ -267,6 +282,9 @@ mod tests {
             None,
             WsMode::Handshake,
             None,
+            None,
+            None,
+            None,
         );
         assert_eq!(c.url, "http://127.0.0.1:8080");
         assert_eq!(c.concurrency, 10);
@@ -279,6 +297,9 @@ mod tests {
         assert!(c.headers.is_none());
         assert_eq!(c.ws_mode, WsMode::Handshake);
         assert!(c.ws_payload.is_none());
+        assert!(c.ws_role.is_none());
+        assert!(c.ws_publish_interval_ms.is_none());
+        assert!(c.ws_subscribers.is_none());
     }
 
     #[test]
@@ -298,6 +319,9 @@ mod tests {
             Some(headers),
             WsMode::PingPong,
             None,
+            Some("publisher".into()),
+            Some(100),
+            Some(5),
         );
         assert_eq!(c.url, "http://127.0.0.1:8080");
         assert_eq!(c.concurrency, 50);
@@ -309,6 +333,9 @@ mod tests {
         assert!(c.body.is_some());
         assert!(c.headers.is_some());
         assert_eq!(c.ws_mode, WsMode::PingPong);
+        assert_eq!(c.ws_role.as_deref(), Some("publisher"));
+        assert_eq!(c.ws_publish_interval_ms, Some(100));
+        assert_eq!(c.ws_subscribers, Some(5));
     }
 
     #[test]
@@ -326,6 +353,9 @@ mod tests {
             None,
             None,
             WsMode::Handshake,
+            None,
+            None,
+            None,
             None,
         );
         assert_eq!(c.url, "http://127.0.0.1:8080");
