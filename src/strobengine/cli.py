@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sys
+from enum import StrEnum
 from typing import Annotated
 
 import typer
@@ -12,6 +13,11 @@ from strobengine.engine import RequestOptions, StrobEngine
 from strobengine.reporter import print_summary
 
 VALID_METHODS = {"GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"}
+
+
+class WsRole(StrEnum):
+    publisher = "publisher"
+    subscriber = "subscriber"
 
 
 def _get_version() -> str:
@@ -213,8 +219,12 @@ def load(
         typer.Option("--ws-payload", help="WebSocket payload for stream mode"),
     ] = None,
     ws_role: Annotated[
-        str | None,
-        typer.Option("--ws-role", help="WebSocket Pub/Sub role: publisher, subscriber"),
+        WsRole | None,
+        typer.Option(
+            "--ws-role",
+            help="WebSocket Pub/Sub role: publisher, subscriber",
+            case_sensitive=False,
+        ),
     ] = None,
     ws_publish_interval_ms: Annotated[
         int | None,
@@ -272,7 +282,7 @@ def load(
             headers=_parse_headers(header),
             ws_mode=ws_mode or "handshake",
             ws_payload=ws_payload,
-            ws_role=ws_role,
+            ws_role=ws_role.value if ws_role is not None else None,
             ws_publish_interval_ms=ws_publish_interval_ms,
             ws_subscribers=ws_subscribers,
             grpc_service=grpc_service,
@@ -359,8 +369,12 @@ def stress(
         typer.Option("--ws-payload", help="WebSocket payload for stream mode"),
     ] = None,
     ws_role: Annotated[
-        str | None,
-        typer.Option("--ws-role", help="WebSocket Pub/Sub role: publisher, subscriber"),
+        WsRole | None,
+        typer.Option(
+            "--ws-role",
+            help="WebSocket Pub/Sub role: publisher, subscriber",
+            case_sensitive=False,
+        ),
     ] = None,
     ws_publish_interval_ms: Annotated[
         int | None,
@@ -420,7 +434,7 @@ def stress(
             headers=_parse_headers(header),
             ws_mode=ws_mode or "handshake",
             ws_payload=ws_payload,
-            ws_role=ws_role,
+            ws_role=ws_role.value if ws_role is not None else None,
             ws_publish_interval_ms=ws_publish_interval_ms,
             ws_subscribers=ws_subscribers,
             grpc_service=grpc_service,
@@ -511,8 +525,12 @@ def spike(
         typer.Option("--ws-payload", help="WebSocket payload for stream mode"),
     ] = None,
     ws_role: Annotated[
-        str | None,
-        typer.Option("--ws-role", help="WebSocket Pub/Sub role: publisher, subscriber"),
+        WsRole | None,
+        typer.Option(
+            "--ws-role",
+            help="WebSocket Pub/Sub role: publisher, subscriber",
+            case_sensitive=False,
+        ),
     ] = None,
     ws_publish_interval_ms: Annotated[
         int | None,
@@ -573,7 +591,7 @@ def spike(
             headers=_parse_headers(header),
             ws_mode=ws_mode or "handshake",
             ws_payload=ws_payload,
-            ws_role=ws_role,
+            ws_role=ws_role.value if ws_role is not None else None,
             ws_publish_interval_ms=ws_publish_interval_ms,
             ws_subscribers=ws_subscribers,
             grpc_service=grpc_service,
