@@ -26,11 +26,13 @@ pub fn detect_protocol(
     ws_mode: WsMode,
     ws_payload: Option<String>,
     chaos: ChaosEngine,
+    ws_role: Option<String>,
+    ws_publish_interval_ms: Option<u64>,
 ) -> Arc<dyn ProtocolEngine> {
     if url.starts_with("ws://") || url.starts_with("wss://") {
-        Arc::new(websocket::WebSocketEngine::new(
-            headers, ws_mode, ws_payload, chaos,
-        ))
+        let engine = websocket::WebSocketEngine::new(headers, ws_mode, ws_payload, chaos)
+            .with_role(ws_role, ws_publish_interval_ms);
+        Arc::new(engine)
     } else {
         Arc::new(http::HttpEngine::new())
     }
