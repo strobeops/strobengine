@@ -236,13 +236,7 @@ impl ProtocolEngine for WebSocketEngine {
                 let _ = target_url.into_client_request();
             })
             .await;
-            return RequestMetric {
-                latency_micros: req_start.elapsed().as_micros(),
-                status_code: 0,
-                bytes_received: 0,
-                is_reconnect: false,
-                connection_latency_us: None,
-            };
+            return RequestMetric::error(req_start.elapsed().as_micros());
         }
 
         // LatencySpike: sleep before connecting
@@ -256,13 +250,7 @@ impl ProtocolEngine for WebSocketEngine {
             Ok(r) => r,
             Err(e) => {
                 tracing::debug!(error = %e, "invalid WebSocket URL");
-                return RequestMetric {
-                    latency_micros: req_start.elapsed().as_micros(),
-                    status_code: 0,
-                    bytes_received: 0,
-                    is_reconnect: false,
-                    connection_latency_us: None,
-                };
+                return RequestMetric::error(req_start.elapsed().as_micros());
             }
         };
 
@@ -340,6 +328,8 @@ impl ProtocolEngine for WebSocketEngine {
             bytes_received,
             is_reconnect: false,
             connection_latency_us: None,
+            timestamp_sent_ns: None,
+            e2e_latency_us: None,
         }
     }
 
@@ -371,13 +361,7 @@ impl ProtocolEngine for WebSocketEngine {
 
         if let Some(ChaosFault::ConnectionDrop) = fault {
             tracing::trace!("ws chaos: connection drop");
-            return RequestMetric {
-                latency_micros: req_start.elapsed().as_micros(),
-                status_code: 0,
-                bytes_received: 0,
-                is_reconnect: false,
-                connection_latency_us: None,
-            };
+            return RequestMetric::error(req_start.elapsed().as_micros());
         }
 
         if let Some(ChaosFault::LatencySpike { duration_ms }) = fault {
@@ -389,13 +373,7 @@ impl ProtocolEngine for WebSocketEngine {
         let connection_latency_us = match session.ensure_connected(target_url).await {
             Ok(lat) => lat,
             Err(_) => {
-                return RequestMetric {
-                    latency_micros: 0,
-                    status_code: 0,
-                    bytes_received: 0,
-                    is_reconnect: false,
-                    connection_latency_us: None,
-                };
+                return RequestMetric::error(0);
             }
         };
 
@@ -419,6 +397,8 @@ impl ProtocolEngine for WebSocketEngine {
                     bytes_received: response_bytes.len() as u64,
                     is_reconnect: connection_latency_us > 0,
                     connection_latency_us: Some(connection_latency_us),
+                    timestamp_sent_ns: None,
+                    e2e_latency_us: None,
                 }
             }
             Err(_) => RequestMetric {
@@ -427,6 +407,8 @@ impl ProtocolEngine for WebSocketEngine {
                 bytes_received: 0,
                 is_reconnect: connection_latency_us > 0,
                 connection_latency_us: Some(connection_latency_us),
+                timestamp_sent_ns: None,
+                e2e_latency_us: None,
             },
         }
     }

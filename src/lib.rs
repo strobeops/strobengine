@@ -457,6 +457,7 @@ async fn execute_test(
         elapsed,
         workers,
         status_codes,
+        vec![],
     ))
 }
 
