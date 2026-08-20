@@ -7,6 +7,7 @@ from aiohttp import web
 
 LAST_ECHO_KEY: web.AppKey[dict[str, Any]] = web.AppKey("last_echo")
 FLAKY_STATE_KEY: web.AppKey[dict[str, bool]] = web.AppKey("flaky_state")
+BROADCAST_KEY: web.AppKey[set[web.WebSocketResponse]] = web.AppKey("broadcast_clients")
 
 
 async def handle_status(request: web.Request) -> web.Response:
@@ -75,14 +76,41 @@ async def handle_websocket(request: web.Request) -> web.WebSocketResponse:
     return ws
 
 
+async def handle_broadcast(request: web.Request) -> web.WebSocketResponse:
+    ws = web.WebSocketResponse()
+    await ws.prepare(request)
+    clients: set[web.WebSocketResponse] = request.app[BROADCAST_KEY]
+    clients.add(ws)
+    try:
+        async for msg in ws:
+            if msg.type in (web.WSMsgType.TEXT, web.WSMsgType.BINARY):
+                dead: list[web.WebSocketResponse] = []
+                for client in clients:
+                    if client is not ws and not client.closed:
+                        try:
+                            if msg.type == web.WSMsgType.TEXT:
+                                await client.send_str(msg.data)
+                            else:
+                                await client.send_bytes(msg.data)
+                        except Exception:
+                            dead.append(client)
+                for client in dead:
+                    clients.discard(client)
+    finally:
+        clients.discard(ws)
+    return ws
+
+
 def create_app() -> web.Application:
     app = web.Application()
     app[LAST_ECHO_KEY] = {}
     app[FLAKY_STATE_KEY] = {"value": False}
+    app[BROADCAST_KEY] = set()
     app.router.add_route("*", "/echo", handle_echo)
     app.router.add_get("/last-echo", handle_last_echo)
     app.router.add_get("/status/{code}", handle_status)
     app.router.add_get("/delay/{seconds}", handle_delay)
     app.router.add_get("/flaky", handle_flaky)
     app.router.add_get("/ws", handle_websocket)
+    app.router.add_get("/ws/broadcast", handle_broadcast)
     return app
