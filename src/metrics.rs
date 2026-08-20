@@ -121,6 +121,8 @@ pub struct TestSummary {
     pub raw_command: Option<String>,
     #[pyo3(get)]
     pub status_codes: HashMap<u16, u64>,
+    #[pyo3(get)]
+    pub avg_e2e_latency_us: f64,
 }
 
 #[pymethods]
@@ -147,6 +149,7 @@ impl TestSummary {
             status_dict.set_item(code, count)?;
         }
         dict.set_item("status_codes", &status_dict)?;
+        dict.set_item("avg_e2e_latency_us", self.avg_e2e_latency_us)?;
         Ok(dict)
     }
 
@@ -173,7 +176,15 @@ pub fn calculate_summary(
     duration_secs: f64,
     workers: usize,
     status_codes: HashMap<u16, u64>,
+    e2e_latencies: Vec<u128>,
 ) -> TestSummary {
+    let avg_e2e_latency_us = if e2e_latencies.is_empty() {
+        0.0
+    } else {
+        let sum: u128 = e2e_latencies.iter().sum();
+        sum as f64 / e2e_latencies.len() as f64
+    };
+
     if latencies.is_empty() {
         return TestSummary {
             url,
@@ -192,6 +203,7 @@ pub fn calculate_summary(
             timestamp: String::new(),
             raw_command: None,
             status_codes,
+            avg_e2e_latency_us,
         };
     }
 
@@ -226,6 +238,7 @@ pub fn calculate_summary(
         timestamp: String::new(),
         raw_command: None,
         status_codes,
+        avg_e2e_latency_us,
     }
 }
 
@@ -244,6 +257,7 @@ mod tests {
             1.0,
             4,
             HashMap::new(),
+            vec![],
         );
         assert_eq!(s.url, "http://example.com");
         assert_eq!(s.total_requests, 10);
@@ -268,6 +282,7 @@ mod tests {
             2.0,
             2,
             HashMap::new(),
+            vec![],
         );
         assert_eq!(s.total_requests, 1);
         assert_eq!(s.average_latency_ms, 5.0);
@@ -292,6 +307,7 @@ mod tests {
             1.0,
             1,
             HashMap::new(),
+            vec![],
         );
         assert_eq!(s.average_latency_ms, 1.5);
         assert_eq!(s.min_latency_ms, 1.0);
@@ -312,6 +328,7 @@ mod tests {
             1.0,
             1,
             HashMap::new(),
+            vec![],
         );
         assert!((s.average_latency_ms - 0.0505).abs() < 1e-6);
         assert_eq!(s.min_latency_ms, 0.001);
@@ -333,6 +350,7 @@ mod tests {
             1.0,
             1,
             HashMap::new(),
+            vec![],
         );
         assert_eq!(s.total_requests, 5);
         assert_eq!(s.total_errors, 5);
@@ -349,6 +367,7 @@ mod tests {
             1.0,
             1,
             HashMap::new(),
+            vec![],
         );
         assert!((s.average_latency_ms - 12.345).abs() < 1e-6);
     }
@@ -364,6 +383,7 @@ mod tests {
             1.0,
             1,
             HashMap::new(),
+            vec![],
         );
         assert_eq!(s.p95_latency_ms, 3.0);
         assert_eq!(s.p99_latency_ms, 3.0);
@@ -385,6 +405,7 @@ mod tests {
             1.0,
             1,
             codes,
+            vec![],
         );
         assert_eq!(s.status_codes.get(&200), Some(&10));
         assert_eq!(s.status_codes.get(&500), Some(&3));
