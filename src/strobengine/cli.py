@@ -212,6 +212,22 @@ def load(
         str | None,
         typer.Option("--ws-payload", help="WebSocket payload for stream mode"),
     ] = None,
+    ws_role: Annotated[
+        str | None,
+        typer.Option(
+            "--ws-role",
+            help="WebSocket Pub/Sub role: publisher, subscriber",
+            click_type=typer.Choice(["publisher", "subscriber"], case_sensitive=False),
+        ),
+    ] = None,
+    ws_publish_interval_ms: Annotated[
+        int | None,
+        typer.Option("--ws-publish-interval", help="Publisher send interval in ms"),
+    ] = None,
+    ws_subscribers: Annotated[
+        int | None,
+        typer.Option("--ws-subscribers", help="Number of subscriber workers"),
+    ] = None,
     grpc_service: Annotated[
         str | None,
         typer.Option(
@@ -260,6 +276,9 @@ def load(
             headers=_parse_headers(header),
             ws_mode=ws_mode or "handshake",
             ws_payload=ws_payload,
+            ws_role=ws_role,
+            ws_publish_interval_ms=ws_publish_interval_ms,
+            ws_subscribers=ws_subscribers,
             grpc_service=grpc_service,
             grpc_method=grpc_method,
             grpc_payload=grpc_payload,
@@ -343,6 +362,22 @@ def stress(
         str | None,
         typer.Option("--ws-payload", help="WebSocket payload for stream mode"),
     ] = None,
+    ws_role: Annotated[
+        str | None,
+        typer.Option(
+            "--ws-role",
+            help="WebSocket Pub/Sub role: publisher, subscriber",
+            click_type=typer.Choice(["publisher", "subscriber"], case_sensitive=False),
+        ),
+    ] = None,
+    ws_publish_interval_ms: Annotated[
+        int | None,
+        typer.Option("--ws-publish-interval", help="Publisher send interval in ms"),
+    ] = None,
+    ws_subscribers: Annotated[
+        int | None,
+        typer.Option("--ws-subscribers", help="Number of subscriber workers"),
+    ] = None,
     grpc_service: Annotated[
         str | None,
         typer.Option(
@@ -393,6 +428,9 @@ def stress(
             headers=_parse_headers(header),
             ws_mode=ws_mode or "handshake",
             ws_payload=ws_payload,
+            ws_role=ws_role,
+            ws_publish_interval_ms=ws_publish_interval_ms,
+            ws_subscribers=ws_subscribers,
             grpc_service=grpc_service,
             grpc_method=grpc_method,
             grpc_payload=grpc_payload,
@@ -480,6 +518,22 @@ def spike(
         str | None,
         typer.Option("--ws-payload", help="WebSocket payload for stream mode"),
     ] = None,
+    ws_role: Annotated[
+        str | None,
+        typer.Option(
+            "--ws-role",
+            help="WebSocket Pub/Sub role: publisher, subscriber",
+            click_type=typer.Choice(["publisher", "subscriber"], case_sensitive=False),
+        ),
+    ] = None,
+    ws_publish_interval_ms: Annotated[
+        int | None,
+        typer.Option("--ws-publish-interval", help="Publisher send interval in ms"),
+    ] = None,
+    ws_subscribers: Annotated[
+        int | None,
+        typer.Option("--ws-subscribers", help="Number of subscriber workers"),
+    ] = None,
     grpc_service: Annotated[
         str | None,
         typer.Option(
@@ -531,6 +585,9 @@ def spike(
             headers=_parse_headers(header),
             ws_mode=ws_mode or "handshake",
             ws_payload=ws_payload,
+            ws_role=ws_role,
+            ws_publish_interval_ms=ws_publish_interval_ms,
+            ws_subscribers=ws_subscribers,
             grpc_service=grpc_service,
             grpc_method=grpc_method,
             grpc_payload=grpc_payload,
