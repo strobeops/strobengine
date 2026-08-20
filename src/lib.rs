@@ -618,6 +618,9 @@ fn run_load_profiles(
                 false,
                 None,
                 None,
+                None,
+                None,
+                None,
             );
             protocols::detect_protocol(&url, &ws_config, chaos_engine)
         } else {
