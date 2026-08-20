@@ -21,6 +21,7 @@ def _make_summary(**kwargs):
         "timestamp": "2026-08-10T10:00:00+00:00",
         "raw_command": "strobengine.load http://example.com",
         "status_codes": {200: 995, 500: 5},
+        "avg_e2e_latency_us": 0.0,
         "to_dict": lambda: {
             "url": "http://example.com",
             "total_requests": 1000,

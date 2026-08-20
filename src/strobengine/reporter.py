@@ -112,6 +112,13 @@ def _print_rich(
         )
     table.add_row("Status Codes", _format_status_codes(summary.status_codes))
 
+    # E2E latency (pub/sub only)
+    if summary.avg_e2e_latency_us > 0.0:
+        table.add_row(
+            "Avg E2E Latency",
+            f"{summary.avg_e2e_latency_us / 1000:.2f} ms",
+        )
+
     # gRPC protocol note
     if _is_grpc_mapped(summary.status_codes):
         table.add_row("Protocol", "gRPC (status codes mapped to HTTP equivalents)")
@@ -173,6 +180,11 @@ def _print_plain(
             f"  Errors:         {GREEN}{_format_number(summary.total_errors)} (0.00%){RESET}"
         )
     lines.append(f"  Status Codes:   {_format_status_codes(summary.status_codes)}")
+
+    # E2E latency (pub/sub only)
+    if summary.avg_e2e_latency_us > 0.0:
+        lines.append(f"  Avg E2E Latency:{summary.avg_e2e_latency_us / 1000:.2f} ms")
+
     if _is_grpc_mapped(summary.status_codes):
         lines.append("  Protocol:       gRPC (status codes mapped to HTTP equivalents)")
     lines.append(sep)
