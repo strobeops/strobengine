@@ -178,16 +178,20 @@ async fn execute_test(
 
     let aggregator = tokio::spawn(async move {
         let mut latencies = Vec::new();
+        let mut e2e_latencies = Vec::new();
         let mut status_codes: std::collections::HashMap<u16, u64> =
             std::collections::HashMap::new();
         let mut total_bytes: u64 = 0;
         let mut rx = rx;
         while let Some(metric) = rx.recv().await {
             latencies.push(metric.latency_micros);
+            if let Some(e2e) = metric.e2e_latency_us {
+                e2e_latencies.push(e2e);
+            }
             *status_codes.entry(metric.status_code).or_insert(0) += 1;
             total_bytes += metric.bytes_received;
         }
-        (latencies, status_codes, total_bytes)
+        (latencies, e2e_latencies, status_codes, total_bytes)
     });
 
     // Spawn progress render task (only on TTY when enabled)
@@ -393,7 +397,7 @@ async fn execute_test(
     }
 
     // Receive latency results (channel closes automatically as all tx references dropped)
-    let (latencies, status_codes, total_bytes) = aggregator
+    let (latencies, e2e_latencies, status_codes, total_bytes) = aggregator
         .await
         .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
 
@@ -419,6 +423,7 @@ async fn execute_test(
         elapsed,
         workers,
         status_codes,
+        e2e_latencies,
     ))
 }
 
@@ -462,7 +467,17 @@ fn run_load_test(py: Python<'_>, config: TestConfig) -> PyResult<metrics::TestSu
         let engine: Arc<dyn ProtocolEngine> =
             if url.starts_with("ws://") || url.starts_with("wss://") {
                 let ws_payload = config.ws_payload.clone();
-                protocols::detect_protocol(&url, ws_headers, ws_mode, ws_payload, chaos)
+                let ws_role = config.ws_role.clone();
+                let ws_publish_interval_ms = config.ws_publish_interval_ms;
+                protocols::detect_protocol(
+                    &url,
+                    ws_headers,
+                    ws_mode,
+                    ws_payload,
+                    chaos,
+                    ws_role,
+                    ws_publish_interval_ms,
+                )
             } else {
                 let client = build_client(config.concurrency, config.timeout_secs, header_map)
                     .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
@@ -556,6 +571,8 @@ fn run_load_profiles(
                     config::WsMode::Handshake,
                     None,
                     chaos_engine,
+                    None,
+                    None,
                 )
             } else {
                 let client = build_client(profile.max_concurrency(), timeout_secs, header_map)
