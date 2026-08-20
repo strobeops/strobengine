@@ -50,6 +50,12 @@ class TestConfig:
     grpc_deadline_ms: int | None
     proto_path: str | None
     grpc_use_reflection: bool
+    ws_persistent: bool
+    ws_keepalive_secs: int | None
+    ws_max_messages: int | None
+    ws_role: str | None
+    ws_publish_interval_ms: int | None
+    ws_subscribers: int | None
     def __init__(
         self,
         url: str,
@@ -71,6 +77,12 @@ class TestConfig:
         grpc_deadline_ms: int | None = None,
         proto_path: str | None = None,
         grpc_use_reflection: bool = False,
+        ws_persistent: bool = False,
+        ws_keepalive_secs: int | None = None,
+        ws_max_messages: int | None = None,
+        ws_role: str | None = None,
+        ws_publish_interval_ms: int | None = None,
+        ws_subscribers: int | None = None,
     ) -> None: ...
 
 class TestSummary:
@@ -106,6 +118,8 @@ class TestSummary:
     def raw_command(self) -> str | None: ...
     @property
     def status_codes(self) -> dict[int, int]: ...
+    @property
+    def avg_e2e_latency_us(self) -> float: ...
     def to_dict(self) -> dict[str, Any]: ...
     def to_json(self, indent: int | None = None) -> str: ...
 

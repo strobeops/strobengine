@@ -77,6 +77,12 @@ pub struct TestConfig {
     pub ws_keepalive_secs: Option<u64>,
     #[pyo3(get, set)]
     pub ws_max_messages: Option<u64>,
+    #[pyo3(get, set)]
+    pub ws_role: Option<String>,
+    #[pyo3(get, set)]
+    pub ws_publish_interval_ms: Option<u64>,
+    #[pyo3(get, set)]
+    pub ws_subscribers: Option<usize>,
 }
 
 #[pymethods]
@@ -105,6 +111,9 @@ impl TestConfig {
         ws_persistent=false,
         ws_keepalive_secs=None,
         ws_max_messages=None,
+        ws_role=None,
+        ws_publish_interval_ms=None,
+        ws_subscribers=None,
     ))]
     #[allow(clippy::too_many_arguments)]
     pub fn new(
@@ -130,6 +139,9 @@ impl TestConfig {
         ws_persistent: bool,
         ws_keepalive_secs: Option<u64>,
         ws_max_messages: Option<u64>,
+        ws_role: Option<String>,
+        ws_publish_interval_ms: Option<u64>,
+        ws_subscribers: Option<usize>,
     ) -> Self {
         Self {
             url,
@@ -154,6 +166,9 @@ impl TestConfig {
             ws_persistent,
             ws_keepalive_secs,
             ws_max_messages,
+            ws_role,
+            ws_publish_interval_ms,
+            ws_subscribers,
         }
     }
 }
@@ -321,6 +336,9 @@ mod tests {
             false,
             None,
             None,
+            None,
+            None,
+            None,
         );
         assert_eq!(c.url, "http://127.0.0.1:8080");
         assert_eq!(c.concurrency, 10);
@@ -364,6 +382,9 @@ mod tests {
             false,
             None,
             None,
+            Some("publisher".into()),
+            Some(100),
+            Some(5),
         );
         assert_eq!(c.url, "http://127.0.0.1:8080");
         assert_eq!(c.concurrency, 50);
@@ -375,8 +396,9 @@ mod tests {
         assert!(c.body.is_some());
         assert!(c.headers.is_some());
         assert_eq!(c.ws_mode, WsMode::PingPong);
-        assert_eq!(c.grpc_service.as_deref(), Some("mypackage.MyService"));
-        assert_eq!(c.grpc_method.as_deref(), Some("MyMethod"));
+        assert_eq!(c.ws_role.as_deref(), Some("publisher"));
+        assert_eq!(c.ws_publish_interval_ms, Some(100));
+        assert_eq!(c.ws_subscribers, Some(5));
     }
 
     #[test]
@@ -402,6 +424,9 @@ mod tests {
             None,
             false,
             false,
+            None,
+            None,
+            None,
             None,
             None,
         );

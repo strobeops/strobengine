@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, AtomicUsize};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
@@ -7,12 +8,58 @@ use pyo3::types::PyDict;
 /// Conversion factor from microseconds to milliseconds (1 ms = 1,000 us).
 pub const MICROS_PER_MILLI: f64 = 1_000.0;
 
+/// Get current wall-clock time in nanoseconds since UNIX epoch.
+pub fn wallclock_ns() -> u128 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos()
+}
+
+/// Encode a pub/sub payload: 16-byte big-endian nanosecond timestamp prefix + user payload.
+pub fn create_pubsub_payload(user_payload: &[u8]) -> Vec<u8> {
+    let now_ns = wallclock_ns();
+    let mut payload = Vec::with_capacity(16 + user_payload.len());
+    payload.extend_from_slice(&now_ns.to_be_bytes());
+    payload.extend_from_slice(user_payload);
+    payload
+}
+
+/// Decode a pub/sub payload, returning (sent_ns, user_payload).
+/// Returns None if the data is shorter than 16 bytes.
+#[allow(dead_code)]
+pub fn parse_pubsub_payload(data: &[u8]) -> Option<(u128, &[u8])> {
+    if data.len() < 16 {
+        return None;
+    }
+    let (ts_bytes, rest) = data.split_at(16);
+    let ts_array: [u8; 16] = ts_bytes.try_into().ok()?;
+    let sent_ns = u128::from_be_bytes(ts_array);
+    Some((sent_ns, rest))
+}
+
 pub struct RequestMetric {
     pub latency_micros: u128,
     pub status_code: u16,
     pub bytes_received: u64,
     pub is_reconnect: bool,
     pub connection_latency_us: Option<u128>,
+    pub timestamp_sent_ns: Option<u128>,
+    pub e2e_latency_us: Option<u128>,
+}
+
+impl RequestMetric {
+    pub fn error(latency_micros: u128) -> Self {
+        Self {
+            latency_micros,
+            status_code: 0,
+            bytes_received: 0,
+            is_reconnect: false,
+            connection_latency_us: None,
+            timestamp_sent_ns: None,
+            e2e_latency_us: None,
+        }
+    }
 }
 
 pub struct LiveCounters {
@@ -74,6 +121,8 @@ pub struct TestSummary {
     pub raw_command: Option<String>,
     #[pyo3(get)]
     pub status_codes: HashMap<u16, u64>,
+    #[pyo3(get)]
+    pub avg_e2e_latency_us: f64,
 }
 
 #[pymethods]
@@ -100,6 +149,7 @@ impl TestSummary {
             status_dict.set_item(code, count)?;
         }
         dict.set_item("status_codes", &status_dict)?;
+        dict.set_item("avg_e2e_latency_us", self.avg_e2e_latency_us)?;
         Ok(dict)
     }
 
@@ -126,7 +176,15 @@ pub fn calculate_summary(
     duration_secs: f64,
     workers: usize,
     status_codes: HashMap<u16, u64>,
+    e2e_latencies: Vec<u128>,
 ) -> TestSummary {
+    let avg_e2e_latency_us = if e2e_latencies.is_empty() {
+        0.0
+    } else {
+        let sum: u128 = e2e_latencies.iter().sum();
+        sum as f64 / e2e_latencies.len() as f64
+    };
+
     if latencies.is_empty() {
         return TestSummary {
             url,
@@ -145,6 +203,7 @@ pub fn calculate_summary(
             timestamp: String::new(),
             raw_command: None,
             status_codes,
+            avg_e2e_latency_us,
         };
     }
 
@@ -179,6 +238,7 @@ pub fn calculate_summary(
         timestamp: String::new(),
         raw_command: None,
         status_codes,
+        avg_e2e_latency_us,
     }
 }
 
@@ -197,6 +257,7 @@ mod tests {
             1.0,
             4,
             HashMap::new(),
+            vec![],
         );
         assert_eq!(s.url, "http://example.com");
         assert_eq!(s.total_requests, 10);
@@ -221,6 +282,7 @@ mod tests {
             2.0,
             2,
             HashMap::new(),
+            vec![],
         );
         assert_eq!(s.total_requests, 1);
         assert_eq!(s.average_latency_ms, 5.0);
@@ -245,6 +307,7 @@ mod tests {
             1.0,
             1,
             HashMap::new(),
+            vec![],
         );
         assert_eq!(s.average_latency_ms, 1.5);
         assert_eq!(s.min_latency_ms, 1.0);
@@ -265,6 +328,7 @@ mod tests {
             1.0,
             1,
             HashMap::new(),
+            vec![],
         );
         assert!((s.average_latency_ms - 0.0505).abs() < 1e-6);
         assert_eq!(s.min_latency_ms, 0.001);
@@ -286,6 +350,7 @@ mod tests {
             1.0,
             1,
             HashMap::new(),
+            vec![],
         );
         assert_eq!(s.total_requests, 5);
         assert_eq!(s.total_errors, 5);
@@ -302,6 +367,7 @@ mod tests {
             1.0,
             1,
             HashMap::new(),
+            vec![],
         );
         assert!((s.average_latency_ms - 12.345).abs() < 1e-6);
     }
@@ -317,6 +383,7 @@ mod tests {
             1.0,
             1,
             HashMap::new(),
+            vec![],
         );
         assert_eq!(s.p95_latency_ms, 3.0);
         assert_eq!(s.p99_latency_ms, 3.0);
@@ -338,6 +405,7 @@ mod tests {
             1.0,
             1,
             codes,
+            vec![],
         );
         assert_eq!(s.status_codes.get(&200), Some(&10));
         assert_eq!(s.status_codes.get(&500), Some(&3));

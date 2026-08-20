@@ -204,13 +204,7 @@ impl ProtocolEngine for GrpcEngine {
         if let Some(ChaosFault::ConnectionDrop) = fault {
             tracing::trace!("grpc chaos: connection drop");
             let _ = tokio::time::timeout(Duration::from_nanos(1), self.endpoint.connect()).await;
-            return RequestMetric {
-                latency_micros: req_start.elapsed().as_micros(),
-                status_code: 0,
-                bytes_received: 0,
-                is_reconnect: false,
-                connection_latency_us: None,
-            };
+            return RequestMetric::error(req_start.elapsed().as_micros());
         }
 
         // LatencySpike: sleep before connecting
@@ -224,13 +218,7 @@ impl ProtocolEngine for GrpcEngine {
             Ok(ch) => ch,
             Err(e) => {
                 tracing::debug!(error = %e, "gRPC connection failed");
-                return RequestMetric {
-                    latency_micros: req_start.elapsed().as_micros(),
-                    status_code: 0,
-                    bytes_received: 0,
-                    is_reconnect: false,
-                    connection_latency_us: None,
-                };
+                return RequestMetric::error(req_start.elapsed().as_micros());
             }
         };
 
@@ -255,13 +243,7 @@ impl ProtocolEngine for GrpcEngine {
             Ok(p) => p,
             Err(e) => {
                 tracing::debug!(error = %e, "invalid gRPC path");
-                return RequestMetric {
-                    latency_micros: req_start.elapsed().as_micros(),
-                    status_code: 0,
-                    bytes_received: 0,
-                    is_reconnect: false,
-                    connection_latency_us: None,
-                };
+                return RequestMetric::error(req_start.elapsed().as_micros());
             }
         };
 
@@ -285,13 +267,7 @@ impl ProtocolEngine for GrpcEngine {
                 Ok(result) => result,
                 Err(_) => {
                     tracing::debug!("gRPC call timed out");
-                    return RequestMetric {
-                        latency_micros: req_start.elapsed().as_micros(),
-                        status_code: 0,
-                        bytes_received: 0,
-                        is_reconnect: false,
-                        connection_latency_us: None,
-                    };
+                    return RequestMetric::error(req_start.elapsed().as_micros());
                 }
             }
         } else {
@@ -332,6 +308,8 @@ impl ProtocolEngine for GrpcEngine {
             bytes_received,
             is_reconnect: false,
             connection_latency_us: None,
+            timestamp_sent_ns: None,
+            e2e_latency_us: None,
         }
     }
 }

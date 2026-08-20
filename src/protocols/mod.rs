@@ -45,7 +45,7 @@ pub fn detect_protocol(
     chaos: ChaosEngine,
 ) -> Arc<dyn ProtocolEngine> {
     if url.starts_with("ws://") || url.starts_with("wss://") {
-        Arc::new(websocket::WebSocketEngine::new(
+        let engine = websocket::WebSocketEngine::new(
             config.headers.clone().unwrap_or_default(),
             config.ws_mode,
             config.ws_payload.clone(),
@@ -54,7 +54,9 @@ pub fn detect_protocol(
             config.ws_persistent,
             config.ws_keepalive_secs,
             config.ws_max_messages,
-        ))
+        )
+        .with_role(config.ws_role.clone(), config.ws_publish_interval_ms);
+        Arc::new(engine)
     } else if url.starts_with("grpc://") || url.starts_with("grpcs://") {
         match grpc::GrpcEngine::new(
             url,

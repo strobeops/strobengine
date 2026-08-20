@@ -39,6 +39,9 @@ class RequestOptions:
     headers: list[tuple[str, str]] = field(default_factory=list)
     ws_mode: str = "handshake"
     ws_payload: str | None = None
+    ws_role: str | None = None
+    ws_publish_interval_ms: int | None = None
+    ws_subscribers: int | None = None
     grpc_service: str | None = None
     grpc_method: str | None = None
     grpc_payload: str | None = None
@@ -87,6 +90,9 @@ class StrobEngine:
                 if self._options.ws_mode == "stream"
                 else WsMode.handshake(),
                 ws_payload=self._options.ws_payload,
+                ws_role=self._options.ws_role,
+                ws_publish_interval_ms=self._options.ws_publish_interval_ms,
+                ws_subscribers=self._options.ws_subscribers,
                 grpc_service=self._options.grpc_service,
                 grpc_method=self._options.grpc_method,
                 grpc_payload=self._options.grpc_payload,

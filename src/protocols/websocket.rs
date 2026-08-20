@@ -9,9 +9,32 @@ use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 
 use crate::chaos::{ChaosEngine, ChaosFault};
 use crate::config::WsMode;
-use crate::metrics::RequestMetric;
+use crate::metrics::{RequestMetric, create_pubsub_payload, parse_pubsub_payload, wallclock_ns};
 
 use super::ProtocolEngine;
+
+type WsStream = futures_util::stream::SplitSink<
+    tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>,
+    Message,
+>;
+
+type WsStreamReader = futures_util::stream::SplitStream<
+    tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>,
+>;
+
+pub struct PublisherSession {
+    write: Option<WsStream>,
+    user_payload: Vec<u8>,
+    headers: Vec<(String, String)>,
+    timeout: Duration,
+}
+
+pub struct SubscriberSession {
+    read: Option<WsStreamReader>,
+    pub received_count: u64,
+    headers: Vec<(String, String)>,
+    timeout: Duration,
+}
 
 /// Error type for WebSocket engine operations.
 #[derive(Debug)]
@@ -19,6 +42,16 @@ pub enum EngineError {
     NotConnected,
     ConnectionFailed(String),
     MaxMessagesReached,
+}
+
+impl std::fmt::Display for EngineError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            EngineError::NotConnected => write!(f, "not connected"),
+            EngineError::ConnectionFailed(msg) => write!(f, "connection failed: {msg}"),
+            EngineError::MaxMessagesReached => write!(f, "max messages reached"),
+        }
+    }
 }
 
 /// Persistent WebSocket session that maintains a connection across iterations.
@@ -150,6 +183,8 @@ pub struct WebSocketEngine {
     #[allow(dead_code)] // Reserved for future keepalive implementation
     ws_keepalive_secs: Option<u64>,
     ws_max_messages: Option<u64>,
+    ws_role: Option<String>,
+    ws_publish_interval_ms: Option<u64>,
 }
 
 impl WebSocketEngine {
@@ -174,7 +209,23 @@ impl WebSocketEngine {
             ws_persistent,
             ws_keepalive_secs,
             ws_max_messages,
+            ws_role: None,
+            ws_publish_interval_ms: None,
         }
+    }
+
+    pub fn with_role(mut self, role: Option<String>, publish_interval_ms: Option<u64>) -> Self {
+        self.ws_role = role;
+        self.ws_publish_interval_ms = publish_interval_ms;
+        self
+    }
+
+    fn is_publisher(&self) -> bool {
+        self.ws_role.as_deref() == Some("publisher")
+    }
+
+    fn is_subscriber(&self) -> bool {
+        self.ws_role.as_deref() == Some("subscriber")
     }
 
     fn effective_timeout(&self) -> Duration {
@@ -219,6 +270,187 @@ impl WebSocketEngine {
 
         read_result.unwrap_or(0)
     }
+
+    async fn connect_ws(
+        headers: &[(String, String)],
+        timeout: Duration,
+        _target_url: &str,
+    ) -> Result<(WsStream, WsStreamReader), EngineError> {
+        let mut request = _target_url
+            .into_client_request()
+            .map_err(|e| EngineError::ConnectionFailed(e.to_string()))?;
+
+        for (key, value) in headers {
+            if let (Ok(name), Ok(val)) =
+                (key.as_str().parse::<HeaderName>(), value.as_str().parse())
+            {
+                request.headers_mut().insert(name, val);
+            }
+        }
+
+        let result = tokio::time::timeout(timeout, tokio_tungstenite::connect_async(request)).await;
+
+        match result {
+            Ok(Ok((ws_stream, _response))) => {
+                let (write, read) = ws_stream.split();
+                Ok((write, read))
+            }
+            Ok(Err(e)) => Err(EngineError::ConnectionFailed(e.to_string())),
+            Err(_) => Err(EngineError::ConnectionFailed("connection timed out".into())),
+        }
+    }
+
+    async fn execute_publisher_iteration(
+        &self,
+        target_url: &str,
+        session: &mut PublisherSession,
+    ) -> RequestMetric {
+        let req_start = Instant::now();
+
+        // Lazy connect on first iteration
+        if session.write.is_none() {
+            match Self::connect_ws(&session.headers, session.timeout, target_url).await {
+                Ok((write, _read)) => {
+                    session.write = Some(write);
+                }
+                Err(_) => {
+                    return RequestMetric::error(req_start.elapsed().as_micros());
+                }
+            }
+        }
+
+        // Apply chaos
+        let fault = self.chaos.select_fault();
+
+        if let Some(ChaosFault::ConnectionDrop) = fault {
+            tracing::trace!("ws chaos: connection drop (publisher)");
+            return RequestMetric::error(req_start.elapsed().as_micros());
+        }
+
+        if let Some(ChaosFault::LatencySpike { duration_ms }) = fault {
+            tracing::trace!(duration_ms, "ws chaos: latency spike (publisher)");
+            tokio::time::sleep(Duration::from_millis(duration_ms)).await;
+        }
+
+        let payload_bytes = match fault {
+            Some(ChaosFault::CorruptedPayload) => b"\xff\xfe\xbd\xef".to_vec(),
+            _ => create_pubsub_payload(&session.user_payload),
+        };
+
+        let send_result = session
+            .write
+            .as_mut()
+            .unwrap()
+            .send(Message::Binary(Bytes::from(payload_bytes.clone())))
+            .await;
+
+        let latency_micros = req_start.elapsed().as_micros();
+
+        match send_result {
+            Ok(()) => {
+                let _ = session.write.as_mut().unwrap().flush().await;
+                RequestMetric {
+                    latency_micros,
+                    status_code: 200,
+                    bytes_received: payload_bytes.len() as u64,
+                    is_reconnect: false,
+                    connection_latency_us: None,
+                    timestamp_sent_ns: Some(wallclock_ns()),
+                    e2e_latency_us: None,
+                }
+            }
+            Err(e) => {
+                tracing::debug!(error = %e, "publisher send failed");
+                RequestMetric::error(latency_micros)
+            }
+        }
+    }
+
+    async fn execute_subscriber_iteration(
+        &self,
+        target_url: &str,
+        session: &mut SubscriberSession,
+    ) -> RequestMetric {
+        let req_start = Instant::now();
+
+        // Lazy connect on first iteration
+        if session.read.is_none() {
+            match Self::connect_ws(&session.headers, session.timeout, target_url).await {
+                Ok((_write, read)) => {
+                    session.read = Some(read);
+                }
+                Err(_) => {
+                    return RequestMetric::error(req_start.elapsed().as_micros());
+                }
+            }
+        }
+
+        // Apply chaos
+        let fault = self.chaos.select_fault();
+
+        if let Some(ChaosFault::ConnectionDrop) = fault {
+            tracing::trace!("ws chaos: connection drop (subscriber)");
+            return RequestMetric::error(req_start.elapsed().as_micros());
+        }
+
+        if let Some(ChaosFault::LatencySpike { duration_ms }) = fault {
+            tracing::trace!(duration_ms, "ws chaos: latency spike (subscriber)");
+            tokio::time::sleep(Duration::from_millis(duration_ms)).await;
+        }
+
+        let timeout = self.effective_timeout();
+        let read_result = tokio::time::timeout(timeout, async {
+            let mut total_bytes = 0u64;
+            while let Some(Ok(msg)) = session.read.as_mut().unwrap().next().await {
+                match msg {
+                    Message::Binary(bin) => {
+                        total_bytes += bin.len() as u64;
+                        session.received_count += 1;
+                        return Some((total_bytes, bin.to_vec()));
+                    }
+                    Message::Text(text) => {
+                        total_bytes += text.len() as u64;
+                        session.received_count += 1;
+                        return Some((total_bytes, text.as_bytes().to_vec()));
+                    }
+                    Message::Close(_) => return None,
+                    _ => {}
+                }
+            }
+            None
+        })
+        .await;
+
+        let latency_micros = req_start.elapsed().as_micros();
+
+        match read_result {
+            Ok(Some((bytes, data))) => {
+                let (e2e_latency_us, _user_payload) =
+                    if let Some((sent_ns, rest)) = parse_pubsub_payload(&data) {
+                        let now_ns = wallclock_ns();
+                        let e2e_us = now_ns.saturating_sub(sent_ns) / 1000;
+                        (Some(e2e_us), rest.to_vec())
+                    } else {
+                        (None, data)
+                    };
+
+                RequestMetric {
+                    latency_micros,
+                    status_code: 200,
+                    bytes_received: bytes,
+                    is_reconnect: false,
+                    connection_latency_us: None,
+                    timestamp_sent_ns: None,
+                    e2e_latency_us,
+                }
+            }
+            Ok(None) => RequestMetric::error(latency_micros),
+            Err(_) => {
+                tracing::debug!("subscriber receive timed out");
+                RequestMetric::error(latency_micros)
+            }
+        }
+    }
 }
 
 #[async_trait]
@@ -236,13 +468,7 @@ impl ProtocolEngine for WebSocketEngine {
                 let _ = target_url.into_client_request();
             })
             .await;
-            return RequestMetric {
-                latency_micros: req_start.elapsed().as_micros(),
-                status_code: 0,
-                bytes_received: 0,
-                is_reconnect: false,
-                connection_latency_us: None,
-            };
+            return RequestMetric::error(req_start.elapsed().as_micros());
         }
 
         // LatencySpike: sleep before connecting
@@ -256,13 +482,7 @@ impl ProtocolEngine for WebSocketEngine {
             Ok(r) => r,
             Err(e) => {
                 tracing::debug!(error = %e, "invalid WebSocket URL");
-                return RequestMetric {
-                    latency_micros: req_start.elapsed().as_micros(),
-                    status_code: 0,
-                    bytes_received: 0,
-                    is_reconnect: false,
-                    connection_latency_us: None,
-                };
+                return RequestMetric::error(req_start.elapsed().as_micros());
             }
         };
 
@@ -340,11 +560,30 @@ impl ProtocolEngine for WebSocketEngine {
             bytes_received,
             is_reconnect: false,
             connection_latency_us: None,
+            timestamp_sent_ns: None,
+            e2e_latency_us: None,
         }
     }
 
     async fn create_worker_context(&self) -> Option<Box<dyn std::any::Any + Send>> {
-        if self.ws_persistent {
+        let timeout = self.effective_timeout();
+
+        if self.is_publisher() {
+            let user_payload = self.payload.as_deref().unwrap_or("").as_bytes().to_vec();
+            Some(Box::new(PublisherSession {
+                write: None,
+                user_payload,
+                headers: self.headers.clone(),
+                timeout,
+            }))
+        } else if self.is_subscriber() {
+            Some(Box::new(SubscriberSession {
+                read: None,
+                received_count: 0,
+                headers: self.headers.clone(),
+                timeout,
+            }))
+        } else if self.ws_persistent {
             Some(Box::new(PersistentWsSession::new(
                 self.headers.clone(),
                 self.ws_max_messages,
@@ -360,6 +599,17 @@ impl ProtocolEngine for WebSocketEngine {
         target_url: &str,
         ctx: &mut (dyn std::any::Any + Send),
     ) -> RequestMetric {
+        // Publisher dispatch
+        if let Some(session) = ctx.downcast_mut::<PublisherSession>() {
+            return self.execute_publisher_iteration(target_url, session).await;
+        }
+
+        // Subscriber dispatch
+        if let Some(session) = ctx.downcast_mut::<SubscriberSession>() {
+            return self.execute_subscriber_iteration(target_url, session).await;
+        }
+
+        // Persistent session dispatch (existing logic)
         let session = ctx
             .downcast_mut::<PersistentWsSession>()
             .expect("invalid context type");
@@ -371,13 +621,7 @@ impl ProtocolEngine for WebSocketEngine {
 
         if let Some(ChaosFault::ConnectionDrop) = fault {
             tracing::trace!("ws chaos: connection drop");
-            return RequestMetric {
-                latency_micros: req_start.elapsed().as_micros(),
-                status_code: 0,
-                bytes_received: 0,
-                is_reconnect: false,
-                connection_latency_us: None,
-            };
+            return RequestMetric::error(req_start.elapsed().as_micros());
         }
 
         if let Some(ChaosFault::LatencySpike { duration_ms }) = fault {
@@ -389,13 +633,7 @@ impl ProtocolEngine for WebSocketEngine {
         let connection_latency_us = match session.ensure_connected(target_url).await {
             Ok(lat) => lat,
             Err(_) => {
-                return RequestMetric {
-                    latency_micros: 0,
-                    status_code: 0,
-                    bytes_received: 0,
-                    is_reconnect: false,
-                    connection_latency_us: None,
-                };
+                return RequestMetric::error(0);
             }
         };
 
@@ -419,6 +657,8 @@ impl ProtocolEngine for WebSocketEngine {
                     bytes_received: response_bytes.len() as u64,
                     is_reconnect: connection_latency_us > 0,
                     connection_latency_us: Some(connection_latency_us),
+                    timestamp_sent_ns: None,
+                    e2e_latency_us: None,
                 }
             }
             Err(_) => RequestMetric {
@@ -427,6 +667,8 @@ impl ProtocolEngine for WebSocketEngine {
                 bytes_received: 0,
                 is_reconnect: connection_latency_us > 0,
                 connection_latency_us: Some(connection_latency_us),
+                timestamp_sent_ns: None,
+                e2e_latency_us: None,
             },
         }
     }
@@ -566,5 +808,184 @@ mod tests {
         assert_eq!(metric.status_code, 200);
         assert!(metric.bytes_received > 0);
         assert!(metric.latency_micros > 0);
+    }
+
+    #[tokio::test]
+    async fn test_pubsub_payload_roundtrip() {
+        let user_payload = b"hello world";
+        let encoded = create_pubsub_payload(user_payload);
+        assert_eq!(encoded.len(), 16 + user_payload.len());
+
+        let (sent_ns, rest) = parse_pubsub_payload(&encoded).unwrap();
+        assert!(sent_ns > 0);
+        assert_eq!(rest, user_payload);
+    }
+
+    #[tokio::test]
+    async fn test_pubsub_payload_too_short() {
+        assert!(parse_pubsub_payload(&[0u8; 15]).is_none());
+        assert!(parse_pubsub_payload(&[]).is_none());
+    }
+
+    #[tokio::test]
+    async fn test_publisher_subscriber_exchange() {
+        use tokio::sync::broadcast;
+
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let local_addr = listener.local_addr().unwrap();
+
+        // Server that broadcasts every binary message to all connected clients
+        let (tx, _rx) = broadcast::channel::<Vec<u8>>(32);
+
+        tokio::spawn(async move {
+            while let Ok((stream, _)) = listener.accept().await {
+                let mut ws = accept_async(stream).await.unwrap();
+                let mut rx = tx.subscribe();
+                let tx_inner = tx.clone();
+                tokio::spawn(async move {
+                    loop {
+                        tokio::select! {
+                            msg = ws.next() => {
+                                match msg {
+                                    Some(Ok(Message::Binary(bin))) => {
+                                        let _ = tx_inner.send(bin.to_vec());
+                                    }
+                                    Some(Ok(Message::Close(_))) | None => break,
+                                    _ => {}
+                                }
+                            }
+                            msg = rx.recv() => {
+                                if let Ok(data) = msg {
+                                    let _ = ws.send(Message::Binary(Bytes::from(data))).await;
+                                }
+                            }
+                        }
+                    }
+                });
+            }
+        });
+
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        let ws_url = format!("ws://{}", local_addr);
+
+        // Connect subscriber
+        let sub_ws = tokio_tungstenite::connect_async(&ws_url).await.unwrap().0;
+        let (_, mut sub_read) = sub_ws.split();
+
+        // Spawn publisher
+        let pub_url = ws_url.clone();
+        let pub_handle = tokio::spawn(async move {
+            let (mut pub_ws, _) = tokio_tungstenite::connect_async(&pub_url).await.unwrap();
+            let payload = create_pubsub_payload(b"test-message");
+            pub_ws
+                .send(Message::Binary(Bytes::from(payload)))
+                .await
+                .unwrap();
+        });
+
+        // Subscriber waits for broadcast
+        let recv_result = tokio::time::timeout(Duration::from_secs(2), async {
+            while let Some(Ok(msg)) = sub_read.next().await {
+                if let Message::Binary(bin) = msg
+                    && let Some((sent_ns, _user_data)) = parse_pubsub_payload(&bin)
+                {
+                    let now_ns = wallclock_ns();
+                    let e2e_us = now_ns.saturating_sub(sent_ns) / 1000;
+                    return Some(e2e_us);
+                }
+            }
+            None
+        })
+        .await;
+
+        let _ = pub_handle.await;
+
+        assert!(recv_result.is_ok());
+        let e2e = recv_result.unwrap().unwrap();
+        assert!(e2e < 1_000_000);
+    }
+
+    #[tokio::test]
+    async fn test_publisher_iteration_via_context() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let local_addr = listener.local_addr().unwrap();
+
+        // Echo server
+        tokio::spawn(async move {
+            if let Ok((stream, _)) = listener.accept().await
+                && let Ok(mut ws_stream) = accept_async(stream).await
+            {
+                while let Some(Ok(msg)) = ws_stream.next().await {
+                    if let Message::Binary(bin) = msg {
+                        let _ = ws_stream.send(Message::Binary(bin)).await;
+                    }
+                }
+            }
+        });
+
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        let ws_url = format!("ws://{}", local_addr);
+        let engine = WebSocketEngine::new(
+            vec![],
+            WsMode::Stream,
+            Some("test".to_string()),
+            ChaosEngine::default(),
+            5,
+            false,
+            None,
+            None,
+        )
+        .with_role(Some("publisher".into()), Some(100));
+
+        let mut ctx = engine.create_worker_context().await.unwrap();
+        let metric = engine
+            .execute_iteration_with_context(&ws_url, ctx.as_mut())
+            .await;
+
+        assert_eq!(metric.status_code, 200);
+        assert!(metric.timestamp_sent_ns.is_some());
+    }
+
+    #[tokio::test]
+    async fn test_subscriber_iteration_via_context() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let local_addr = listener.local_addr().unwrap();
+
+        // Server that sends a timestamped message immediately
+        tokio::spawn(async move {
+            if let Ok((stream, _)) = listener.accept().await
+                && let Ok(mut ws_stream) = accept_async(stream).await
+            {
+                let payload = create_pubsub_payload(b"hello");
+                let _ = ws_stream.send(Message::Binary(Bytes::from(payload))).await;
+                let _ = ws_stream.close(None).await;
+            }
+        });
+
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        let ws_url = format!("ws://{}", local_addr);
+        let engine = WebSocketEngine::new(
+            vec![],
+            WsMode::Stream,
+            None,
+            ChaosEngine::default(),
+            5,
+            false,
+            None,
+            None,
+        )
+        .with_role(Some("subscriber".into()), None);
+
+        let mut ctx = engine.create_worker_context().await.unwrap();
+        let metric = engine
+            .execute_iteration_with_context(&ws_url, ctx.as_mut())
+            .await;
+
+        assert_eq!(metric.status_code, 200);
+        assert!(metric.bytes_received > 0);
+        assert!(metric.e2e_latency_us.is_some());
     }
 }
