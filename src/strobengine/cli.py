@@ -212,6 +212,18 @@ def load(
         str | None,
         typer.Option("--ws-payload", help="WebSocket payload for stream mode"),
     ] = None,
+    ws_role: Annotated[
+        str | None,
+        typer.Option("--ws-role", help="WebSocket role: publisher or subscriber"),
+    ] = None,
+    ws_publish_interval_ms: Annotated[
+        int | None,
+        typer.Option("--ws-publish-interval", help="Publisher send interval in ms"),
+    ] = None,
+    ws_subscribers: Annotated[
+        int | None,
+        typer.Option("--ws-subscribers", help="Number of subscriber workers"),
+    ] = None,
 ) -> None:
     _configure_logging(_resolve_log_level(verbose, quiet), log_file)
     method = _validate_method(method)
@@ -229,6 +241,9 @@ def load(
             headers=_parse_headers(header),
             ws_mode=ws_mode or "handshake",
             ws_payload=ws_payload,
+            ws_role=ws_role,
+            ws_publish_interval_ms=ws_publish_interval_ms,
+            ws_subscribers=ws_subscribers,
         ),
     )
     summary = engine.run()
@@ -306,6 +321,18 @@ def stress(
         str | None,
         typer.Option("--ws-payload", help="WebSocket payload for stream mode"),
     ] = None,
+    ws_role: Annotated[
+        str | None,
+        typer.Option("--ws-role", help="WebSocket role: publisher or subscriber"),
+    ] = None,
+    ws_publish_interval_ms: Annotated[
+        int | None,
+        typer.Option("--ws-publish-interval", help="Publisher send interval in ms"),
+    ] = None,
+    ws_subscribers: Annotated[
+        int | None,
+        typer.Option("--ws-subscribers", help="Number of subscriber workers"),
+    ] = None,
 ) -> None:
     _configure_logging(_resolve_log_level(verbose, quiet), log_file)
     method = _validate_method(method)
@@ -325,6 +352,9 @@ def stress(
             headers=_parse_headers(header),
             ws_mode=ws_mode or "handshake",
             ws_payload=ws_payload,
+            ws_role=ws_role,
+            ws_publish_interval_ms=ws_publish_interval_ms,
+            ws_subscribers=ws_subscribers,
         ),
     )
     summary = engine.run()
@@ -406,6 +436,18 @@ def spike(
         str | None,
         typer.Option("--ws-payload", help="WebSocket payload for stream mode"),
     ] = None,
+    ws_role: Annotated[
+        str | None,
+        typer.Option("--ws-role", help="WebSocket role: publisher or subscriber"),
+    ] = None,
+    ws_publish_interval_ms: Annotated[
+        int | None,
+        typer.Option("--ws-publish-interval", help="Publisher send interval in ms"),
+    ] = None,
+    ws_subscribers: Annotated[
+        int | None,
+        typer.Option("--ws-subscribers", help="Number of subscriber workers"),
+    ] = None,
 ) -> None:
     _configure_logging(_resolve_log_level(verbose, quiet), log_file)
     method = _validate_method(method)
@@ -426,6 +468,9 @@ def spike(
             headers=_parse_headers(header),
             ws_mode=ws_mode or "handshake",
             ws_payload=ws_payload,
+            ws_role=ws_role,
+            ws_publish_interval_ms=ws_publish_interval_ms,
+            ws_subscribers=ws_subscribers,
         ),
     )
     summary = engine.run()

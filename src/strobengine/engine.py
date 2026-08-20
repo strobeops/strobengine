@@ -39,6 +39,9 @@ class RequestOptions:
     headers: list[tuple[str, str]] = field(default_factory=list)
     ws_mode: str = "handshake"
     ws_payload: str | None = None
+    ws_role: str | None = None
+    ws_publish_interval_ms: int | None = None
+    ws_subscribers: int | None = None
 
     def __post_init__(self) -> None:
         if self.timeout <= 0:
@@ -81,6 +84,9 @@ class StrobEngine:
                 if self._options.ws_mode == "stream"
                 else WsMode.handshake(),
                 ws_payload=self._options.ws_payload,
+                ws_role=self._options.ws_role,
+                ws_publish_interval_ms=self._options.ws_publish_interval_ms,
+                ws_subscribers=self._options.ws_subscribers,
             )
             self._profile = None
         else:
