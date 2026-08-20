@@ -158,6 +158,7 @@ WebSocket load tests produce the same `TestSummary` metrics as HTTP:
 | `p90_latency_ms` | 90th percentile latency |
 | `max_latency_ms` | Maximum latency |
 | `total_bytes_received` | Total bytes received (Stream mode) |
+| `avg_e2e_latency_us` | Average cross-client broadcast latency (Pub/Sub mode) |
 | `status_codes` | Status code distribution (200=success, 0=network error) |
 
 ## Chaos Testing
@@ -203,10 +204,101 @@ When chaos is enabled, expect:
 - The load testing engine itself should never crash -- all faults are
   caught and reported in metrics
 
+## Pub/Sub Mode
+
+strobengine supports publisher/subscriber (fan-out) topologies for
+broadcasting scenarios. Workers are assigned roles as either publishers
+or subscribers, with cross-client latency measurement via embedded
+nanosecond timestamps.
+
+### Supported Roles
+
+| Role | Behavior |
+|------|----------|
+| `publisher` | Connects once (persistent), sends timestamped binary frames each iteration |
+| `subscriber` | Connects once (persistent), passively receives broadcast frames each iteration |
+
+### Configuration Parameters
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `ws_role` | `str \| None` | `None` | Worker role: `"publisher"` or `"subscriber"` |
+| `ws_publish_interval_ms` | `int \| None` | `None` | Interval between publisher sends (ms) |
+| `ws_subscribers` | `int \| None` | `None` | Number of subscriber workers (informational) |
+
+### Python API — Publisher
+
+```python
+from strobengine import StrobEngine, RequestOptions
+
+engine = StrobEngine(
+    url="ws://localhost:8080/ws/broadcast",
+    concurrency=10,
+    duration=30,
+    options=RequestOptions(
+        ws_role="publisher",
+        ws_publish_interval_ms=100,
+    ),
+)
+summary = engine.run()
+```
+
+### Python API — Subscriber
+
+```python
+from strobengine import StrobEngine, RequestOptions
+
+engine = StrobEngine(
+    url="ws://localhost:8080/ws/broadcast",
+    concurrency=10,
+    duration=30,
+    options=RequestOptions(
+        ws_role="subscriber",
+        ws_subscribers=10,
+    ),
+)
+summary = engine.run()
+```
+
+### CLI — Publisher
+
+```bash
+strobengine load ws://localhost:8080/ws/broadcast -c 10 -d 30 \
+  --ws-role publisher \
+  --ws-publish-interval 100
+```
+
+### CLI — Subscriber
+
+```bash
+strobengine load ws://localhost:8080/ws/broadcast -c 10 -d 30 \
+  --ws-role subscriber \
+  --ws-subscribers 10
+```
+
+### Cross-Client Latency Measurement
+
+Publishers embed a 16-byte big-endian nanosecond timestamp (UNIX epoch)
+at the head of each binary frame. Subscribers parse this timestamp on
+receive and compute end-to-end broadcast latency:
+
+```
+e2e_latency_us = (receive_time_ns - sent_time_ns) / 1000
+```
+
+This metric is available in `TestSummary.avg_e2e_latency_us` and is
+displayed in the reporter output when non-zero.
+
+### Metrics for Pub/Sub
+
+| Metric | Description |
+|--------|-------------|
+| `avg_e2e_latency_us` | Average cross-client broadcast latency (microseconds) |
+| `total_bytes_received` | Total bytes received by subscribers |
+| `total_requests` | Total iterations across all workers |
+
 ## Limitations
 
 - **Profile-based tests** (`stress_test`, `spike_test`) currently only support
-  `handshake` mode. Stream and PingPong modes are only available with
+  `handshake` mode. Stream, PingPong, and Pub/Sub modes are only available with
   `load_test` (constant concurrency).
-- **No message broadcasting** -- each connection sends one message and closes.
-  Full-duplex continuous messaging is planned for a future release.
