@@ -73,6 +73,8 @@ endpoints for testing the Rust engine against real HTTP responses.
 | `/echo` | Echoes back request method, headers (lowercased), and body |
 | `/last-echo` | Returns the last request captured by `/echo` |
 | `/flaky` | Alternates between 200 OK and 500 on consecutive requests |
+| `/ws` | WebSocket echo server (returns sent message) |
+| `/ws/broadcast` | WebSocket broadcast server (fans out to all connected clients) |
 
 ### Architecture
 

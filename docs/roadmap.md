@@ -49,7 +49,7 @@ This document outlines the planned trajectory and upcoming feature epics for **s
 ### Epic: Automated End-to-End Test Suite
 *Target Focus: Quality Assurance & Reliability*
 
-- [ ] E2E integration tests against mock HTTP targets (error scenarios, timeouts, high concurrency).
+- [x] E2E integration tests against mock HTTP targets (error scenarios, timeouts, high concurrency). `[v0.3.0]`
 - [ ] Benchmarking and performance regression tests in CI pipeline.
 - [ ] Automated cross-platform CLI verification (Linux, macOS, Windows).
 
@@ -65,8 +65,8 @@ This document outlines the planned trajectory and upcoming feature epics for **s
   - [x] Three execution modes: handshake, ping-pong, stream. `[unreleased]`
   - [x] Custom headers and per-iteration timeout. `[unreleased]`
   - [x] Chaos injection (latency spikes, corrupted payloads, connection drops). `[unreleased]`
-  - [ ] Frame broadcasting and multi-message-per-connection streaming.
-  - [ ] Server-push and pub/sub patterns.
+  - [x] Frame broadcasting and multi-message-per-connection streaming. `[unreleased]`
+  - [x] Server-push and pub/sub patterns. `[unreleased]`
 - [x] **gRPC** `[unreleased]`
   - [x] Protobuf service definition parsing (base64/hex payloads, .proto file parsing, server reflection). `[unreleased]`
   - [x] Unary RPC calls with deadline support and chaos injection. `[unreleased]`

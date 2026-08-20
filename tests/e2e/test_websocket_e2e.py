@@ -1,3 +1,5 @@
+import asyncio
+
 from strobengine.engine import RequestOptions, StrobEngine
 
 
@@ -10,7 +12,7 @@ class TestWebSocketLoadTest:
             duration=2,
             options=RequestOptions(no_progress=True),
         )
-        summary = await engine.run_async()
+        summary = await asyncio.wait_for(engine.run_async(), timeout=10.0)
 
         assert summary.total_requests > 0
         assert summary.total_errors == 0
@@ -23,7 +25,7 @@ class TestWebSocketLoadTest:
             duration=2,
             options=RequestOptions(no_progress=True),
         )
-        summary = await engine.run_async()
+        summary = await asyncio.wait_for(engine.run_async(), timeout=10.0)
 
         assert summary.total_requests > 0
         assert summary.total_errors == summary.total_requests
@@ -40,7 +42,7 @@ class TestWebSocketLoadTest:
                 ws_mode="ping_pong",
             ),
         )
-        summary = await engine.run_async()
+        summary = await asyncio.wait_for(engine.run_async(), timeout=10.0)
 
         assert summary.total_requests > 0
         assert summary.total_errors == 0
@@ -59,7 +61,7 @@ class TestWebSocketLoadTest:
                 headers=[("X-Custom-Test", "e2e-value")],
             ),
         )
-        summary = await engine.run_async()
+        summary = await asyncio.wait_for(engine.run_async(), timeout=10.0)
 
         assert summary.total_requests > 0
         assert summary.total_errors == 0
@@ -77,7 +79,7 @@ class TestWebSocketLoadTest:
                 ws_payload='{"type": "echo", "data": "test"}',
             ),
         )
-        summary = await engine.run_async()
+        summary = await asyncio.wait_for(engine.run_async(), timeout=10.0)
 
         assert summary.total_requests > 0
         assert summary.total_errors == 0
@@ -95,7 +97,7 @@ class TestWebSocketLoadTest:
                 ws_mode="stream",
             ),
         )
-        summary = await engine.run_async()
+        summary = await asyncio.wait_for(engine.run_async(), timeout=10.0)
 
         assert summary.total_requests > 0
         assert summary.total_errors == 0
@@ -115,7 +117,7 @@ class TestWebSocketLoadTest:
                 chaos=True,
             ),
         )
-        summary = await engine.run_async()
+        summary = await asyncio.wait_for(engine.run_async(), timeout=10.0)
 
         # Chaos may cause some errors but engine should not crash
         assert summary.total_requests > 0
@@ -124,3 +126,59 @@ class TestWebSocketLoadTest:
         assert summary.total_errors > 0
         # Assert status codes include chaos-related codes
         assert 0 in summary.status_codes or any(k >= 400 for k in summary.status_codes)
+
+    async def test_websocket_continuous_streaming(self, mock_server: str):
+        ws_url = mock_server.replace("http://", "ws://") + "/ws"
+        engine = StrobEngine(
+            url=ws_url,
+            concurrency=2,
+            duration=3,
+            options=RequestOptions(
+                no_progress=True,
+                ws_mode="stream",
+                ws_payload="hello",
+            ),
+        )
+        summary = await asyncio.wait_for(engine.run_async(), timeout=10.0)
+
+        # Multiple iterations should produce multiple requests
+        assert summary.total_requests > 3
+        assert summary.total_errors == 0
+        assert summary.total_bytes_received > 0
+        assert summary.average_latency_ms > 0
+
+    async def test_websocket_pubsub_broadcasting(self, mock_server: str):
+        ws_url = mock_server.replace("http://", "ws://") + "/ws/broadcast"
+        # All workers are publishers; they send timestamped frames to the
+        # broadcast server which fans them out to other connected clients.
+        engine = StrobEngine(
+            url=ws_url,
+            concurrency=2,
+            duration=3,
+            options=RequestOptions(
+                no_progress=True,
+                ws_role="publisher",
+                ws_publish_interval_ms=200,
+                ws_subscribers=2,
+            ),
+        )
+        summary = await asyncio.wait_for(engine.run_async(), timeout=15.0)
+
+        assert summary.total_requests > 0
+        assert summary.total_errors == 0
+
+    async def test_websocket_pubsub_python_api(self, mock_server: str):
+        ws_url = mock_server.replace("http://", "ws://") + "/ws/broadcast"
+        engine = StrobEngine.load_test(
+            url=ws_url,
+            concurrency=2,
+            duration=3,
+            options=RequestOptions(
+                no_progress=True,
+                ws_role="subscriber",
+                ws_subscribers=2,
+            ),
+        )
+        summary = await asyncio.wait_for(engine.run_async(), timeout=15.0)
+
+        assert summary.total_requests > 0
