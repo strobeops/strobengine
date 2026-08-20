@@ -373,8 +373,6 @@ mod tests {
             Some(headers),
             WsMode::PingPong,
             None,
-            None,
-            None,
             Some("mypackage.MyService".into()),
             Some("MyMethod".into()),
             Some("dGVzdA==".into()),
@@ -384,9 +382,9 @@ mod tests {
             false,
             None,
             None,
-            None,
-            None,
-            None,
+            Some("publisher".into()),
+            Some(100),
+            Some(5),
         );
         assert_eq!(c.url, "http://127.0.0.1:8080");
         assert_eq!(c.concurrency, 50);
@@ -398,8 +396,9 @@ mod tests {
         assert!(c.body.is_some());
         assert!(c.headers.is_some());
         assert_eq!(c.ws_mode, WsMode::PingPong);
-        assert_eq!(c.grpc_service.as_deref(), Some("mypackage.MyService"));
-        assert_eq!(c.grpc_method.as_deref(), Some("MyMethod"));
+        assert_eq!(c.ws_role.as_deref(), Some("publisher"));
+        assert_eq!(c.ws_publish_interval_ms, Some(100));
+        assert_eq!(c.ws_subscribers, Some(5));
     }
 
     #[test]

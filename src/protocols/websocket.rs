@@ -23,13 +23,17 @@ type WsStreamReader = futures_util::stream::SplitStream<
 >;
 
 pub struct PublisherSession {
-    write: WsStream,
+    write: Option<WsStream>,
     user_payload: Vec<u8>,
+    headers: Vec<(String, String)>,
+    timeout: Duration,
 }
 
 pub struct SubscriberSession {
-    read: WsStreamReader,
+    read: Option<WsStreamReader>,
     pub received_count: u64,
+    headers: Vec<(String, String)>,
+    timeout: Duration,
 }
 
 /// Error type for WebSocket engine operations.
@@ -277,10 +281,9 @@ impl WebSocketEngine {
             .map_err(|e| EngineError::ConnectionFailed(e.to_string()))?;
 
         for (key, value) in headers {
-            if let (Ok(name), Ok(val)) = (
-                key.as_str().parse::<HeaderName>(),
-                value.as_str().parse(),
-            ) {
+            if let (Ok(name), Ok(val)) =
+                (key.as_str().parse::<HeaderName>(), value.as_str().parse())
+            {
                 request.headers_mut().insert(name, val);
             }
         }
@@ -299,9 +302,22 @@ impl WebSocketEngine {
 
     async fn execute_publisher_iteration(
         &self,
+        target_url: &str,
         session: &mut PublisherSession,
     ) -> RequestMetric {
         let req_start = Instant::now();
+
+        // Lazy connect on first iteration
+        if session.write.is_none() {
+            match Self::connect_ws(&session.headers, session.timeout, target_url).await {
+                Ok((write, _read)) => {
+                    session.write = Some(write);
+                }
+                Err(_) => {
+                    return RequestMetric::error(req_start.elapsed().as_micros());
+                }
+            }
+        }
 
         // Apply chaos
         let fault = self.chaos.select_fault();
@@ -323,6 +339,8 @@ impl WebSocketEngine {
 
         let send_result = session
             .write
+            .as_mut()
+            .unwrap()
             .send(Message::Binary(Bytes::from(payload_bytes.clone())))
             .await;
 
@@ -330,7 +348,7 @@ impl WebSocketEngine {
 
         match send_result {
             Ok(()) => {
-                let _ = session.write.flush().await;
+                let _ = session.write.as_mut().unwrap().flush().await;
                 RequestMetric {
                     latency_micros,
                     status_code: 200,
@@ -350,9 +368,22 @@ impl WebSocketEngine {
 
     async fn execute_subscriber_iteration(
         &self,
+        target_url: &str,
         session: &mut SubscriberSession,
     ) -> RequestMetric {
         let req_start = Instant::now();
+
+        // Lazy connect on first iteration
+        if session.read.is_none() {
+            match Self::connect_ws(&session.headers, session.timeout, target_url).await {
+                Ok((_write, read)) => {
+                    session.read = Some(read);
+                }
+                Err(_) => {
+                    return RequestMetric::error(req_start.elapsed().as_micros());
+                }
+            }
+        }
 
         // Apply chaos
         let fault = self.chaos.select_fault();
@@ -370,7 +401,7 @@ impl WebSocketEngine {
         let timeout = self.effective_timeout();
         let read_result = tokio::time::timeout(timeout, async {
             let mut total_bytes = 0u64;
-            while let Some(Ok(msg)) = session.read.next().await {
+            while let Some(Ok(msg)) = session.read.as_mut().unwrap().next().await {
                 match msg {
                     Message::Binary(bin) => {
                         total_bytes += bin.len() as u64;
@@ -535,36 +566,23 @@ impl ProtocolEngine for WebSocketEngine {
     }
 
     async fn create_worker_context(&self) -> Option<Box<dyn std::any::Any + Send>> {
+        let timeout = self.effective_timeout();
+
         if self.is_publisher() {
-            let user_payload = self
-                .payload
-                .as_deref()
-                .unwrap_or("")
-                .as_bytes()
-                .to_vec();
-            let timeout = self.effective_timeout();
-            match Self::connect_ws(&self.headers, timeout, "").await {
-                Ok((write, _read)) => Some(Box::new(PublisherSession {
-                    write,
-                    user_payload,
-                })),
-                Err(e) => {
-                    tracing::debug!(error = %e, "failed to connect publisher");
-                    None
-                }
-            }
+            let user_payload = self.payload.as_deref().unwrap_or("").as_bytes().to_vec();
+            Some(Box::new(PublisherSession {
+                write: None,
+                user_payload,
+                headers: self.headers.clone(),
+                timeout,
+            }))
         } else if self.is_subscriber() {
-            let timeout = self.effective_timeout();
-            match Self::connect_ws(&self.headers, timeout, "").await {
-                Ok((_write, read)) => Some(Box::new(SubscriberSession {
-                    read,
-                    received_count: 0,
-                })),
-                Err(e) => {
-                    tracing::debug!(error = %e, "failed to connect subscriber");
-                    None
-                }
-            }
+            Some(Box::new(SubscriberSession {
+                read: None,
+                received_count: 0,
+                headers: self.headers.clone(),
+                timeout,
+            }))
         } else if self.ws_persistent {
             Some(Box::new(PersistentWsSession::new(
                 self.headers.clone(),
@@ -583,12 +601,12 @@ impl ProtocolEngine for WebSocketEngine {
     ) -> RequestMetric {
         // Publisher dispatch
         if let Some(session) = ctx.downcast_mut::<PublisherSession>() {
-            return self.execute_publisher_iteration(session).await;
+            return self.execute_publisher_iteration(target_url, session).await;
         }
 
         // Subscriber dispatch
         if let Some(session) = ctx.downcast_mut::<SubscriberSession>() {
-            return self.execute_subscriber_iteration(session).await;
+            return self.execute_subscriber_iteration(target_url, session).await;
         }
 
         // Persistent session dispatch (existing logic)
@@ -818,19 +836,19 @@ mod tests {
 
         // Server that broadcasts every binary message to all connected clients
         let (tx, _rx) = broadcast::channel::<Vec<u8>>(32);
-        let tx_clone = tx.clone();
 
         tokio::spawn(async move {
             while let Ok((stream, _)) = listener.accept().await {
                 let mut ws = accept_async(stream).await.unwrap();
-                let mut rx = tx_clone.subscribe();
+                let mut rx = tx.subscribe();
+                let tx_inner = tx.clone();
                 tokio::spawn(async move {
                     loop {
                         tokio::select! {
                             msg = ws.next() => {
                                 match msg {
                                     Some(Ok(Message::Binary(bin))) => {
-                                        let _ = tx_clone.send(bin.to_vec());
+                                        let _ = tx_inner.send(bin.to_vec());
                                     }
                                     Some(Ok(Message::Close(_))) | None => break,
                                     _ => {}
@@ -869,12 +887,12 @@ mod tests {
         // Subscriber waits for broadcast
         let recv_result = tokio::time::timeout(Duration::from_secs(2), async {
             while let Some(Ok(msg)) = sub_read.next().await {
-                if let Message::Binary(bin) = msg {
-                    if let Some((sent_ns, _user_data)) = parse_pubsub_payload(&bin) {
-                        let now_ns = wallclock_ns();
-                        let e2e_us = now_ns.saturating_sub(sent_ns) / 1000;
-                        return Some(e2e_us);
-                    }
+                if let Message::Binary(bin) = msg
+                    && let Some((sent_ns, _user_data)) = parse_pubsub_payload(&bin)
+                {
+                    let now_ns = wallclock_ns();
+                    let e2e_us = now_ns.saturating_sub(sent_ns) / 1000;
+                    return Some(e2e_us);
                 }
             }
             None
@@ -941,9 +959,7 @@ mod tests {
                 && let Ok(mut ws_stream) = accept_async(stream).await
             {
                 let payload = create_pubsub_payload(b"hello");
-                let _ = ws_stream
-                    .send(Message::Binary(Bytes::from(payload)))
-                    .await;
+                let _ = ws_stream.send(Message::Binary(Bytes::from(payload))).await;
                 let _ = ws_stream.close(None).await;
             }
         });
