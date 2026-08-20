@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, AtomicUsize};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
@@ -7,10 +8,58 @@ use pyo3::types::PyDict;
 /// Conversion factor from microseconds to milliseconds (1 ms = 1,000 us).
 pub const MICROS_PER_MILLI: f64 = 1_000.0;
 
+/// Get current wall-clock time in nanoseconds since UNIX epoch.
+pub fn wallclock_ns() -> u128 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos()
+}
+
+/// Encode a pub/sub payload: 16-byte big-endian nanosecond timestamp prefix + user payload.
+pub fn create_pubsub_payload(user_payload: &[u8]) -> Vec<u8> {
+    let now_ns = wallclock_ns();
+    let mut payload = Vec::with_capacity(16 + user_payload.len());
+    payload.extend_from_slice(&now_ns.to_be_bytes());
+    payload.extend_from_slice(user_payload);
+    payload
+}
+
+/// Decode a pub/sub payload, returning (sent_ns, user_payload).
+/// Returns None if the data is shorter than 16 bytes.
+#[allow(dead_code)]
+pub fn parse_pubsub_payload(data: &[u8]) -> Option<(u128, &[u8])> {
+    if data.len() < 16 {
+        return None;
+    }
+    let (ts_bytes, rest) = data.split_at(16);
+    let ts_array: [u8; 16] = ts_bytes.try_into().ok()?;
+    let sent_ns = u128::from_be_bytes(ts_array);
+    Some((sent_ns, rest))
+}
+
 pub struct RequestMetric {
     pub latency_micros: u128,
     pub status_code: u16,
     pub bytes_received: u64,
+    pub is_reconnect: bool,
+    pub connection_latency_us: Option<u128>,
+    pub timestamp_sent_ns: Option<u128>,
+    pub e2e_latency_us: Option<u128>,
+}
+
+impl RequestMetric {
+    pub fn error(latency_micros: u128) -> Self {
+        Self {
+            latency_micros,
+            status_code: 0,
+            bytes_received: 0,
+            is_reconnect: false,
+            connection_latency_us: None,
+            timestamp_sent_ns: None,
+            e2e_latency_us: None,
+        }
+    }
 }
 
 pub struct LiveCounters {
