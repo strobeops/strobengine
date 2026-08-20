@@ -44,6 +44,9 @@ class TestConfig:
     headers: list[tuple[str, str]] | None
     ws_mode: WsMode
     ws_payload: str | None
+    ws_role: str | None
+    ws_publish_interval_ms: int | None
+    ws_subscribers: int | None
     def __init__(
         self,
         url: str,
@@ -59,6 +62,9 @@ class TestConfig:
         headers: list[tuple[str, str]] | None = None,
         ws_mode: WsMode | None = None,
         ws_payload: str | None = None,
+        ws_role: str | None = None,
+        ws_publish_interval_ms: int | None = None,
+        ws_subscribers: int | None = None,
     ) -> None: ...
 
 class TestSummary:
@@ -94,6 +100,8 @@ class TestSummary:
     def raw_command(self) -> str | None: ...
     @property
     def status_codes(self) -> dict[int, int]: ...
+    @property
+    def avg_e2e_latency_us(self) -> float: ...
     def to_dict(self) -> dict[str, Any]: ...
     def to_json(self, indent: int | None = None) -> str: ...
 
