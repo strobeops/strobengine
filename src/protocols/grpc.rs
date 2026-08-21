@@ -2,7 +2,7 @@ use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
 use base64::Engine;
-use bytes::{Buf, BufMut, Bytes, BytesMut};
+use bytes::{Buf, BufMut, Bytes};
 use tonic::Status;
 use tonic::client::Grpc;
 use tonic::codec::{Codec, DecodeBuf, Encoder};
@@ -82,10 +82,7 @@ impl tonic::codec::Decoder for RawDecoder {
         if len == 0 {
             return Ok(None);
         }
-        let mut buf = BytesMut::with_capacity(len);
-        buf.extend_from_slice(src.chunk());
-        src.advance(len);
-        Ok(Some(buf.freeze()))
+        Ok(Some(src.copy_to_bytes(len)))
     }
 }
 
