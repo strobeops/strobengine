@@ -70,9 +70,9 @@ This document outlines the planned trajectory and upcoming feature epics for **s
 - [x] **gRPC** `[unreleased]`
   - [x] Protobuf service definition parsing (base64/hex payloads, .proto file parsing, server reflection). `[unreleased]`
   - [x] Unary RPC calls with deadline support and chaos injection. `[unreleased]`
-- [ ] **HTTP/3 (QUIC)**
-  - [ ] UDP-based QUIC transport layer support.
-  - [ ] Zero-RTT connection testing and loss recovery benchmarking.
+- [x] **HTTP/3 (QUIC)** `[unreleased]`
+  - [x] UDP-based QUIC transport layer support. `[unreleased]`
+  - [x] Zero-RTT connection testing and loss recovery benchmarking. `[unreleased]`
 
 ---
 

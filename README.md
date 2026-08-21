@@ -200,6 +200,9 @@ By default, this spawns **10 concurrent workers** for **10 seconds** with a **10
 | `--grpc-method` | none | gRPC method name (e.g. SayHello) |
 | `--grpc-payload` | none | Base64-encoded protobuf payload |
 | `--grpc-deadline-ms` | none | gRPC deadline in milliseconds |
+| `--http3/--no-http3` | off | Enable HTTP/3 over QUIC |
+| `--quic-zero-rtt` | off | Enable QUIC 0-RTT connection testing |
+| `--quic-max-idle-timeout` | none | QUIC max idle timeout in ms |
 
 ### Stress Subcommand Options
 
@@ -229,6 +232,9 @@ By default, this spawns **10 concurrent workers** for **10 seconds** with a **10
 | `--grpc-method` | none | gRPC method name (e.g. SayHello) |
 | `--grpc-payload` | none | Base64-encoded protobuf payload |
 | `--grpc-deadline-ms` | none | gRPC deadline in milliseconds |
+| `--http3/--no-http3` | off | Enable HTTP/3 over QUIC |
+| `--quic-zero-rtt` | off | Enable QUIC 0-RTT connection testing |
+| `--quic-max-idle-timeout` | none | QUIC max idle timeout in ms |
 
 ### Spike Subcommand Options
 
@@ -259,6 +265,9 @@ By default, this spawns **10 concurrent workers** for **10 seconds** with a **10
 | `--grpc-method` | none | gRPC method name (e.g. SayHello) |
 | `--grpc-payload` | none | Base64-encoded protobuf payload |
 | `--grpc-deadline-ms` | none | gRPC deadline in milliseconds |
+| `--http3/--no-http3` | off | Enable HTTP/3 over QUIC |
+| `--quic-zero-rtt` | off | Enable QUIC 0-RTT connection testing |
+| `--quic-max-idle-timeout` | none | QUIC max idle timeout in ms |
 
 ### Global Options
 

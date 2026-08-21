@@ -9,6 +9,7 @@
 - [HTTP Methods](http_methods.md) -- Supported HTTP methods, request bodies, headers, performance
 - [WebSocket Load Testing](websockets.md) -- WS/WSS modes, pub/sub broadcasting, custom payloads, headers, metrics
 - [gRPC Load Testing](grpc.md) -- Unary calls, protobuf payloads, deadline, chaos
+- [HTTP/3 Load Testing](http3.md) -- QUIC transport, 0-RTT resumption, loss recovery metrics
 
 ## Operations
 
