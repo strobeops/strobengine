@@ -83,6 +83,12 @@ pub struct TestConfig {
     pub ws_publish_interval_ms: Option<u64>,
     #[pyo3(get, set)]
     pub ws_subscribers: Option<usize>,
+    #[pyo3(get, set)]
+    pub http3_enabled: bool,
+    #[pyo3(get, set)]
+    pub quic_zero_rtt: bool,
+    #[pyo3(get, set)]
+    pub quic_max_idle_timeout_ms: Option<u64>,
 }
 
 #[pymethods]
@@ -114,6 +120,9 @@ impl TestConfig {
         ws_role=None,
         ws_publish_interval_ms=None,
         ws_subscribers=None,
+        http3_enabled=false,
+        quic_zero_rtt=false,
+        quic_max_idle_timeout_ms=None,
     ))]
     #[allow(clippy::too_many_arguments)]
     pub fn new(
@@ -142,6 +151,9 @@ impl TestConfig {
         ws_role: Option<String>,
         ws_publish_interval_ms: Option<u64>,
         ws_subscribers: Option<usize>,
+        http3_enabled: bool,
+        quic_zero_rtt: bool,
+        quic_max_idle_timeout_ms: Option<u64>,
     ) -> Self {
         Self {
             url,
@@ -169,6 +181,9 @@ impl TestConfig {
             ws_role,
             ws_publish_interval_ms,
             ws_subscribers,
+            http3_enabled,
+            quic_zero_rtt,
+            quic_max_idle_timeout_ms,
         }
     }
 }
@@ -339,6 +354,9 @@ mod tests {
             None,
             None,
             None,
+            false,
+            false,
+            None,
         );
         assert_eq!(c.url, "http://127.0.0.1:8080");
         assert_eq!(c.concurrency, 10);
@@ -385,6 +403,9 @@ mod tests {
             Some("publisher".into()),
             Some(100),
             Some(5),
+            false,
+            false,
+            None,
         );
         assert_eq!(c.url, "http://127.0.0.1:8080");
         assert_eq!(c.concurrency, 50);
@@ -428,6 +449,9 @@ mod tests {
             None,
             None,
             None,
+            None,
+            false,
+            false,
             None,
         );
         assert_eq!(c.url, "http://127.0.0.1:8080");
