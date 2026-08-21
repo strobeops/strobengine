@@ -357,6 +357,9 @@ impl WebSocketEngine {
                     connection_latency_us: None,
                     timestamp_sent_ns: Some(wallclock_ns()),
                     e2e_latency_us: None,
+                    quic_handshake_us: None,
+                    quic_0rtt_used: false,
+                    quic_retransmits: None,
                 }
             }
             Err(e) => {
@@ -442,6 +445,9 @@ impl WebSocketEngine {
                     connection_latency_us: None,
                     timestamp_sent_ns: None,
                     e2e_latency_us,
+                    quic_handshake_us: None,
+                    quic_0rtt_used: false,
+                    quic_retransmits: None,
                 }
             }
             Ok(None) => RequestMetric::error(latency_micros),
@@ -562,6 +568,9 @@ impl ProtocolEngine for WebSocketEngine {
             connection_latency_us: None,
             timestamp_sent_ns: None,
             e2e_latency_us: None,
+            quic_handshake_us: None,
+            quic_0rtt_used: false,
+            quic_retransmits: None,
         }
     }
 
@@ -659,6 +668,9 @@ impl ProtocolEngine for WebSocketEngine {
                     connection_latency_us: Some(connection_latency_us),
                     timestamp_sent_ns: None,
                     e2e_latency_us: None,
+                    quic_handshake_us: None,
+                    quic_0rtt_used: false,
+                    quic_retransmits: None,
                 }
             }
             Err(_) => RequestMetric {
@@ -669,6 +681,9 @@ impl ProtocolEngine for WebSocketEngine {
                 connection_latency_us: Some(connection_latency_us),
                 timestamp_sent_ns: None,
                 e2e_latency_us: None,
+                quic_handshake_us: None,
+                quic_0rtt_used: false,
+                quic_retransmits: None,
             },
         }
     }
