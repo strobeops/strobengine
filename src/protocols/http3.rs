@@ -6,6 +6,7 @@ use async_trait::async_trait;
 use bytes::{Buf, Bytes};
 use h3_quinn::Connection as H3QuinnConnection;
 use quinn::{ClientConfig, Endpoint, TokioRuntime, TransportConfig};
+use tokio::sync::OnceCell;
 
 use crate::chaos::{ChaosEngine, ChaosFault};
 use crate::metrics::RequestMetric;
@@ -21,7 +22,7 @@ pub struct Http3Session {
 }
 
 pub struct Http3Engine {
-    endpoint: Endpoint,
+    endpoint: OnceCell<Endpoint>,
     server_name: String,
     authority: String,
     path: String,
@@ -72,60 +73,6 @@ impl Http3Engine {
         let server_name = host.clone();
         let authority = format!("{host}:{port}");
 
-        // Install ring crypto provider if not already installed
-        let _ = quinn::rustls::crypto::ring::default_provider().install_default();
-
-        // Build QUIC endpoint
-        let addr: SocketAddr = "0.0.0.0:0"
-            .parse()
-            .map_err(|e| format!("failed to parse bind address: {e}"))?;
-
-        let socket = std::net::UdpSocket::bind(addr)
-            .map_err(|e| format!("failed to bind UDP socket: {e}"))?;
-        socket
-            .set_nonblocking(true)
-            .map_err(|e| format!("failed to set nonblocking: {e}"))?;
-
-        let mut endpoint = Endpoint::new(
-            quinn::EndpointConfig::default(),
-            None,
-            socket,
-            Arc::new(TokioRuntime),
-        )
-        .map_err(|e| format!("failed to create QUIC endpoint: {e}"))?;
-
-        // Configure TLS 1.3 with ALPN h3
-        let mut roots = quinn::rustls::RootCertStore::empty();
-        roots.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
-
-        let mut tls = quinn::rustls::ClientConfig::builder()
-            .with_root_certificates(roots)
-            .with_no_client_auth();
-
-        tls.alpn_protocols = vec![b"h3".to_vec()];
-
-        // Enable TLS 1.3 session resumption for 0-RTT support
-        tls.resumption = quinn::rustls::client::Resumption::in_memory_sessions(256);
-
-        // Configure QUIC transport
-        let mut transport = TransportConfig::default();
-        let idle_timeout = max_idle_timeout_ms.unwrap_or(30_000).min(16_383);
-        transport.max_idle_timeout(Some(
-            Duration::from_millis(idle_timeout)
-                .try_into()
-                .map_err(|e| format!("invalid idle timeout: {e}"))?,
-        ));
-        transport.max_concurrent_bidi_streams(100u32.into());
-        transport.max_concurrent_uni_streams(100u32.into());
-
-        let quic_tls = quinn::crypto::rustls::QuicClientConfig::try_from(tls)
-            .map_err(|e| format!("TLS config error: {e}"))?;
-
-        let mut client_config = ClientConfig::new(Arc::new(quic_tls));
-        client_config.transport_config(Arc::new(transport));
-
-        endpoint.set_default_client_config(client_config);
-
         let method = match method.to_uppercase().as_str() {
             "POST" => http::Method::POST,
             "PUT" => http::Method::PUT,
@@ -136,8 +83,9 @@ impl Http3Engine {
             _ => http::Method::GET,
         };
 
+        // Endpoint is created lazily on first use (inside Tokio runtime)
         Ok(Self {
-            endpoint,
+            endpoint: OnceCell::new(),
             server_name,
             authority,
             path,
@@ -148,6 +96,69 @@ impl Http3Engine {
             max_idle_timeout_ms,
             zero_rtt,
         })
+    }
+
+    /// Lazily create the QUIC endpoint on first use.
+    /// Must be called from within a Tokio runtime context.
+    async fn ensure_endpoint(&self) -> Result<&Endpoint, String> {
+        self.endpoint
+            .get_or_try_init(|| async {
+                // Install ring crypto provider if not already installed
+                let _ = quinn::rustls::crypto::ring::default_provider().install_default();
+
+                let addr: SocketAddr = "0.0.0.0:0"
+                    .parse()
+                    .map_err(|e| format!("failed to parse bind address: {e}"))?;
+
+                let socket = std::net::UdpSocket::bind(addr)
+                    .map_err(|e| format!("failed to bind UDP socket: {e}"))?;
+                socket
+                    .set_nonblocking(true)
+                    .map_err(|e| format!("failed to set nonblocking: {e}"))?;
+
+                let mut endpoint = Endpoint::new(
+                    quinn::EndpointConfig::default(),
+                    None,
+                    socket,
+                    Arc::new(TokioRuntime),
+                )
+                .map_err(|e| format!("failed to create QUIC endpoint: {e}"))?;
+
+                // Configure TLS 1.3 with ALPN h3
+                let mut roots = quinn::rustls::RootCertStore::empty();
+                roots.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
+
+                let mut tls = quinn::rustls::ClientConfig::builder()
+                    .with_root_certificates(roots)
+                    .with_no_client_auth();
+
+                tls.alpn_protocols = vec![b"h3".to_vec()];
+
+                // Enable TLS 1.3 session resumption for 0-RTT support
+                tls.resumption = quinn::rustls::client::Resumption::in_memory_sessions(256);
+
+                // Configure QUIC transport
+                let mut transport = TransportConfig::default();
+                let idle_timeout = self.max_idle_timeout_ms.unwrap_or(30_000).min(16_383);
+                transport.max_idle_timeout(Some(
+                    Duration::from_millis(idle_timeout)
+                        .try_into()
+                        .map_err(|e| format!("invalid idle timeout: {e}"))?,
+                ));
+                transport.max_concurrent_bidi_streams(100u32.into());
+                transport.max_concurrent_uni_streams(100u32.into());
+
+                let quic_tls = quinn::crypto::rustls::QuicClientConfig::try_from(tls)
+                    .map_err(|e| format!("TLS config error: {e}"))?;
+
+                let mut client_config = ClientConfig::new(Arc::new(quic_tls));
+                client_config.transport_config(Arc::new(transport));
+
+                endpoint.set_default_client_config(client_config);
+
+                Ok(endpoint)
+            })
+            .await
     }
 
     async fn connect_quic(&self) -> Result<quinn::Connection, String> {
@@ -164,6 +175,8 @@ impl Http3Engine {
     }
 
     async fn connect_quic_connecting(&self) -> Result<quinn::Connecting, String> {
+        let endpoint = self.ensure_endpoint().await?;
+
         let addr_str = format!(
             "{}:{}",
             self.authority.split(':').next().unwrap_or(&self.authority),
@@ -175,7 +188,7 @@ impl Http3Engine {
             .next()
             .ok_or_else(|| "no addresses found for host".to_string())?;
 
-        self.endpoint
+        endpoint
             .connect(addr, &self.server_name)
             .map_err(|e| format!("QUIC connect error: {e}"))
     }
@@ -187,13 +200,11 @@ impl Http3Engine {
         let connect_start = Instant::now();
         match connecting.into_0rtt() {
             Ok((conn, zero_rtt_accepted)) => {
-                // Await the0-RTT acceptance result
                 let accepted = zero_rtt_accepted.await;
                 tracing::debug!(accepted, "0-RTT connection established");
                 Ok((conn, Some(accepted), true))
             }
             Err(connecting) => {
-                // No session ticket — fall back to 1-RTT
                 let connection = tokio::time::timeout(Duration::from_secs(5), async {
                     connecting
                         .await
@@ -417,7 +428,6 @@ impl ProtocolEngine for Http3Engine {
             Ok((status, bytes)) => (status, bytes),
             Err(e) => {
                 tracing::debug!(error = %e, "H3 persistent session failed, reconnecting");
-                // Attempt0-RTT reconnection
                 let connect_start = Instant::now();
                 match self.connect_quic_connecting().await {
                     Ok(connecting) => match self.connect_with_0rtt(connecting).await {
@@ -534,6 +544,8 @@ mod tests {
         assert_eq!(engine.max_idle_timeout_ms, Some(10_000));
         assert!(engine.zero_rtt);
         assert_eq!(engine.headers.len(), 1);
+        // Endpoint should not be created yet (lazy init)
+        assert!(engine.endpoint.get().is_none());
     }
 
     #[tokio::test]
@@ -547,10 +559,6 @@ mod tests {
             None,
             false,
         );
-        // "not-a-url" has no h3:// or http3:// prefix and no host, so it should fail
-        // Note: http::Uri may accept it as a relative URI, so this test may need adjustment
-        // depending on the URI parser behavior. For now, verify it either fails or
-        // creates an engine with empty host.
         if let Ok(engine) = result {
             assert!(engine.server_name.is_empty() || engine.authority.contains(':'));
         }
