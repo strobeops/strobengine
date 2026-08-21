@@ -2,6 +2,7 @@ pub mod grpc;
 pub mod grpc_parser;
 pub mod grpc_reflection;
 pub mod http;
+pub mod http3;
 pub mod websocket;
 
 use std::sync::Arc;
@@ -87,6 +88,22 @@ pub fn detect_protocol(
                     )
                     .expect("failed to create fallback gRPC engine"),
                 )
+            }
+        }
+    } else if url.starts_with("http3://") || url.starts_with("h3://") {
+        match http3::Http3Engine::new(
+            url,
+            config.headers.clone().unwrap_or_default(),
+            config.method.clone(),
+            config.body.as_ref().map(|b| bytes::Bytes::from(b.clone())),
+            chaos,
+            config.quic_max_idle_timeout_ms,
+            config.quic_zero_rtt,
+        ) {
+            Ok(engine) => Arc::new(engine),
+            Err(e) => {
+                tracing::error!(error = %e, "failed to create HTTP/3 engine, aborting");
+                panic!("HTTP/3 engine creation failed: {e}");
             }
         }
     } else {
