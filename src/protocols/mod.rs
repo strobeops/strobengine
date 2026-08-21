@@ -102,8 +102,8 @@ pub fn detect_protocol(
         ) {
             Ok(engine) => Arc::new(engine),
             Err(e) => {
-                tracing::error!(error = %e, "failed to create HTTP/3 engine, aborting");
-                panic!("HTTP/3 engine creation failed: {e}");
+                tracing::warn!(error = %e, "failed to create HTTP/3 engine, falling back to HTTP/1.1");
+                Arc::new(http::HttpEngine::new())
             }
         }
     } else {
