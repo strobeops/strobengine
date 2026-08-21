@@ -72,22 +72,8 @@ pub fn detect_protocol(
         ) {
             Ok(engine) => Arc::new(engine),
             Err(e) => {
-                tracing::warn!(error = %e, "failed to create gRPC engine, falling back to raw payload");
-                // Fallback: create engine without proto schema
-                Arc::new(
-                    grpc::GrpcEngine::new(
-                        url,
-                        config.headers.clone().unwrap_or_default(),
-                        chaos,
-                        config.grpc_service.clone(),
-                        config.grpc_method.clone(),
-                        config.grpc_payload.clone(),
-                        config.grpc_deadline_ms,
-                        None,
-                        false,
-                    )
-                    .expect("failed to create fallback gRPC engine"),
-                )
+                tracing::warn!(error = %e, "failed to create gRPC engine, falling back to HTTP");
+                Arc::new(http::HttpEngine::new())
             }
         }
     } else if url.starts_with("http3://") || url.starts_with("h3://") {
