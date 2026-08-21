@@ -16,6 +16,8 @@ use super::ProtocolEngine;
 pub struct Http3Session {
     pub h3_send: h3::client::SendRequest<h3_quinn::OpenStreams, Bytes>,
     pub quinn_conn: quinn::Connection,
+    pub zero_rtt_accepted: Option<bool>,
+    pub prev_lost_packets: u64,
 }
 
 pub struct Http3Engine {
@@ -102,6 +104,9 @@ impl Http3Engine {
 
         tls.alpn_protocols = vec![b"h3".to_vec()];
 
+        // Enable TLS 1.3 session resumption for 0-RTT support
+        tls.resumption = quinn::rustls::client::Resumption::in_memory_sessions(256);
+
         // Configure QUIC transport
         let mut transport = TransportConfig::default();
         let idle_timeout = max_idle_timeout_ms.unwrap_or(30_000).min(16_383);
@@ -146,6 +151,19 @@ impl Http3Engine {
     }
 
     async fn connect_quic(&self) -> Result<quinn::Connection, String> {
+        let connecting = self.connect_quic_connecting().await?;
+        let connection = tokio::time::timeout(Duration::from_secs(5), async {
+            connecting
+                .await
+                .map_err(|e| format!("QUIC handshake failed: {e}"))
+        })
+        .await
+        .map_err(|_| "QUIC handshake timed out".to_string())?
+        .map_err(|e| e.to_string())?;
+        Ok(connection)
+    }
+
+    async fn connect_quic_connecting(&self) -> Result<quinn::Connecting, String> {
         let addr_str = format!(
             "{}:{}",
             self.authority.split(':').next().unwrap_or(&self.authority),
@@ -157,21 +175,39 @@ impl Http3Engine {
             .next()
             .ok_or_else(|| "no addresses found for host".to_string())?;
 
-        let connect = self
-            .endpoint
+        self.endpoint
             .connect(addr, &self.server_name)
-            .map_err(|e| format!("QUIC connect error: {e}"))?;
+            .map_err(|e| format!("QUIC connect error: {e}"))
+    }
 
-        let connection = tokio::time::timeout(Duration::from_secs(5), async {
-            connect
+    async fn connect_with_0rtt(
+        &self,
+        connecting: quinn::Connecting,
+    ) -> Result<(quinn::Connection, Option<bool>, bool), String> {
+        let connect_start = Instant::now();
+        match connecting.into_0rtt() {
+            Ok((conn, zero_rtt_accepted)) => {
+                // Await the0-RTT acceptance result
+                let accepted = zero_rtt_accepted.await;
+                tracing::debug!(accepted, "0-RTT connection established");
+                Ok((conn, Some(accepted), true))
+            }
+            Err(connecting) => {
+                // No session ticket — fall back to 1-RTT
+                let connection = tokio::time::timeout(Duration::from_secs(5), async {
+                    connecting
+                        .await
+                        .map_err(|e| format!("QUIC handshake failed: {e}"))
+                })
                 .await
-                .map_err(|e| format!("QUIC handshake failed: {e}"))
-        })
-        .await
-        .map_err(|_| "QUIC handshake timed out".to_string())?
-        .map_err(|e| e.to_string())?;
+                .map_err(|_| "QUIC handshake timed out".to_string())?
+                .map_err(|e| e.to_string())?;
 
-        Ok(connection)
+                let handshake_us = connect_start.elapsed().as_micros() as u64;
+                tracing::debug!(handshake_us, "1-RTT connection established");
+                Ok((connection, None, false))
+            }
+        }
     }
 
     async fn setup_h3(
@@ -329,16 +365,22 @@ impl ProtocolEngine for Http3Engine {
             connection_latency_us: Some(connection_latency_us),
             timestamp_sent_ns: None,
             e2e_latency_us: None,
+            quic_handshake_us: None,
+            quic_0rtt_used: false,
+            quic_retransmits: None,
         }
     }
 
     async fn create_worker_context(&self) -> Option<Box<dyn std::any::Any + Send>> {
-        let connection = self.connect_quic().await.ok()?;
+        let connecting = self.connect_quic_connecting().await.ok()?;
+        let (connection, zero_rtt_accepted, _) = self.connect_with_0rtt(connecting).await.ok()?;
         let send_request = self.setup_h3(connection.clone()).await.ok()?;
 
         Some(Box::new(Http3Session {
             h3_send: send_request,
             quinn_conn: connection,
+            zero_rtt_accepted,
+            prev_lost_packets: 0,
         }))
     }
 
@@ -368,18 +410,31 @@ impl ProtocolEngine for Http3Engine {
         }
 
         let mut is_reconnect = false;
+        let mut handshake_us: Option<u64> = None;
+        let mut used_0rtt = false;
+
         let result = match self.send_request_on_conn(&mut session.h3_send).await {
             Ok((status, bytes)) => (status, bytes),
             Err(e) => {
                 tracing::debug!(error = %e, "H3 persistent session failed, reconnecting");
-                match self.connect_quic().await {
-                    Ok(new_conn) => match self.setup_h3(new_conn.clone()).await {
-                        Ok(new_send) => {
-                            session.quinn_conn = new_conn;
-                            session.h3_send = new_send;
-                            is_reconnect = true;
-                            match self.send_request_on_conn(&mut session.h3_send).await {
-                                Ok((s, b)) => (s, b),
+                // Attempt0-RTT reconnection
+                let connect_start = Instant::now();
+                match self.connect_quic_connecting().await {
+                    Ok(connecting) => match self.connect_with_0rtt(connecting).await {
+                        Ok((new_conn, zero_rtt, is_0rtt)) => {
+                            handshake_us = Some(connect_start.elapsed().as_micros() as u64);
+                            used_0rtt = is_0rtt;
+                            match self.setup_h3(new_conn.clone()).await {
+                                Ok(new_send) => {
+                                    session.quinn_conn = new_conn;
+                                    session.h3_send = new_send;
+                                    session.zero_rtt_accepted = zero_rtt;
+                                    is_reconnect = true;
+                                    match self.send_request_on_conn(&mut session.h3_send).await {
+                                        Ok((s, b)) => (s, b),
+                                        Err(_) => (0, 0),
+                                    }
+                                }
                                 Err(_) => (0, 0),
                             }
                         }
@@ -389,6 +444,17 @@ impl ProtocolEngine for Http3Engine {
                 }
             }
         };
+
+        // Track retransmissions from QUIC connection stats
+        let stats = session.quinn_conn.stats();
+        let lost = stats.path.lost_packets;
+        let retransmits = lost.saturating_sub(session.prev_lost_packets);
+        session.prev_lost_packets = lost;
+
+        // Check if 0-RTT was accepted
+        if !used_0rtt && let Some(accepted) = session.zero_rtt_accepted {
+            used_0rtt = accepted;
+        }
 
         let latency_micros = req_start.elapsed().as_micros();
 
@@ -400,6 +466,9 @@ impl ProtocolEngine for Http3Engine {
             connection_latency_us: None,
             timestamp_sent_ns: None,
             e2e_latency_us: None,
+            quic_handshake_us: handshake_us,
+            quic_0rtt_used: used_0rtt,
+            quic_retransmits: Some(retransmits),
         }
     }
 }
