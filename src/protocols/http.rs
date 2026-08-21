@@ -142,6 +142,9 @@ impl ProtocolEngine for HttpEngine {
             connection_latency_us: None,
             timestamp_sent_ns: None,
             e2e_latency_us: None,
+            quic_handshake_us: None,
+            quic_0rtt_used: false,
+            quic_retransmits: None,
         }
     }
 }
