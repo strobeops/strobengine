@@ -120,9 +120,16 @@ impl GrpcEngine {
         grpc_use_reflection: bool,
     ) -> Result<Self, crate::protocols::grpc_parser::ProtoError> {
         // Parse the URL directly - tonic handles scheme normalization
-        let uri: http::Uri = url.parse().expect("invalid gRPC endpoint URL");
-
-        let endpoint = Endpoint::new(uri).expect("failed to create gRPC endpoint");
+        let uri: http::Uri = url.parse().map_err(|e| {
+            crate::protocols::grpc_parser::ProtoError::ConnectionError(format!(
+                "invalid gRPC URL: {e}"
+            ))
+        })?;
+        let endpoint = Endpoint::new(uri).map_err(|e| {
+            crate::protocols::grpc_parser::ProtoError::ConnectionError(format!(
+                "failed to create gRPC endpoint: {e}"
+            ))
+        })?;
 
         let svc = service.clone().unwrap_or_default();
         let mth = method.clone().unwrap_or_default();
