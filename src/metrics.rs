@@ -46,6 +46,9 @@ pub struct RequestMetric {
     pub connection_latency_us: Option<u128>,
     pub timestamp_sent_ns: Option<u128>,
     pub e2e_latency_us: Option<u128>,
+    pub quic_handshake_us: Option<u64>,
+    pub quic_0rtt_used: bool,
+    pub quic_retransmits: Option<u64>,
 }
 
 impl RequestMetric {
@@ -58,6 +61,9 @@ impl RequestMetric {
             connection_latency_us: None,
             timestamp_sent_ns: None,
             e2e_latency_us: None,
+            quic_handshake_us: None,
+            quic_0rtt_used: false,
+            quic_retransmits: None,
         }
     }
 }
