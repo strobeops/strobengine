@@ -477,6 +477,8 @@ fn run_load_test(py: Python<'_>, config: TestConfig) -> PyResult<metrics::TestSu
             || url.starts_with("wss://")
             || url.starts_with("grpc://")
             || url.starts_with("grpcs://")
+            || url.starts_with("http3://")
+            || url.starts_with("h3://")
         {
             protocols::detect_protocol(&url, &config, chaos)
         } else {
@@ -595,6 +597,8 @@ fn run_load_profiles(
             || url.starts_with("wss://")
             || url.starts_with("grpc://")
             || url.starts_with("grpcs://")
+            || url.starts_with("http3://")
+            || url.starts_with("h3://")
         {
             // Build a minimal TestConfig for protocol detection
             let ws_config = TestConfig::new(
@@ -624,6 +628,9 @@ fn run_load_profiles(
                 None,
                 None,
                 None,
+                None,
+                false,
+                false,
                 None,
             );
             protocols::detect_protocol(&url, &ws_config, chaos_engine)
