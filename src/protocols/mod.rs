@@ -13,6 +13,16 @@ use crate::chaos::ChaosEngine;
 use crate::config::TestConfig;
 use crate::metrics::RequestMetric;
 
+/// Returns whether the provided URL scheme matches a non-HTTP protocol engine.
+pub fn is_protocol_url(url: &str) -> bool {
+    url.starts_with("ws://")
+        || url.starts_with("wss://")
+        || url.starts_with("grpc://")
+        || url.starts_with("grpcs://")
+        || url.starts_with("http3://")
+        || url.starts_with("h3://")
+}
+
 /// A protocol engine that executes a single load-test iteration.
 /// Orchestration (strategy, metrics aggregation, progress, SIGINT)
 /// is handled by `execute_test` in `lib.rs`.

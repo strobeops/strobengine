@@ -473,13 +473,7 @@ fn run_load_test(py: Python<'_>, config: TestConfig) -> PyResult<metrics::TestSu
         let no_progress = config.no_progress;
 
         // Build protocol engine based on URL scheme
-        let engine: Arc<dyn ProtocolEngine> = if url.starts_with("ws://")
-            || url.starts_with("wss://")
-            || url.starts_with("grpc://")
-            || url.starts_with("grpcs://")
-            || url.starts_with("http3://")
-            || url.starts_with("h3://")
-        {
+        let engine: Arc<dyn ProtocolEngine> = if protocols::is_protocol_url(&url) {
             protocols::detect_protocol(&url, &config, chaos)
         } else {
             let method = parse_method(&config.method)?;
@@ -593,13 +587,7 @@ fn run_load_profiles(
         }
 
         // Build protocol engine based on URL scheme
-        let engine: Arc<dyn ProtocolEngine> = if url.starts_with("ws://")
-            || url.starts_with("wss://")
-            || url.starts_with("grpc://")
-            || url.starts_with("grpcs://")
-            || url.starts_with("http3://")
-            || url.starts_with("h3://")
-        {
+        let engine: Arc<dyn ProtocolEngine> = if protocols::is_protocol_url(&url) {
             // Build a minimal TestConfig for protocol detection
             let ws_config = TestConfig::new(
                 url.clone(),
