@@ -265,6 +265,17 @@ def load(
             help="Use server reflection for schema discovery",
         ),
     ] = False,
+    http3_enabled: Annotated[
+        bool, typer.Option("--http3/--no-http3", help="Enable HTTP/3 over QUIC")
+    ] = False,
+    quic_zero_rtt: Annotated[
+        bool,
+        typer.Option("--quic-zero-rtt", help="Enable QUIC 0-RTT connection testing"),
+    ] = False,
+    quic_max_idle_timeout_ms: Annotated[
+        int | None,
+        typer.Option("--quic-max-idle-timeout", help="QUIC max idle timeout in ms"),
+    ] = None,
 ) -> None:
     _configure_logging(_resolve_log_level(verbose, quiet), log_file)
     method = _validate_method(method)
@@ -291,6 +302,9 @@ def load(
             grpc_deadline_ms=grpc_deadline_ms,
             proto_path=proto_path,
             grpc_use_reflection=grpc_use_reflection,
+            http3_enabled=http3_enabled,
+            quic_zero_rtt=quic_zero_rtt,
+            quic_max_idle_timeout_ms=quic_max_idle_timeout_ms,
         ),
     )
     summary = engine.run()
@@ -415,6 +429,17 @@ def stress(
             help="Use server reflection for schema discovery",
         ),
     ] = False,
+    http3_enabled: Annotated[
+        bool, typer.Option("--http3/--no-http3", help="Enable HTTP/3 over QUIC")
+    ] = False,
+    quic_zero_rtt: Annotated[
+        bool,
+        typer.Option("--quic-zero-rtt", help="Enable QUIC 0-RTT connection testing"),
+    ] = False,
+    quic_max_idle_timeout_ms: Annotated[
+        int | None,
+        typer.Option("--quic-max-idle-timeout", help="QUIC max idle timeout in ms"),
+    ] = None,
 ) -> None:
     _configure_logging(_resolve_log_level(verbose, quiet), log_file)
     method = _validate_method(method)
@@ -443,6 +468,9 @@ def stress(
             grpc_deadline_ms=grpc_deadline_ms,
             proto_path=proto_path,
             grpc_use_reflection=grpc_use_reflection,
+            http3_enabled=http3_enabled,
+            quic_zero_rtt=quic_zero_rtt,
+            quic_max_idle_timeout_ms=quic_max_idle_timeout_ms,
         ),
     )
     summary = engine.run()
@@ -571,6 +599,17 @@ def spike(
             help="Use server reflection for schema discovery",
         ),
     ] = False,
+    http3_enabled: Annotated[
+        bool, typer.Option("--http3/--no-http3", help="Enable HTTP/3 over QUIC")
+    ] = False,
+    quic_zero_rtt: Annotated[
+        bool,
+        typer.Option("--quic-zero-rtt", help="Enable QUIC 0-RTT connection testing"),
+    ] = False,
+    quic_max_idle_timeout_ms: Annotated[
+        int | None,
+        typer.Option("--quic-max-idle-timeout", help="QUIC max idle timeout in ms"),
+    ] = None,
 ) -> None:
     _configure_logging(_resolve_log_level(verbose, quiet), log_file)
     method = _validate_method(method)
@@ -600,6 +639,9 @@ def spike(
             grpc_deadline_ms=grpc_deadline_ms,
             proto_path=proto_path,
             grpc_use_reflection=grpc_use_reflection,
+            http3_enabled=http3_enabled,
+            quic_zero_rtt=quic_zero_rtt,
+            quic_max_idle_timeout_ms=quic_max_idle_timeout_ms,
         ),
     )
     summary = engine.run()

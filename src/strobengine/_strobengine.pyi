@@ -56,6 +56,9 @@ class TestConfig:
     ws_role: str | None
     ws_publish_interval_ms: int | None
     ws_subscribers: int | None
+    http3_enabled: bool
+    quic_zero_rtt: bool
+    quic_max_idle_timeout_ms: int | None
     def __init__(
         self,
         url: str,
@@ -83,6 +86,9 @@ class TestConfig:
         ws_role: str | None = None,
         ws_publish_interval_ms: int | None = None,
         ws_subscribers: int | None = None,
+        http3_enabled: bool = False,
+        quic_zero_rtt: bool = False,
+        quic_max_idle_timeout_ms: int | None = None,
     ) -> None: ...
 
 class TestSummary:

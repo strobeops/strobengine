@@ -48,6 +48,9 @@ class RequestOptions:
     grpc_deadline_ms: int | None = None
     proto_path: str | None = None
     grpc_use_reflection: bool = False
+    http3_enabled: bool = False
+    quic_zero_rtt: bool = False
+    quic_max_idle_timeout_ms: int | None = None
 
     def __post_init__(self) -> None:
         if self.timeout <= 0:
@@ -99,6 +102,9 @@ class StrobEngine:
                 grpc_deadline_ms=self._options.grpc_deadline_ms,
                 proto_path=self._options.proto_path,
                 grpc_use_reflection=self._options.grpc_use_reflection,
+                http3_enabled=self._options.http3_enabled,
+                quic_zero_rtt=self._options.quic_zero_rtt,
+                quic_max_idle_timeout_ms=self._options.quic_max_idle_timeout_ms,
             )
             self._profile = None
         else:
