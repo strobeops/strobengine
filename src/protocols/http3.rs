@@ -74,13 +74,14 @@ impl Http3Engine {
         let authority = format!("{host}:{port}");
 
         let method = match method.to_uppercase().as_str() {
+            "GET" => http::Method::GET,
             "POST" => http::Method::POST,
             "PUT" => http::Method::PUT,
             "DELETE" => http::Method::DELETE,
             "PATCH" => http::Method::PATCH,
             "HEAD" => http::Method::HEAD,
             "OPTIONS" => http::Method::OPTIONS,
-            _ => http::Method::GET,
+            _ => return Err(format!("invalid HTTP method: {method}")),
         };
 
         // Endpoint is created lazily on first use (inside Tokio runtime)
@@ -561,6 +562,23 @@ mod tests {
         );
         if let Ok(engine) = result {
             assert!(engine.server_name.is_empty() || engine.authority.contains(':'));
+        }
+    }
+
+    #[tokio::test]
+    async fn test_http3_invalid_method() {
+        let result = Http3Engine::new(
+            "h3://example.com/test",
+            vec![],
+            "BOGUS".into(),
+            None,
+            ChaosEngine::default(),
+            None,
+            false,
+        );
+        match result {
+            Ok(_) => panic!("expected error for invalid method"),
+            Err(e) => assert!(e.contains("invalid HTTP method")),
         }
     }
 }
