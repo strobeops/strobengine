@@ -440,6 +440,7 @@ impl ProtocolEngine for Http3Engine {
                                     session.quinn_conn = new_conn;
                                     session.h3_send = new_send;
                                     session.zero_rtt_accepted = zero_rtt;
+                                    session.prev_lost_packets = 0;
                                     is_reconnect = true;
                                     match self.send_request_on_conn(&mut session.h3_send).await {
                                         Ok((s, b)) => (s, b),
