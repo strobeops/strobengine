@@ -27,19 +27,16 @@ def update_file_regex(
         sys.exit(1)
 
     content = path.read_text(encoding="utf-8")
-    new_content, replacements_made = re.subn(
-        pattern, replacement, content, count=count
-    )
+    new_content, replacements_made = re.subn(pattern, replacement, content, count=count)
 
     if replacements_made == 0:
         print(f"  [WARN] No match found in {path} for pattern: {pattern}")
     else:
-        print(
-            f"  [MATCH] Replaced {replacements_made} occurrence(s) in {path}"
-        )
+        print(f"  [MATCH] Replaced {replacements_made} occurrence(s) in {path}")
 
     if execute:
         path.write_text(new_content, encoding="utf-8")
+
 
 def main():
     parser = argparse.ArgumentParser(
