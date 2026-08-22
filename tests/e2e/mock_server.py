@@ -76,6 +76,21 @@ async def handle_websocket(request: web.Request) -> web.WebSocketResponse:
     return ws
 
 
+async def handle_ws_discard(request: web.Request) -> web.WebSocketResponse:
+    """WebSocket endpoint that accepts and discards all messages (no echo)."""
+    ws = web.WebSocketResponse()
+    await ws.prepare(request)
+    try:
+        async for msg in ws:
+            if msg.type in (web.WSMsgType.CLOSED, web.WSMsgType.ERROR):
+                break
+    except Exception:
+        pass
+    finally:
+        await ws.close()
+    return ws
+
+
 async def handle_broadcast(request: web.Request) -> web.WebSocketResponse:
     ws = web.WebSocketResponse()
     await ws.prepare(request)
@@ -112,5 +127,6 @@ def create_app() -> web.Application:
     app.router.add_get("/delay/{seconds}", handle_delay)
     app.router.add_get("/flaky", handle_flaky)
     app.router.add_get("/ws", handle_websocket)
+    app.router.add_get("/ws/discard", handle_ws_discard)
     app.router.add_get("/ws/broadcast", handle_broadcast)
     return app
