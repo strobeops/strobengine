@@ -625,11 +625,12 @@ impl ProtocolEngine for WebSocketEngine {
         }
 
         // Persistent session dispatch (existing logic)
-        let session = ctx
-            .downcast_mut::<PersistentWsSession>()
-            .expect("invalid context type");
-
         let req_start = Instant::now();
+
+        let session = match ctx.downcast_mut::<PersistentWsSession>() {
+            Some(s) => s,
+            None => return RequestMetric::error(req_start.elapsed().as_micros()),
+        };
 
         // Apply pre-connection chaos (LatencySpike)
         let fault = self.chaos.select_fault();
