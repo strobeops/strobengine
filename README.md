@@ -348,6 +348,11 @@ The Python GIL is released entirely via `py.detach()` during test execution, all
 5. Commit your changes following [Conventional Commits](https://www.conventionalcommits.org/)
 6. Push to your branch and open a Pull Request
 
+
+## Development
+
+* For information on maintainer releases and versioning workflows, see [Release Documentation](docs/release.md).
+
 ## License
 
 This project is licensed under the Apache License, Version 2.0. See [LICENSE](LICENSE) for the full text.
