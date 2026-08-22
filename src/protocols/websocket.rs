@@ -337,10 +337,11 @@ impl WebSocketEngine {
             _ => create_pubsub_payload(&session.user_payload),
         };
 
-        let send_result = session
-            .write
-            .as_mut()
-            .unwrap()
+        let write = match session.write.as_mut() {
+            Some(w) => w,
+            None => return RequestMetric::error(req_start.elapsed().as_micros()),
+        };
+        let send_result = write
             .send(Message::Binary(Bytes::from(payload_bytes.clone())))
             .await;
 
@@ -348,7 +349,7 @@ impl WebSocketEngine {
 
         match send_result {
             Ok(()) => {
-                let _ = session.write.as_mut().unwrap().flush().await;
+                let _ = write.flush().await;
                 RequestMetric {
                     latency_micros,
                     status_code: 200,
@@ -401,10 +402,15 @@ impl WebSocketEngine {
             tokio::time::sleep(Duration::from_millis(duration_ms)).await;
         }
 
+        let read = match session.read.as_mut() {
+            Some(r) => r,
+            None => return RequestMetric::error(req_start.elapsed().as_micros()),
+        };
+
         let timeout = self.effective_timeout();
         let read_result = tokio::time::timeout(timeout, async {
             let mut total_bytes = 0u64;
-            while let Some(Ok(msg)) = session.read.as_mut().unwrap().next().await {
+            while let Some(Ok(msg)) = read.next().await {
                 match msg {
                     Message::Binary(bin) => {
                         total_bytes += bin.len() as u64;
