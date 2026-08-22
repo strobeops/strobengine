@@ -148,7 +148,7 @@ class TestWebSocketLoadTest:
         assert summary.average_latency_ms > 0
 
     async def test_websocket_pubsub_broadcasting(self, mock_server: str):
-        ws_url = mock_server.replace("http://", "ws://") + "/ws/broadcast"
+        ws_url = mock_server.replace("http://", "ws://") + "/ws/discard"
         # All workers are publishers; they send timestamped frames to the
         # broadcast server which fans them out to other connected clients.
         engine = StrobEngine(
