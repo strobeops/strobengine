@@ -60,19 +60,19 @@ This document outlines the planned trajectory and upcoming feature epics for **s
 ### Epic: Modern Web APIs
 *Target Focus: Protocol Expansion*
 
-- [x] **WebSockets (`ws://`, `wss://`)** `[unreleased]`
-  - [x] Full-duplex connection handshakes. `[unreleased]`
-  - [x] Three execution modes: handshake, ping-pong, stream. `[unreleased]`
-  - [x] Custom headers and per-iteration timeout. `[unreleased]`
-  - [x] Chaos injection (latency spikes, corrupted payloads, connection drops). `[unreleased]`
-  - [x] Frame broadcasting and multi-message-per-connection streaming. `[unreleased]`
-  - [x] Server-push and pub/sub patterns. `[unreleased]`
-- [x] **gRPC** `[unreleased]`
-  - [x] Protobuf service definition parsing (base64/hex payloads, .proto file parsing, server reflection). `[unreleased]`
-  - [x] Unary RPC calls with deadline support and chaos injection. `[unreleased]`
-- [x] **HTTP/3 (QUIC)** `[unreleased]`
-  - [x] UDP-based QUIC transport layer support. `[unreleased]`
-  - [x] Zero-RTT connection testing and loss recovery benchmarking. `[unreleased]`
+- [x] **WebSockets (`ws://`, `wss://`)** `[v0.4.0] - 2026-08-23`
+  - [x] Full-duplex connection handshakes. `[v0.4.0] - 2026-08-23`
+  - [x] Three execution modes: handshake, ping-pong, stream. `[v0.4.0] - 2026-08-23`
+  - [x] Custom headers and per-iteration timeout. `[v0.4.0] - 2026-08-23`
+  - [x] Chaos injection (latency spikes, corrupted payloads, connection drops). `[v0.4.0] - 2026-08-23`
+  - [x] Frame broadcasting and multi-message-per-connection streaming. `[v0.4.0] - 2026-08-23`
+  - [x] Server-push and pub/sub patterns. `[v0.4.0] - 2026-08-23`
+- [x] **gRPC** `[v0.4.0] - 2026-08-23`
+  - [x] Protobuf service definition parsing (base64/hex payloads, .proto file parsing, server reflection). `[v0.4.0] - 2026-08-23`
+  - [x] Unary RPC calls with deadline support and chaos injection. `[v0.4.0] - 2026-08-23`
+- [x] **HTTP/3 (QUIC)** `[v0.4.0] - 2026-08-23`
+  - [x] UDP-based QUIC transport layer support. `[v0.4.0] - 2026-08-23`
+  - [x] Zero-RTT connection testing and loss recovery benchmarking. `[v0.4.0] - 2026-08-23`
 
 ---
 

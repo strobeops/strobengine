@@ -4,6 +4,147 @@ All notable changes to `strobengine` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] - 2026-08-23
+
+### Bug Fixes
+
+- *(e2e)* Add binary echo and error handling to WebSocket mock server
+- *(websocket)* Add per-iteration timeout to prevent worker hangs
+- *(protocols)* Pass timeout_secs to WebSocketEngine
+- *(websocket)* Lazy connect for pub/sub sessions and test fixes
+- *(metrics)* Populate new QUIC fields in all protocol constructors
+- *(http3)* Defer endpoint creation to first use via OnceCell
+- *(protocol)* Replace panic with graceful HTTP/1.1 fallback for HTTP/3 errors
+- *(grpc)* Replace .expect() panics with proper error propagation
+- *(grpc)* Use copy_to_bytes to read all chunks in RawDecoder #105
+- *(http3)* Reject invalid HTTP methods instead of silently defaulting to GET #109
+- *(http3)* Reset prev_lost_packets after reconnect
+- *(websocket)* Replace unwrap() with safe pattern matching on session streams #113
+- *(websocket)* Replace expect() with safe downcast on PersistentWsSession
+- *(e2e)* Add discard WebSocket endpoint and fix flaky pub/sub test
+
+### Documentation
+
+- Update project description to include WebSocket support
+- *(websocket)* Add CLI usage examples and table of contents
+- *(gRPC)* Add gRPC load testing documentation
+- Add gRPC entry to documentation index
+- Add gRPC to README tagline, crates, examples, and options
+- Update roadmap to reflect actual implementation status
+- Remove stale limitations from gRPC documentation
+- *(readme)* Add pub/sub CLI flags to subcommand tables
+- *(websockets)* Add pub/sub mode documentation and examples
+- Update TOC, endpoint table, and roadmap for pub/sub
+- *(examples)* Add WebSocket load testing examples
+- *(http3)* Add HTTP/3 protocol documentation
+- Update TOC, roadmap, and README for HTTP/3
+- *(examples)* Add HTTP/3 load testing examples
+- *(release)* Add operational release process documentation
+
+### Features
+
+- *(protocols)* Define ProtocolEngine trait and detect_protocol factory
+- *(protocols)* Implement HttpEngine with ProtocolEngine trait
+- *(protocols)* Implement WebSocketEngine for handshake testing
+- *(protocols)* Implement modular ProtocolEngine trait and WebSocket handshake engine #75
+- *(config)* Add WsMode enum for WebSocket execution modes
+- *(protocols)* Add WebSocket headers and PingPong mode support
+- *(engine)* Wire WsMode through Python API to Rust engine
+- *(websocket)* Add WsMode execution modes, headers, and E2E tests #77
+- *(config)* Add Stream variant and ws_payload to TestConfig
+- *(protocols)* Implement WsMode::Stream with payload injection
+- *(engine)* Pass ws_payload through to WebSocket engine
+- *(websocket)* Add WsMode::Stream support and custom payload injection #78
+- *(engine)* Wire ws_payload and Stream mode through Python API
+- *(engine)* Wire ws_payload and Stream mode through Python API #79
+- *(cli)* Add --ws-mode and --ws-payload options to CLI commands
+- *(protocols)* Add chaos injection to WebSocket engine
+- *(engine)* Pass chaos to WebSocket engine in both entry points
+- *(ws)* Add websocket chaos testing (#82)
+- *(config)* Add gRPC fields to TestConfig
+- *(protocols)* Implement GrpcEngine with ProtocolEngine trait
+- *(stubs)* Add gRPC fields to TestConfig type stubs
+- *(engine)* Add gRPC fields to RequestOptions and TestConfig wiring
+- *(cli)* Add gRPC flags to load, stress, and spike subcommands
+- *(grpc)* Handle MetadataCorruption chaos fault
+- *(reporter)* Annotate status code 0 and gRPC protocol in output
+- *(grpc)* Add hex payload decoding with 0x prefix convention
+- *(grpc)* Add runtime .proto parsing and JSON-to-protobuf conversion
+- *(grpc)* Add proto_schema support and pre-serialize JSON payloads
+- Add proto_path to TestConfig, RequestOptions, and CLI
+- Add grpc_use_reflection config option
+- *(grpc)* Add server reflection client with v1/v1alpha fallback
+- *(grpc)* Add lazy reflection initialization with OnceCell
+- *(metrics)* Add is_reconnect and connection_latency_us fields
+- *(protocol)* Add new RequestMetric fields to HTTP and gRPC engines
+- *(protocol)* Add worker context methods to ProtocolEngine
+- *(config)* Add WebSocket persistent connection fields
+- *(websocket)* Add PersistentWsSession and context-based iteration
+- *(core)* Integrate worker-local context in execute_test
+- *(metrics)* Add pub/sub timestamp fields and payload encoding
+- *(config)* Add ws_role, ws_publish_interval_ms, ws_subscribers
+- *(websocket)* Add publisher/subscriber sessions and role dispatch
+- *(protocols)* Wire pub/sub config to WebSocketEngine
+- *(core)* Aggregate e2e latencies in worker metric collector
+- *(typing)* Add pub/sub config and e2e latency to type stubs
+- *(engine)* Add pub/sub fields to RequestOptions
+- *(cli)* Add --ws-role, --ws-publish-interval, --ws-subscribers
+- *(reporter)* Display avg E2E latency for pub/sub tests
+- *(config)* Add http3_enabled, quic_zero_rtt, quic_max_idle_timeout_ms
+- *(protocol)* Implement Http3Engine with QUIC transport
+- *(protocol)* Register http3 module and add URL routing
+- *(core)* Route http3:// and h3:// URLs through detect_protocol
+- *(metrics)* Add quic_handshake_us, quic_0rtt_used, quic_retransmits
+- *(http3)* Enable TLS session resumption and 0-RTT connection attempts
+- *(cli)* Add --http3, --quic-zero-rtt, --quic-max-idle-timeout flags
+- *(scripts)* Add automated release script with dry-run support
+
+### Miscellaneous Tasks
+
+- *(pre-commit)* Enable e2e tests in pytest hook
+- Add rust-toolchain.toml for reproducible builds
+- Remove e2e test from pre commit hooks
+- *(ci)* Pin github actions to full commit SHAs
+
+### Other
+
+- *(deps)* Add async-trait and tokio-tungstenite, switch reqwest to rustls
+- *(deps)* Add tonic, prost, prost-types, and base64 for gRPC support
+- *(deps)* Add hex crate for protobuf payload decoding
+- *(deps)* Add prost-reflect, protox, serde_json for proto parsing
+- *(deps)* Add tonic-reflection and tokio-stream
+- *(deps)* Add quinn, h3, h3-quinn for HTTP/3 support
+
+### Refactoring
+
+- *(core)* Use ProtocolEngine trait in execute_test worker loop
+- *(engine)* Simplify detect_protocol to accept TestConfig
+- *(grpc)* Wire proto_path through detect_protocol and lib.rs
+- *(grpc)* Pass grpc_use_reflection through detect_protocol
+- *(cli)* Validate --ws-role with StrEnum choices
+- *(protocol)* Extract is_protocol_url helper to deduplicate scheme checks #103
+- *(cli)* Extract _build_request_options helper to deduplicate construction #107
+
+### Styling
+
+- *(scripts)* Format release.py with ruff
+
+### Testing
+
+- *(e2e)* Add WebSocket echo endpoint to mock server
+- *(e2e)* Add WebSocket load test and unreachable server test
+- *(e2e)* Add WebSocket tests
+- *(e2e)* Add WebSocket PingPong and custom header E2E tests
+- *(e2e)* Add WebSocket Stream mode and default payload E2E tests (#80)
+- *(e2e)* Add WebSocket Stream mode and default payload E2E tests
+- *(e2e)* Add WebSocket chaos mode E2E test
+- *(e2e)* Strengthen WebSocket chaos test assertions
+- *(e2e)* Add gRPC unreachable server test
+- *(e2e)* Add gRPC chaos, headers, and deadline E2E tests
+- *(e2e)* Add asyncio.wait_for timeout to gRPC E2E tests
+- *(e2e)* Add WebSocket broadcast endpoint to mock server
+- *(e2e)* Add pub/sub and streaming E2E tests with timeout guards
+- *(e2e)* Add HTTP/3 error-path and CLI option tests
 ## [0.3.0] - 2026-08-13
 
 ### Bug Fixes
@@ -21,6 +162,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - *(worker)* Document u64::MAX fallback for extreme latencies (#66)
 - Consolidate testing guide into docs/testing.md
 - *(docker)* Add Docker usage documentation
+- *(changelog)* Add v0.3.0 release notes
 
 ### Features
 
@@ -33,6 +175,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - *(dev)* Setup pre-commit hooks and Makefile for local pre-push checks (#58)
 - *(github)* Add Docker build and push workflow for releases
+- Rename GitHub organization strobe-ops to strobeops
+- *(release)* Merge release branch for v0.3.0 #74
 
 ### Other
 
@@ -41,6 +185,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - *(docker)* Add multi-stage Dockerfile for Maturin package
 - *(docker)* Add .dockerignore to optimize build context
 - *(docker)* Switch runtime container execution to non-root user
+- *(rust)* Bump version to 0.3.0
 
 ### Refactoring
 
