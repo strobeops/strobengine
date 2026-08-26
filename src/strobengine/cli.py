@@ -87,16 +87,18 @@ def _parse_headers(header: list[str] | None) -> list[tuple[str, str]] | None:
 
 
 def _parse_form(form_str: str | None) -> list[tuple[str, str]] | None:
-    """Parses a URL-encoded form string (e.g. 'key1=val1&key2=val2') into key-value pairs."""
+    """Parses a URL-encoded form string into decoded key-value pairs."""
+    from urllib.parse import unquote_plus
+
     if not form_str:
         return None
     pairs = []
     for item in form_str.split("&"):
         if "=" in item:
             k, v = item.split("=", 1)
-            pairs.append((k, v))
+            pairs.append((unquote_plus(k), unquote_plus(v)))
         elif item:
-            pairs.append((item, ""))
+            pairs.append((unquote_plus(item), ""))
     return pairs or None
 
 
