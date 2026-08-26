@@ -236,16 +236,17 @@ impl WebSocketEngine {
         })
     }
 
-    /// Read from WebSocket stream with timeout, returning bytes received.
+    /// Read from WebSocket stream with timeout, returning (bytes received, pong received).
     async fn read_with_timeout(
         &self,
         ws_stream: &mut tokio_tungstenite::WebSocketStream<
             tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
         >,
-    ) -> u64 {
+    ) -> (u64, bool) {
         let timeout = self.effective_timeout();
         let read_result = tokio::time::timeout(timeout, async {
             let mut total_bytes = 0u64;
+            let mut got_pong = false;
             while let Some(Ok(msg)) = ws_stream.next().await {
                 match msg {
                     Message::Text(text) => {
@@ -256,19 +257,20 @@ impl WebSocketEngine {
                         total_bytes += bin.len() as u64;
                         break;
                     }
-                    Message::Pong(_) => {
-                        total_bytes += 1;
+                    Message::Pong(data) => {
+                        total_bytes += data.len() as u64;
+                        got_pong = true;
                         break;
                     }
                     Message::Close(_) => break,
                     _ => {}
                 }
             }
-            total_bytes
+            (total_bytes, got_pong)
         })
         .await;
 
-        read_result.unwrap_or(0)
+        read_result.unwrap_or((0, false))
     }
 
     async fn connect_ws(
@@ -518,7 +520,7 @@ impl ProtocolEngine for WebSocketEngine {
                         let _ = ws_stream
                             .send(Message::Binary(Bytes::from_static(b"\xff\xfe\xbd\xef")))
                             .await;
-                        let total_bytes = self.read_with_timeout(&mut ws_stream).await;
+                        let (total_bytes, _) = self.read_with_timeout(&mut ws_stream).await;
                         let _ = ws_stream.close(None).await;
                         (200, total_bytes)
                     }
@@ -531,18 +533,15 @@ impl ProtocolEngine for WebSocketEngine {
                             }
                             WsMode::PingPong => {
                                 let _ = ws_stream.send(Message::Ping(Bytes::new())).await;
-                                let total_bytes = self.read_with_timeout(&mut ws_stream).await;
+                                let (total_bytes, got_pong) =
+                                    self.read_with_timeout(&mut ws_stream).await;
                                 let _ = ws_stream.close(None).await;
-                                if total_bytes > 0 {
-                                    (200, total_bytes)
-                                } else {
-                                    (0, 0)
-                                }
+                                if got_pong { (200, total_bytes) } else { (0, 0) }
                             }
                             WsMode::Stream => {
                                 let payload_str = self.payload.as_deref().unwrap_or("ping");
                                 let _ = ws_stream.send(Message::Text(payload_str.into())).await;
-                                let total_bytes = self.read_with_timeout(&mut ws_stream).await;
+                                let (total_bytes, _) = self.read_with_timeout(&mut ws_stream).await;
                                 let _ = ws_stream.close(None).await;
                                 (200, total_bytes)
                             }
@@ -763,7 +762,6 @@ mod tests {
         let metric = engine.execute_iteration(&ws_url).await;
 
         assert_eq!(metric.status_code, 200);
-        assert!(metric.bytes_received > 0);
         assert!(metric.latency_micros > 0);
     }
 
