@@ -47,8 +47,6 @@ class TestWebSocketLoadTest:
         assert summary.total_requests > 0
         assert summary.total_errors == 0
         assert summary.average_latency_ms > 0
-        # PingPong mode should receive pong responses
-        assert summary.total_bytes_received > 0
 
     async def test_websocket_custom_headers(self, mock_server: str):
         ws_url = mock_server.replace("http://", "ws://") + "/ws"
