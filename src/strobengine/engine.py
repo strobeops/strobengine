@@ -1,6 +1,7 @@
 import asyncio
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from enum import StrEnum
 
 from strobengine._strobengine import (
     LoadProfile,
@@ -26,6 +27,12 @@ from strobengine.constants import (
 )
 
 
+class WsModeEnum(StrEnum):
+    handshake = "handshake"
+    ping_pong = "ping_pong"
+    stream = "stream"
+
+
 @dataclass
 class RequestOptions:
     """Encapsulates common HTTP and execution parameters with validation."""
@@ -37,7 +44,7 @@ class RequestOptions:
     body: str | None = None
     form: list[tuple[str, str]] | None = None
     headers: list[tuple[str, str]] = field(default_factory=list)
-    ws_mode: str = "handshake"
+    ws_mode: WsModeEnum = WsModeEnum.handshake
     ws_payload: str | None = None
     ws_role: str | None = None
     ws_publish_interval_ms: int | None = None
@@ -88,9 +95,9 @@ class StrobEngine:
                 form=self._options.form,
                 headers=self._options.headers,
                 ws_mode=WsMode.ping_pong()
-                if self._options.ws_mode == "ping_pong"
+                if self._options.ws_mode == WsModeEnum.ping_pong
                 else WsMode.stream()
-                if self._options.ws_mode == "stream"
+                if self._options.ws_mode == WsModeEnum.stream
                 else WsMode.handshake(),
                 ws_payload=self._options.ws_payload,
                 ws_role=self._options.ws_role,
