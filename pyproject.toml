@@ -2,7 +2,7 @@
 name = "strobengine"
 version = "0.4.1"
 description = "A load testing framework with a Python UI and a bare-metal Rust engine core."
-readme = { file = "README.md", content-type = "text/markdown", base-url = "https://github.com/strobeops/strobengine/blob/main/" }
+readme = "README.md"
 license = "Apache-2.0"
 license-files = [
   "LICENSE",
@@ -18,7 +18,7 @@ dependencies = [
 
 [project.urls]
 Homepage = "https://github.com/strobeops/strobengine"
-Documentation = "https://github.com/strobeops/strobengine"
+Documentation = "https://github.com/strobeops/strobengine/blob/main/docs/table_of_contents.md"
 Source = "https://github.com/strobeops/strobengine"
 Changelog = "https://github.com/strobeops/strobengine/blob/main/CHANGELOG.md"
 
