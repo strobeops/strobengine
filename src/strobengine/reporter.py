@@ -35,11 +35,15 @@ def _format_number(n: int) -> str:
 
 
 def _format_bytes(n: int) -> str:
-    if n < 1024:
-        return f"{n} B"
-    if n < 1024 * 1024:
-        return f"{n / 1024:.1f} KB"
-    return f"{n / (1024 * 1024):.1f} MB"
+    units = ["B", "KB", "MB", "GB", "TB", "PB"]
+    val = float(n)
+    for unit in units:
+        if val < 1024.0 or unit == units[-1]:
+            if unit == "B":
+                return f"{int(val)} B"
+            return f"{val:.1f} {unit}"
+        val /= 1024.0
+    return f"{val:.1f} PB"
 
 
 def _error_rate(total: int, errors: int) -> str:
