@@ -9,7 +9,7 @@ from typer.core import TyperOption
 from typer.main import get_command
 
 from strobengine._strobengine import TestSummary, init_logging
-from strobengine.engine import RequestOptions, StrobEngine
+from strobengine.engine import RequestOptions, StrobEngine, WsModeEnum
 from strobengine.reporter import print_summary
 
 VALID_METHODS = {"GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"}
@@ -186,7 +186,7 @@ def _build_request_options(
         headers=_parse_headers(header),
         chaos=chaos,
         no_progress=no_progress,
-        ws_mode=ws_mode or "handshake",
+        ws_mode=ws_mode or WsModeEnum.handshake,
         ws_payload=ws_payload,
         ws_role=ws_role.value if ws_role is not None else None,
         ws_publish_interval_ms=ws_publish_interval_ms,
@@ -256,10 +256,11 @@ def load(
         str | None, typer.Option("--log-file", help="Write logs to file")
     ] = None,
     ws_mode: Annotated[
-        str | None,
+        WsModeEnum | None,
         typer.Option(
             "--ws-mode",
             help="WebSocket mode: handshake, ping_pong, stream",
+            case_sensitive=False,
         ),
     ] = None,
     ws_payload: Annotated[
@@ -420,10 +421,11 @@ def stress(
         str | None, typer.Option("--log-file", help="Write logs to file")
     ] = None,
     ws_mode: Annotated[
-        str | None,
+        WsModeEnum | None,
         typer.Option(
             "--ws-mode",
             help="WebSocket mode: handshake, ping_pong, stream",
+            case_sensitive=False,
         ),
     ] = None,
     ws_payload: Annotated[
@@ -590,10 +592,11 @@ def spike(
         str | None, typer.Option("--log-file", help="Write logs to file")
     ] = None,
     ws_mode: Annotated[
-        str | None,
+        WsModeEnum | None,
         typer.Option(
             "--ws-mode",
             help="WebSocket mode: handshake, ping_pong, stream",
+            case_sensitive=False,
         ),
     ] = None,
     ws_payload: Annotated[
