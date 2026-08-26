@@ -4,6 +4,27 @@ All notable changes to `strobengine` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.1] - 2026-08-26
+
+### Bug Fixes
+
+- *(pypi)* Configure readme base-url for relative link resolution
+- *(cli)* Validate ws_mode with StrEnum to reject invalid strings
+- *(cli)* URL-decode form values before passing to Rust
+- *(websocket)* Count actual Pong payload size and fix PingPong status code
+- *(reporter)* Handle GB and TB in _format_bytes
+
+### Documentation
+
+- Add dependencies and installation guides
+- Add quick start guide and CLI reference
+- Update table of contents with new pages
+- Slim README and link to documentation pages
+- Add multi-target, reporting, SSE, messaging, and caching epics to roadmap
+
+### Testing
+
+- *(e2e)* Remove bytes_received assertion from PingPong mode test
 ## [0.4.0] - 2026-08-23
 
 ### Bug Fixes
@@ -105,6 +126,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add rust-toolchain.toml for reproducible builds
 - Remove e2e test from pre commit hooks
 - *(ci)* Pin github actions to full commit SHAs
+- *(release)* Bump version to 0.4.0
+- Bump to 0.4.0 in uv.lock
 
 ### Other
 
