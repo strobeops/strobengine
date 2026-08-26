@@ -55,6 +55,35 @@ This document outlines the planned trajectory and upcoming feature epics for **s
 
 ---
 
+## Multi-Target Parallel Execution
+
+### Epic: Multi-Target Parallel Execution
+*Target Focus: Concurrent Load Generation & Scripted Parallelism*
+
+- [x] Intra-test worker task concurrency (`-c`/`--workers` mapped to Tokio async threads). `[v0.1.0]`
+- [ ] Multi-target script orchestrator (`asyncio.gather` execution across multiple concurrent `StrobEngine` instances).
+- [ ] Native multi-URL target parsing & concurrent execution via CLI.
+- [ ] Process-level parallel execution runner integration (`pytest-xdist` parallel test pool orchestration).
+
+---
+
+## Reporting, Storage & Analytics
+
+### Epic: Test Persistence & Visual Reporting
+*Target Focus: Long-Term Benchmark Tracking & Visualization*
+
+- [ ] **Artifact Persistence Engine**
+  - [ ] Automatic disk storage for raw JSON execution metrics (`--output-dir`, `--save-report`).
+  - [ ] Standardized report schema featuring execution metadata (timestamps, CLI flags, system specs, latency percentiles).
+- [ ] **HTML / Visual Report Generator**
+  - [ ] Standalone HTML report output with embedded latency distribution charts (p50, p90, p95, p99).
+  - [ ] Summary dashboards comparing current runs against historical baseline artifacts.
+- [ ] **Export Formats**
+  - [ ] Markdown summary generation for CI/CD Pull Request integration (GitHub Actions step comments).
+  - [ ] CSV/JUnit XML exports for standard test runner ingestion.
+
+---
+
 ## Modern Web APIs
 
 ### Epic: Modern Web APIs
@@ -73,20 +102,32 @@ This document outlines the planned trajectory and upcoming feature epics for **s
 - [x] **HTTP/3 (QUIC)** `[v0.4.0] - 2026-08-23`
   - [x] UDP-based QUIC transport layer support. `[v0.4.0] - 2026-08-23`
   - [x] Zero-RTT connection testing and loss recovery benchmarking. `[v0.4.0] - 2026-08-23`
+- [ ] **Server-Sent Events (SSE / HTTP Streaming)**
+  - [ ] Persistent HTTP streaming response parsing (Time-to-First-Byte, chunk latency, LLM stream benchmarking).
 
 ---
 
 ## Infrastructure & Streaming Protocols
 
-### Epic: Infrastructure & Low-Level Transport
-*Target Focus: Enterprise & Deep Performance Testing*
+### Epic: Event-Driven Infrastructure & Message Queues
+*Target Focus: Async Microservices & IoT Protocols*
 
+- [ ] **MQTT (IoT / Telemetry)**
+  - [ ] Async MQTT client integration (`rumqttc`) for QoS 0/1/2 pub/sub benchmarking.
 - [ ] **Event Brokers**
-  - [ ] **Apache Kafka**: High-throughput producer load testing and message ingestion benchmarking.
-  - [ ] **MQTT**: IoT publish/subscribe message broker stress testing.
+  - [ ] **Apache Kafka / Redpanda**: Producer load testing and partition ingestion benchmarking.
+  - [ ] **RabbitMQ (AMQP)**: Queue message publish throughput and acknowledgment latencies.
+
+---
+
+### Epic: Infrastructure & Low-Level Transport
+*Target Focus: Network Layers & Caching Tiers*
+
 - [ ] **Low-Level Transport**
-  - [ ] **Raw TCP Socket Testing**: Custom payload socket streaming.
-  - [ ] **Raw UDP Socket Testing**: High-frequency datagram hammering and packet loss evaluation.
+  - [ ] **Raw TCP / TLS Socket Streaming**: Custom binary payload socket streaming (`tokio::net::TcpStream`).
+  - [ ] **UDP / QUIC Raw Sockets**: High-frequency datagram hammering, jitter evaluation, and packet loss tracking.
+- [ ] **In-Memory Caching Protocols**
+  - [ ] **Redis / RESP Protocol**: High-concurrency GET/SET operation benchmarking and connection pool stress testing.
 
 ---
 
