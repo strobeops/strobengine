@@ -10,7 +10,7 @@ pip install strobengine
 git clone https://github.com/strobeops/strobengine.git && cd strobengine && uv sync
 ```
 
-> See [Installation Guide](docs/install.md) for Docker, PyPI, and development setup.
+> See [Installation Guide](https://github.com/strobeops/strobengine/blob/main/docs/install.md) for Docker, PyPI, and development setup.
 
 ## Quick Start
 
@@ -27,23 +27,23 @@ print_summary(summary)
 strobengine load http://localhost:8080/api/health -c 50 -d 30
 ```
 
-> See [Quick Start Guide](docs/quickstart.md) for Python API and CLI examples.
+> See [Quick Start Guide](https://github.com/strobeops/strobengine/blob/main/docs/quickstart.md) for Python API and CLI examples.
 
 ## Documentation
 
 | Section | Description |
 |---------|-------------|
-| [Installation](docs/install.md) | Build from source, Docker, PyPI |
-| [Dependencies](docs/dependencies.md) | System requirements, Rust crates, Python packages |
-| [Quick Start](docs/quickstart.md) | Python API and CLI usage examples |
-| [CLI Reference](docs/cli.md) | All subcommands, flags, and options |
-| [HTTP Methods](docs/http_methods.md) | Supported methods, request bodies, headers |
-| [WebSocket](docs/websockets.md) | WS/WSS modes, pub/sub broadcasting, metrics |
-| [gRPC](docs/grpc.md) | Unary calls, protobuf, deadline, chaos |
-| [HTTP/3](docs/http3.md) | QUIC transport, 0-RTT resumption, loss recovery |
-| [Docker](docs/docker.md) | Pulling images, running containers |
-| [Testing](docs/testing.md) | Test structure, e2e, CI/CD |
-| [Roadmap](docs/roadmap.md) | Planned features |
+| [Installation](https://github.com/strobeops/strobengine/blob/main/docs/install.md) | Build from source, Docker, PyPI |
+| [Dependencies](https://github.com/strobeops/strobengine/blob/main/docs/dependencies.md) | System requirements, Rust crates, Python packages |
+| [Quick Start](https://github.com/strobeops/strobengine/blob/main/docs/quickstart.md) | Python API and CLI usage examples |
+| [CLI Reference](https://github.com/strobeops/strobengine/blob/main/docs/cli.md) | All subcommands, flags, and options |
+| [HTTP Methods](https://github.com/strobeops/strobengine/blob/main/docs/http_methods.md) | Supported methods, request bodies, headers |
+| [WebSocket](https://github.com/strobeops/strobengine/blob/main/docs/websockets.md) | WS/WSS modes, pub/sub broadcasting, metrics |
+| [gRPC](https://github.com/strobeops/strobengine/blob/main/docs/grpc.md) | Unary calls, protobuf, deadline, chaos |
+| [HTTP/3](https://github.com/strobeops/strobengine/blob/main/docs/http3.md) | QUIC transport, 0-RTT resumption, loss recovery |
+| [Docker](https://github.com/strobeops/strobengine/blob/main/docs/docker.md) | Pulling images, running containers |
+| [Testing](https://github.com/strobeops/strobengine/blob/main/docs/testing.md) | Test structure, e2e, CI/CD |
+| [Roadmap](https://github.com/strobeops/strobengine/blob/main/docs/roadmap.md) | Planned features |
 
 ## How to Contribute
 
@@ -63,4 +63,4 @@ strobengine load http://localhost:8080/api/health -c 50 -d 30
 
 ## License
 
-This project is licensed under the Apache License, Version 2.0. See [LICENSE](LICENSE) for the full text.
+This project is licensed under the Apache License, Version 2.0. See [LICENSE](https://github.com/strobeops/strobengine/blob/main/LICENSE) for the full text.
