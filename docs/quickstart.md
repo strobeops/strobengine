@@ -76,6 +76,19 @@ summary = engine.run()
 print_summary(summary)
 ```
 
+### SSE Streaming
+
+```python
+engine = StrobEngine(
+    url="http://localhost:8080/sse",
+    concurrency=10,
+    duration=30,
+    options=RequestOptions(sse_enabled=True),
+)
+summary = engine.run()
+print_summary(summary)
+```
+
 ### Async Execution
 
 For async contexts (FastAPI, Typer, etc.):
@@ -111,6 +124,9 @@ strobengine load grpc://localhost:50051 \
   --grpc-method SayHello \
   --grpc-payload CgR0ZXN0 \
   -c 10 -d 30
+
+# SSE streaming
+strobengine load http://localhost:8080/sse --sse -c 10 -d 30
 ```
 
 > See [CLI Reference](cli.md) for all available flags and options.
