@@ -178,9 +178,21 @@ impl SseEngine {
         merged
     }
 
+    /// Normalize `sse://` → `http://` and `sses://` → `https://` for reqwest.
+    fn normalize_url(url: &str) -> String {
+        if let Some(rest) = url.strip_prefix("sse://") {
+            format!("http://{rest}")
+        } else if let Some(rest) = url.strip_prefix("sses://") {
+            format!("https://{rest}")
+        } else {
+            url.to_string()
+        }
+    }
+
     /// Connect to the SSE endpoint and return the raw response.
     async fn connect(&self, url: &str) -> Result<reqwest::Response, reqwest::Error> {
-        let mut req = self.client.get(url);
+        let normalized = Self::normalize_url(url);
+        let mut req = self.client.get(&normalized);
         for (key, value) in self.build_headers() {
             req = req.header(key, value);
         }

@@ -473,53 +473,48 @@ fn run_load_test(py: Python<'_>, config: TestConfig) -> PyResult<metrics::TestSu
         let no_progress = config.no_progress;
 
         // Build protocol engine based on URL scheme
-        let engine: Arc<dyn ProtocolEngine> = if protocols::is_protocol_url(&url) {
-            protocols::detect_protocol(&url, &config, chaos)
-        } else if config.sse_enabled {
-            Arc::new(protocols::sse::SseEngine::new(
-                config.headers.clone().unwrap_or_default(),
-                chaos,
-                config.sse_max_events,
-            ))
-        } else {
-            let method = parse_method(&config.method)?;
-            let body = parse_body(config.body);
-            let form = parse_form(config.form);
-            let header_map = parse_headers(config.headers.clone())?;
-
-            // Resolve payload and auto-inject Content-Type
-            let is_form = form.is_some();
-            let final_body = if form.is_some() {
-                if body.is_some() {
-                    return Err(pyo3::exceptions::PyValueError::new_err(
-                        "Cannot specify both --body and --form simultaneously",
-                    ));
-                }
-                form
+        let engine: Arc<dyn ProtocolEngine> =
+            if protocols::is_protocol_url(&url) || config.sse_enabled {
+                protocols::detect_protocol(&url, &config, chaos)
             } else {
-                body
-            };
+                let method = parse_method(&config.method)?;
+                let body = parse_body(config.body);
+                let form = parse_form(config.form);
+                let header_map = parse_headers(config.headers.clone())?;
 
-            let mut header_map = header_map;
-            if final_body.is_some() && !header_map.contains_key(CONTENT_TYPE) {
-                let ct = if is_form {
-                    "application/x-www-form-urlencoded"
+                // Resolve payload and auto-inject Content-Type
+                let is_form = form.is_some();
+                let final_body = if form.is_some() {
+                    if body.is_some() {
+                        return Err(pyo3::exceptions::PyValueError::new_err(
+                            "Cannot specify both --body and --form simultaneously",
+                        ));
+                    }
+                    form
                 } else {
-                    "application/json"
+                    body
                 };
-                header_map.insert(CONTENT_TYPE, HeaderValue::from_static(ct));
-            }
 
-            let client = build_client(config.concurrency, config.timeout_secs, header_map)
-                .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
-            Arc::new(
-                protocols::http::HttpEngine::new()
-                    .with_client(client)
-                    .with_method(method)
-                    .with_body(final_body)
-                    .with_chaos(chaos),
-            )
-        };
+                let mut header_map = header_map;
+                if final_body.is_some() && !header_map.contains_key(CONTENT_TYPE) {
+                    let ct = if is_form {
+                        "application/x-www-form-urlencoded"
+                    } else {
+                        "application/json"
+                    };
+                    header_map.insert(CONTENT_TYPE, HeaderValue::from_static(ct));
+                }
+
+                let client = build_client(config.concurrency, config.timeout_secs, header_map)
+                    .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
+                Arc::new(
+                    protocols::http::HttpEngine::new()
+                        .with_client(client)
+                        .with_method(method)
+                        .with_body(final_body)
+                        .with_chaos(chaos),
+                )
+            };
 
         let strategy = ConcurrencyStrategy::Constant {
             concurrency: config.concurrency,

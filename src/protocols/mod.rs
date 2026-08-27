@@ -112,6 +112,12 @@ pub fn detect_protocol(
             config.sse_max_events,
         );
         Arc::new(engine)
+    } else if config.sse_enabled {
+        Arc::new(sse::SseEngine::new(
+            config.headers.clone().unwrap_or_default(),
+            chaos,
+            config.sse_max_events,
+        ))
     } else {
         Arc::new(http::HttpEngine::new())
     }
