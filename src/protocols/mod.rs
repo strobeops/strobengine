@@ -3,6 +3,7 @@ pub mod grpc_parser;
 pub mod grpc_reflection;
 pub mod http;
 pub mod http3;
+pub mod sse;
 pub mod websocket;
 
 use std::sync::Arc;
@@ -21,6 +22,8 @@ pub fn is_protocol_url(url: &str) -> bool {
         || url.starts_with("grpcs://")
         || url.starts_with("http3://")
         || url.starts_with("h3://")
+        || url.starts_with("sse://")
+        || url.starts_with("sses://")
 }
 
 /// A protocol engine that executes a single load-test iteration.
@@ -102,6 +105,13 @@ pub fn detect_protocol(
                 Arc::new(http::HttpEngine::new())
             }
         }
+    } else if url.starts_with("sse://") || url.starts_with("sses://") {
+        let engine = sse::SseEngine::new(
+            config.headers.clone().unwrap_or_default(),
+            chaos,
+            config.sse_max_events,
+        );
+        Arc::new(engine)
     } else {
         Arc::new(http::HttpEngine::new())
     }
