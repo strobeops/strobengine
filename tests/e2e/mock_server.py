@@ -116,6 +116,28 @@ async def handle_broadcast(request: web.Request) -> web.WebSocketResponse:
     return ws
 
 
+async def handle_sse(request: web.Request) -> web.StreamResponse:
+    """SSE endpoint that streams events. Query param ?count=N limits events."""
+    count = int(request.query.get("count", "0"))
+    response = web.StreamResponse(
+        status=200,
+        headers={
+            "Content-Type": "text/event-stream",
+            "Cache-Control": "no-cache",
+        },
+    )
+    await response.prepare(request)
+    i = 0
+    try:
+        while count == 0 or i < count:
+            await response.write(f"data: event-{i}\n\n".encode())
+            i += 1
+            await asyncio.sleep(0.05)
+    except (asyncio.CancelledError, ConnectionResetError):
+        pass
+    return response
+
+
 def create_app() -> web.Application:
     app = web.Application()
     app[LAST_ECHO_KEY] = {}
@@ -129,4 +151,5 @@ def create_app() -> web.Application:
     app.router.add_get("/ws", handle_websocket)
     app.router.add_get("/ws/discard", handle_ws_discard)
     app.router.add_get("/ws/broadcast", handle_broadcast)
+    app.router.add_get("/sse", handle_sse)
     return app
