@@ -179,6 +179,8 @@ def _build_request_options(
     http3_enabled: bool,
     quic_zero_rtt: bool,
     quic_max_idle_timeout_ms: int | None,
+    sse_enabled: bool,
+    sse_max_events: int | None,
 ) -> RequestOptions:
     return RequestOptions(
         timeout=timeout,
@@ -202,6 +204,8 @@ def _build_request_options(
         http3_enabled=http3_enabled,
         quic_zero_rtt=quic_zero_rtt,
         quic_max_idle_timeout_ms=quic_max_idle_timeout_ms,
+        sse_enabled=sse_enabled,
+        sse_max_events=sse_max_events,
     )
 
 
@@ -327,6 +331,15 @@ def load(
         int | None,
         typer.Option("--quic-max-idle-timeout", help="QUIC max idle timeout in ms"),
     ] = None,
+    sse_enabled: Annotated[
+        bool, typer.Option("--sse/--no-sse", help="Enable SSE streaming mode")
+    ] = False,
+    sse_max_events: Annotated[
+        int | None,
+        typer.Option(
+            "--sse-max-events", help="Maximum events to receive per connection"
+        ),
+    ] = None,
 ) -> None:
     _configure_logging(_resolve_log_level(verbose, quiet), log_file)
     method = _validate_method(method)
@@ -356,6 +369,8 @@ def load(
             http3_enabled=http3_enabled,
             quic_zero_rtt=quic_zero_rtt,
             quic_max_idle_timeout_ms=quic_max_idle_timeout_ms,
+            sse_enabled=sse_enabled,
+            sse_max_events=sse_max_events,
         ),
     )
     summary = engine.run()
@@ -492,6 +507,15 @@ def stress(
         int | None,
         typer.Option("--quic-max-idle-timeout", help="QUIC max idle timeout in ms"),
     ] = None,
+    sse_enabled: Annotated[
+        bool, typer.Option("--sse/--no-sse", help="Enable SSE streaming mode")
+    ] = False,
+    sse_max_events: Annotated[
+        int | None,
+        typer.Option(
+            "--sse-max-events", help="Maximum events to receive per connection"
+        ),
+    ] = None,
 ) -> None:
     _configure_logging(_resolve_log_level(verbose, quiet), log_file)
     method = _validate_method(method)
@@ -523,6 +547,8 @@ def stress(
             http3_enabled=http3_enabled,
             quic_zero_rtt=quic_zero_rtt,
             quic_max_idle_timeout_ms=quic_max_idle_timeout_ms,
+            sse_enabled=sse_enabled,
+            sse_max_events=sse_max_events,
         ),
     )
     summary = engine.run()
@@ -663,6 +689,15 @@ def spike(
         int | None,
         typer.Option("--quic-max-idle-timeout", help="QUIC max idle timeout in ms"),
     ] = None,
+    sse_enabled: Annotated[
+        bool, typer.Option("--sse/--no-sse", help="Enable SSE streaming mode")
+    ] = False,
+    sse_max_events: Annotated[
+        int | None,
+        typer.Option(
+            "--sse-max-events", help="Maximum events to receive per connection"
+        ),
+    ] = None,
 ) -> None:
     _configure_logging(_resolve_log_level(verbose, quiet), log_file)
     method = _validate_method(method)
@@ -695,6 +730,8 @@ def spike(
             http3_enabled=http3_enabled,
             quic_zero_rtt=quic_zero_rtt,
             quic_max_idle_timeout_ms=quic_max_idle_timeout_ms,
+            sse_enabled=sse_enabled,
+            sse_max_events=sse_max_events,
         ),
     )
     summary = engine.run()
