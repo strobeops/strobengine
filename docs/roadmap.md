@@ -102,8 +102,8 @@ This document outlines the planned trajectory and upcoming feature epics for **s
 - [x] **HTTP/3 (QUIC)** `[v0.4.0] - 2026-08-23`
   - [x] UDP-based QUIC transport layer support. `[v0.4.0] - 2026-08-23`
   - [x] Zero-RTT connection testing and loss recovery benchmarking. `[v0.4.0] - 2026-08-23`
-- [ ] **Server-Sent Events (SSE / HTTP Streaming)**
-  - [ ] Persistent HTTP streaming response parsing (Time-to-First-Byte, chunk latency, LLM stream benchmarking).
+- [x] **Server-Sent Events (SSE / HTTP Streaming)** `[v0.5.0]`
+  - [x] Persistent HTTP streaming response parsing (Time-to-First-Byte, chunk latency, LLM stream benchmarking). `[v0.5.0]`
 
 ---
 
