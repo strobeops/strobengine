@@ -363,6 +363,9 @@ impl WebSocketEngine {
                     quic_handshake_us: None,
                     quic_0rtt_used: false,
                     quic_retransmits: None,
+                    sse_events_received: None,
+                    sse_first_event_us: None,
+                    sse_event_interval_us: None,
                 }
             }
             Err(e) => {
@@ -456,6 +459,9 @@ impl WebSocketEngine {
                     quic_handshake_us: None,
                     quic_0rtt_used: false,
                     quic_retransmits: None,
+                    sse_events_received: None,
+                    sse_first_event_us: None,
+                    sse_event_interval_us: None,
                 }
             }
             Ok(None) => RequestMetric::error(latency_micros),
@@ -576,6 +582,9 @@ impl ProtocolEngine for WebSocketEngine {
             quic_handshake_us: None,
             quic_0rtt_used: false,
             quic_retransmits: None,
+            sse_events_received: None,
+            sse_first_event_us: None,
+            sse_event_interval_us: None,
         }
     }
 
@@ -677,6 +686,9 @@ impl ProtocolEngine for WebSocketEngine {
                     quic_handshake_us: None,
                     quic_0rtt_used: false,
                     quic_retransmits: None,
+                    sse_events_received: None,
+                    sse_first_event_us: None,
+                    sse_event_interval_us: None,
                 }
             }
             Err(_) => RequestMetric {
@@ -690,6 +702,9 @@ impl ProtocolEngine for WebSocketEngine {
                 quic_handshake_us: None,
                 quic_0rtt_used: false,
                 quic_retransmits: None,
+                sse_events_received: None,
+                sse_first_event_us: None,
+                sse_event_interval_us: None,
             },
         }
     }

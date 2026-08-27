@@ -317,6 +317,9 @@ impl ProtocolEngine for GrpcEngine {
             quic_handshake_us: None,
             quic_0rtt_used: false,
             quic_retransmits: None,
+            sse_events_received: None,
+            sse_first_event_us: None,
+            sse_event_interval_us: None,
         }
     }
 }
