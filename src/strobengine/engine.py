@@ -58,6 +58,8 @@ class RequestOptions:
     http3_enabled: bool = False
     quic_zero_rtt: bool = False
     quic_max_idle_timeout_ms: int | None = None
+    sse_enabled: bool = False
+    sse_max_events: int | None = None
 
     def __post_init__(self) -> None:
         if self.timeout <= 0:
@@ -112,6 +114,8 @@ class StrobEngine:
                 http3_enabled=self._options.http3_enabled,
                 quic_zero_rtt=self._options.quic_zero_rtt,
                 quic_max_idle_timeout_ms=self._options.quic_max_idle_timeout_ms,
+                sse_enabled=self._options.sse_enabled,
+                sse_max_events=self._options.sse_max_events,
             )
             self._profile = None
         else:

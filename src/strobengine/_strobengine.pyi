@@ -59,6 +59,8 @@ class TestConfig:
     http3_enabled: bool
     quic_zero_rtt: bool
     quic_max_idle_timeout_ms: int | None
+    sse_enabled: bool
+    sse_max_events: int | None
     def __init__(
         self,
         url: str,
@@ -89,6 +91,8 @@ class TestConfig:
         http3_enabled: bool = False,
         quic_zero_rtt: bool = False,
         quic_max_idle_timeout_ms: int | None = None,
+        sse_enabled: bool = False,
+        sse_max_events: int | None = None,
     ) -> None: ...
 
 class TestSummary:
