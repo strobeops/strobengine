@@ -475,6 +475,12 @@ fn run_load_test(py: Python<'_>, config: TestConfig) -> PyResult<metrics::TestSu
         // Build protocol engine based on URL scheme
         let engine: Arc<dyn ProtocolEngine> = if protocols::is_protocol_url(&url) {
             protocols::detect_protocol(&url, &config, chaos)
+        } else if config.sse_enabled {
+            Arc::new(protocols::sse::SseEngine::new(
+                config.headers.clone().unwrap_or_default(),
+                chaos,
+                config.sse_max_events,
+            ))
         } else {
             let method = parse_method(&config.method)?;
             let body = parse_body(config.body);
