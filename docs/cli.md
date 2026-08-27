@@ -43,6 +43,8 @@ By default, this spawns **10 concurrent workers** for **10 seconds** with a **10
 | `--http3/--no-http3` | off | Enable HTTP/3 over QUIC |
 | `--quic-zero-rtt` | off | Enable QUIC 0-RTT connection testing |
 | `--quic-max-idle-timeout` | none | QUIC max idle timeout in ms |
+| `--sse/--no-sse` | off | Enable SSE streaming mode |
+| `--sse-max-events` | none | Maximum events to receive per connection |
 
 ## Stress Subcommand Options
 
@@ -75,6 +77,8 @@ By default, this spawns **10 concurrent workers** for **10 seconds** with a **10
 | `--http3/--no-http3` | off | Enable HTTP/3 over QUIC |
 | `--quic-zero-rtt` | off | Enable QUIC 0-RTT connection testing |
 | `--quic-max-idle-timeout` | none | QUIC max idle timeout in ms |
+| `--sse/--no-sse` | off | Enable SSE streaming mode |
+| `--sse-max-events` | none | Maximum events to receive per connection |
 
 ## Spike Subcommand Options
 
@@ -108,6 +112,8 @@ By default, this spawns **10 concurrent workers** for **10 seconds** with a **10
 | `--http3/--no-http3` | off | Enable HTTP/3 over QUIC |
 | `--quic-zero-rtt` | off | Enable QUIC 0-RTT connection testing |
 | `--quic-max-idle-timeout` | none | QUIC max idle timeout in ms |
+| `--sse/--no-sse` | off | Enable SSE streaming mode |
+| `--sse-max-events` | none | Maximum events to receive per connection |
 
 ## Global Options
 
