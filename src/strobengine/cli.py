@@ -159,6 +159,7 @@ def _output_results(
     config: object | None = None,
     output_dir: str | None = None,
     no_save: bool = False,
+    html_output: str | None = None,
 ) -> None:
     print_summary(summary, json_output=json_output)
     if config is not None:
@@ -167,6 +168,12 @@ def _output_results(
         filepath = save_report(summary, config, output_dir=output_dir, no_save=no_save)
         if filepath and not json_output:
             print(f"Report saved to {filepath}", file=sys.stderr)
+    if html_output:
+        from strobengine.reporting.html_report import save_html_report
+
+        save_html_report(summary, config, html_output)
+        if not json_output:
+            print(f"HTML report saved to {html_output}", file=sys.stderr)
 
 
 def _build_request_options(
@@ -363,6 +370,10 @@ def load(
     no_save: Annotated[
         bool, typer.Option("--no-save", help="Disable report persistence")
     ] = False,
+    html_output: Annotated[
+        str | None,
+        typer.Option("--html", help="Generate standalone HTML report"),
+    ] = None,
 ) -> None:
     _configure_logging(_resolve_log_level(verbose, quiet), log_file)
     method = _validate_method(method)
@@ -407,6 +418,7 @@ def load(
         config=engine.config,
         output_dir=output_dir,
         no_save=no_save,
+        html_output=html_output,
     )
 
 
@@ -556,6 +568,10 @@ def stress(
     no_save: Annotated[
         bool, typer.Option("--no-save", help="Disable report persistence")
     ] = False,
+    html_output: Annotated[
+        str | None,
+        typer.Option("--html", help="Generate standalone HTML report"),
+    ] = None,
 ) -> None:
     _configure_logging(_resolve_log_level(verbose, quiet), log_file)
     method = _validate_method(method)
@@ -602,6 +618,7 @@ def stress(
         config=engine.config or engine._options,
         output_dir=output_dir,
         no_save=no_save,
+        html_output=html_output,
     )
 
 
@@ -755,6 +772,10 @@ def spike(
     no_save: Annotated[
         bool, typer.Option("--no-save", help="Disable report persistence")
     ] = False,
+    html_output: Annotated[
+        str | None,
+        typer.Option("--html", help="Generate standalone HTML report"),
+    ] = None,
 ) -> None:
     _configure_logging(_resolve_log_level(verbose, quiet), log_file)
     method = _validate_method(method)
@@ -802,6 +823,7 @@ def spike(
         config=engine.config or engine._options,
         output_dir=output_dir,
         no_save=no_save,
+        html_output=html_output,
     )
 
 
