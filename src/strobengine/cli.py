@@ -160,6 +160,7 @@ def _output_results(
     output_dir: str | None = None,
     no_save: bool = False,
     html_output: str | None = None,
+    compare_to: str | None = None,
 ) -> None:
     print_summary(summary, json_output=json_output)
     if config is not None:
@@ -169,9 +170,24 @@ def _output_results(
         if filepath and not json_output:
             print(f"Report saved to {filepath}", file=sys.stderr)
     if html_output:
+        from pathlib import Path
+
         from strobengine.reporting.html_report import save_html_report
 
-        save_html_report(summary, config, html_output)
+        comparison = None
+        if compare_to:
+            from strobengine.reporter import build_artifact_dict
+            from strobengine.reporting.baseline import (
+                compute_comparison,
+                load_baseline_artifact,
+            )
+
+            baseline = load_baseline_artifact(baseline_file=Path(compare_to))
+            if baseline and config is not None:
+                current = build_artifact_dict(summary, config)
+                comparison = compute_comparison(current, baseline)
+
+        save_html_report(summary, config, html_output, comparison=comparison)
         if not json_output:
             print(f"HTML report saved to {html_output}", file=sys.stderr)
 
@@ -374,6 +390,10 @@ def load(
         str | None,
         typer.Option("--html", help="Generate standalone HTML report"),
     ] = None,
+    compare_to: Annotated[
+        str | None,
+        typer.Option("--compare-to", help="Baseline JSON report path for comparison"),
+    ] = None,
 ) -> None:
     _configure_logging(_resolve_log_level(verbose, quiet), log_file)
     method = _validate_method(method)
@@ -419,6 +439,7 @@ def load(
         output_dir=output_dir,
         no_save=no_save,
         html_output=html_output,
+        compare_to=compare_to,
     )
 
 
@@ -572,6 +593,10 @@ def stress(
         str | None,
         typer.Option("--html", help="Generate standalone HTML report"),
     ] = None,
+    compare_to: Annotated[
+        str | None,
+        typer.Option("--compare-to", help="Baseline JSON report path for comparison"),
+    ] = None,
 ) -> None:
     _configure_logging(_resolve_log_level(verbose, quiet), log_file)
     method = _validate_method(method)
@@ -619,6 +644,7 @@ def stress(
         output_dir=output_dir,
         no_save=no_save,
         html_output=html_output,
+        compare_to=compare_to,
     )
 
 
@@ -776,6 +802,10 @@ def spike(
         str | None,
         typer.Option("--html", help="Generate standalone HTML report"),
     ] = None,
+    compare_to: Annotated[
+        str | None,
+        typer.Option("--compare-to", help="Baseline JSON report path for comparison"),
+    ] = None,
 ) -> None:
     _configure_logging(_resolve_log_level(verbose, quiet), log_file)
     method = _validate_method(method)
@@ -824,6 +854,7 @@ def spike(
         output_dir=output_dir,
         no_save=no_save,
         html_output=html_output,
+        compare_to=compare_to,
     )
 
 
