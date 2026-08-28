@@ -63,6 +63,75 @@ pub struct LatencyPercentiles {
     pub mean_us: f64,
 }
 
+fn get_system_info() -> SystemInfo {
+    SystemInfo {
+        hostname: std::env::var("HOSTNAME")
+            .or_else(|_| std::env::var("COMPUTERNAME"))
+            .unwrap_or_else(|_| "unknown".to_string()),
+        platform: std::env::consts::OS.to_string(),
+        version: env!("CARGO_PKG_VERSION").to_string(),
+    }
+}
+
+impl ReportArtifact {
+    /// Build a ReportArtifact from an enriched TestSummary and TestConfig.
+    ///
+    /// Latency values are converted from milliseconds to microseconds (× 1000.0).
+    /// Status codes are mapped from `HashMap<u16, u64>` to `HashMap<String, u64>`.
+    pub fn from_summary_and_config(
+        summary: &crate::metrics::TestSummary,
+        config: &crate::config::TestConfig,
+    ) -> Self {
+        let successful = (summary.total_requests).saturating_sub(summary.total_errors) as u64;
+        let rps = if summary.duration_secs > 0.0 {
+            summary.total_requests as f64 / summary.duration_secs
+        } else {
+            0.0
+        };
+
+        let error_breakdown: HashMap<String, u64> = summary
+            .status_codes
+            .iter()
+            .map(|(&k, &v)| (k.to_string(), v))
+            .collect();
+
+        ReportArtifact {
+            metadata: ReportMetadata {
+                timestamp: summary.timestamp.clone(),
+                duration_secs: summary.duration_secs,
+                target_url: config.url.clone(),
+                cli_options: CliOptions {
+                    method: config.method.clone(),
+                    concurrency: config.concurrency,
+                    timeout_secs: config.timeout_secs,
+                    chaos: config.chaos,
+                    chaos_rate: config.chaos_rate,
+                    body: config.body.clone(),
+                    headers: config.headers.clone(),
+                },
+                system_info: get_system_info(),
+            },
+            summary: ReportSummary {
+                total_requests: summary.total_requests as u64,
+                successful_requests: successful,
+                failed_requests: summary.total_errors as u64,
+                rps: (rps * 100.0).round() / 100.0,
+                bytes_transferred: summary.total_bytes_received,
+            },
+            latency_percentiles: LatencyPercentiles {
+                p50_us: summary.p50_latency_ms * 1000.0,
+                p90_us: summary.p90_latency_ms * 1000.0,
+                p95_us: summary.p95_latency_ms * 1000.0,
+                p99_us: summary.p99_latency_ms * 1000.0,
+                min_us: summary.min_latency_ms * 1000.0,
+                max_us: summary.max_latency_ms * 1000.0,
+                mean_us: summary.average_latency_ms * 1000.0,
+            },
+            error_breakdown,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -237,5 +306,87 @@ mod tests {
             Some(r#"{"key":"val"}"#.to_string())
         );
         assert!(deserialized.metadata.cli_options.headers.is_none());
+    }
+
+    #[test]
+    fn test_from_summary_and_config() {
+        use crate::config::{TestConfig, WsMode};
+        use crate::metrics::TestSummary;
+
+        let mut status_codes = std::collections::HashMap::new();
+        status_codes.insert(200, 95u64);
+        status_codes.insert(500, 5u64);
+
+        let summary = TestSummary {
+            url: "http://localhost:8080".to_string(),
+            total_requests: 100,
+            total_errors: 5,
+            average_latency_ms: 12.5,
+            p95_latency_ms: 25.0,
+            p99_latency_ms: 50.0,
+            min_latency_ms: 1.0,
+            p50_latency_ms: 10.0,
+            p90_latency_ms: 20.0,
+            max_latency_ms: 100.0,
+            total_bytes_received: 1024,
+            duration_secs: 10.0,
+            workers: 5,
+            timestamp: "2026-08-28T10:00:00Z".to_string(),
+            raw_command: None,
+            status_codes,
+            avg_e2e_latency_us: 0.0,
+        };
+
+        let config = TestConfig::new(
+            "http://localhost:8080".into(),
+            10,
+            10,
+            10,
+            false,
+            0.1,
+            false,
+            "GET",
+            None,
+            None,
+            None,
+            WsMode::Handshake,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            false,
+            false,
+            None,
+            None,
+            None,
+            None,
+            None,
+            false,
+            false,
+            None,
+            false,
+            None,
+            None,
+            false,
+        );
+
+        let artifact = ReportArtifact::from_summary_and_config(&summary, &config);
+
+        assert_eq!(artifact.summary.total_requests, 100);
+        assert_eq!(artifact.summary.successful_requests, 95);
+        assert_eq!(artifact.summary.failed_requests, 5);
+        assert!((artifact.summary.rps - 10.0).abs() < 0.01);
+        assert_eq!(artifact.latency_percentiles.p50_us, 10000.0);
+        assert_eq!(artifact.latency_percentiles.p99_us, 50000.0);
+        assert_eq!(artifact.latency_percentiles.min_us, 1000.0);
+        assert_eq!(artifact.latency_percentiles.max_us, 100000.0);
+        assert_eq!(artifact.error_breakdown.get("200"), Some(&95));
+        assert_eq!(artifact.error_breakdown.get("500"), Some(&5));
+        assert_eq!(artifact.metadata.target_url, "http://localhost:8080");
+        assert_eq!(artifact.metadata.cli_options.method, "GET");
+        assert_eq!(artifact.metadata.cli_options.concurrency, 10);
+        assert!(!artifact.metadata.cli_options.chaos);
     }
 }

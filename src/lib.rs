@@ -479,8 +479,8 @@ fn run_load_test(py: Python<'_>, config: TestConfig) -> PyResult<metrics::TestSu
                 protocols::detect_protocol(&url, &config, chaos)
             } else {
                 let method = parse_method(&config.method)?;
-                let body = parse_body(config.body);
-                let form = parse_form(config.form);
+                let body = parse_body(config.body.clone());
+                let form = parse_form(config.form.clone());
                 let header_map = parse_headers(config.headers.clone())?;
 
                 // Resolve payload and auto-inject Content-Type
@@ -527,7 +527,20 @@ fn run_load_test(py: Python<'_>, config: TestConfig) -> PyResult<metrics::TestSu
             .build()
             .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
 
-        rt.block_on(execute_test(engine, url, no_progress, strategy))
+        let summary = rt.block_on(execute_test(engine, url, no_progress, strategy))?;
+
+        // Persist report artifact to disk
+        if !config.no_save {
+            let artifact =
+                report::schema::ReportArtifact::from_summary_and_config(&summary, &config);
+            let _ = report::writer::save_report_json(
+                &artifact,
+                config.output_dir.as_deref().map(std::path::Path::new),
+                false,
+            );
+        }
+
+        Ok(summary)
     })
 }
 
