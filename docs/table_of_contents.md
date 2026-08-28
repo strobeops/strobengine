@@ -15,6 +15,7 @@
 - [gRPC Load Testing](grpc.md) -- Unary calls, protobuf payloads, deadline, chaos
 - [HTTP/3 Load Testing](http3.md) -- QUIC transport, 0-RTT resumption, loss recovery metrics
 - [SSE Load Testing](sse.md) -- Server-Sent Events streaming, TTFB, event intervals, max events
+- [Reporting & Visualizations](reports.md) -- JSON persistence, HTML reports, baseline comparison, output control
 
 ## Operations
 
