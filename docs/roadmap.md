@@ -72,9 +72,9 @@ This document outlines the planned trajectory and upcoming feature epics for **s
 ### Epic: Test Persistence & Visual Reporting
 *Target Focus: Long-Term Benchmark Tracking & Visualization*
 
-- [ ] **Artifact Persistence Engine**
-  - [ ] Automatic disk storage for raw JSON execution metrics (`--output-dir`, `--save-report`).
-  - [ ] Standardized report schema featuring execution metadata (timestamps, CLI flags, system specs, latency percentiles).
+- [x] **Artifact Persistence Engine** `[v0.5.0]`
+  - [x] Automatic disk storage for raw JSON execution metrics (`--output-dir`, `--no-save`). `[v0.5.0]`
+  - [x] Standardized report schema featuring execution metadata (timestamps, CLI flags, system specs, latency percentiles). `[v0.5.0]`
 - [ ] **HTML / Visual Report Generator**
   - [ ] Standalone HTML report output with embedded latency distribution charts (p50, p90, p95, p99).
   - [ ] Summary dashboards comparing current runs against historical baseline artifacts.
