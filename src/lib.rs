@@ -9,6 +9,7 @@ mod logging;
 mod metrics;
 mod progress;
 pub mod protocols;
+pub mod report;
 
 use std::io::IsTerminal;
 use std::sync::Arc;
@@ -623,6 +624,8 @@ fn run_load_profiles(
                 None,
                 false,
                 None,
+                None,
+                false,
             );
             protocols::detect_protocol(&url, &ws_config, chaos_engine)
         } else {

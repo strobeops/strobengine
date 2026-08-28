@@ -1,0 +1,241 @@
+use std::collections::HashMap;
+
+use serde::{Deserialize, Serialize};
+
+/// Top-level report artifact persisted to disk after each load test.
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct ReportArtifact {
+    pub metadata: ReportMetadata,
+    pub summary: ReportSummary,
+    pub latency_percentiles: LatencyPercentiles,
+    pub error_breakdown: HashMap<String, u64>,
+}
+
+/// Test run metadata including configuration and system information.
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct ReportMetadata {
+    pub timestamp: String,
+    pub duration_secs: f64,
+    pub target_url: String,
+    pub cli_options: CliOptions,
+    pub system_info: SystemInfo,
+}
+
+/// CLI options that produced this test run.
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct CliOptions {
+    pub method: String,
+    pub concurrency: usize,
+    pub timeout_secs: u64,
+    pub chaos: bool,
+    pub chaos_rate: f32,
+    pub body: Option<String>,
+    pub headers: Option<Vec<(String, String)>>,
+}
+
+/// System information about the machine that ran the test.
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct SystemInfo {
+    pub hostname: String,
+    pub platform: String,
+    pub version: String,
+}
+
+/// Aggregate request statistics.
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct ReportSummary {
+    pub total_requests: u64,
+    pub successful_requests: u64,
+    pub failed_requests: u64,
+    pub rps: f64,
+    pub bytes_transferred: u64,
+}
+
+/// Latency percentiles in microseconds.
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct LatencyPercentiles {
+    pub p50_us: f64,
+    pub p90_us: f64,
+    pub p95_us: f64,
+    pub p99_us: f64,
+    pub min_us: f64,
+    pub max_us: f64,
+    pub mean_us: f64,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn sample_artifact() -> ReportArtifact {
+        let mut error_breakdown = HashMap::new();
+        error_breakdown.insert("200".to_string(), 95);
+        error_breakdown.insert("500".to_string(), 5);
+
+        ReportArtifact {
+            metadata: ReportMetadata {
+                timestamp: "2026-08-28T10:30:00Z".to_string(),
+                duration_secs: 30.0,
+                target_url: "http://localhost:8080/api".to_string(),
+                cli_options: CliOptions {
+                    method: "GET".to_string(),
+                    concurrency: 50,
+                    timeout_secs: 10,
+                    chaos: false,
+                    chaos_rate: 0.1,
+                    body: None,
+                    headers: Some(vec![(
+                        "Authorization".to_string(),
+                        "Bearer tok".to_string(),
+                    )]),
+                },
+                system_info: SystemInfo {
+                    hostname: "test-host".to_string(),
+                    platform: "linux".to_string(),
+                    version: "0.5.0".to_string(),
+                },
+            },
+            summary: ReportSummary {
+                total_requests: 1000,
+                successful_requests: 950,
+                failed_requests: 50,
+                rps: 33.33,
+                bytes_transferred: 524288,
+            },
+            latency_percentiles: LatencyPercentiles {
+                p50_us: 1500.0,
+                p90_us: 3000.0,
+                p95_us: 4500.0,
+                p99_us: 9000.0,
+                min_us: 100.0,
+                max_us: 15000.0,
+                mean_us: 2200.0,
+            },
+            error_breakdown,
+        }
+    }
+
+    #[test]
+    fn test_report_artifact_serialization_roundtrip() {
+        let artifact = sample_artifact();
+        let json = serde_json::to_string(&artifact).unwrap();
+        let deserialized: ReportArtifact = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(
+            artifact.metadata.target_url,
+            deserialized.metadata.target_url
+        );
+        assert_eq!(
+            artifact.summary.total_requests,
+            deserialized.summary.total_requests
+        );
+        assert_eq!(
+            artifact.latency_percentiles.p50_us,
+            deserialized.latency_percentiles.p50_us
+        );
+        assert_eq!(
+            artifact.error_breakdown.get("200"),
+            deserialized.error_breakdown.get("200")
+        );
+    }
+
+    #[test]
+    fn test_report_artifact_json_structure() {
+        let artifact = sample_artifact();
+        let json = serde_json::to_value(&artifact).unwrap();
+
+        assert!(json.get("metadata").is_some());
+        assert!(json.get("summary").is_some());
+        assert!(json.get("latency_percentiles").is_some());
+        assert!(json.get("error_breakdown").is_some());
+
+        // Metadata fields
+        assert!(json["metadata"]["timestamp"].is_string());
+        assert!(json["metadata"]["duration_secs"].is_f64());
+        assert!(json["metadata"]["target_url"].is_string());
+        assert!(json["metadata"]["cli_options"].is_object());
+        assert!(json["metadata"]["system_info"].is_object());
+
+        // Summary fields
+        assert!(json["summary"]["total_requests"].is_u64());
+        assert!(json["summary"]["successful_requests"].is_u64());
+        assert!(json["summary"]["failed_requests"].is_u64());
+        assert!(json["summary"]["rps"].is_f64());
+        assert!(json["summary"]["bytes_transferred"].is_u64());
+
+        // Latency fields
+        assert!(json["latency_percentiles"]["p50_us"].is_f64());
+        assert!(json["latency_percentiles"]["p99_us"].is_f64());
+    }
+
+    #[test]
+    fn test_latency_percentiles_values() {
+        let lp = LatencyPercentiles {
+            p50_us: 1500.0,
+            p90_us: 3000.0,
+            p95_us: 4500.0,
+            p99_us: 9000.0,
+            min_us: 100.0,
+            max_us: 15000.0,
+            mean_us: 2200.0,
+        };
+        let json = serde_json::to_value(&lp).unwrap();
+        assert_eq!(json["p50_us"], 1500.0);
+        assert_eq!(json["p90_us"], 3000.0);
+        assert_eq!(json["p95_us"], 4500.0);
+        assert_eq!(json["p99_us"], 9000.0);
+        assert_eq!(json["min_us"], 100.0);
+        assert_eq!(json["max_us"], 15000.0);
+        assert_eq!(json["mean_us"], 2200.0);
+    }
+
+    #[test]
+    fn test_error_breakdown_from_status_codes() {
+        let mut breakdown = HashMap::new();
+        breakdown.insert("200".to_string(), 90);
+        breakdown.insert("404".to_string(), 7);
+        breakdown.insert("500".to_string(), 3);
+
+        let json = serde_json::to_value(&breakdown).unwrap();
+        assert_eq!(json["200"], 90);
+        assert_eq!(json["404"], 7);
+        assert_eq!(json["500"], 3);
+    }
+
+    #[test]
+    fn test_report_artifact_pretty_json() {
+        let artifact = sample_artifact();
+        let json = serde_json::to_string_pretty(&artifact).unwrap();
+
+        assert!(json.contains("\"metadata\""));
+        assert!(json.contains("\"latency_percentiles\""));
+        assert!(json.contains("1500"));
+        // Pretty-printed should have newlines
+        assert!(json.contains('\n'));
+    }
+
+    #[test]
+    fn test_empty_error_breakdown() {
+        let mut artifact = sample_artifact();
+        artifact.error_breakdown = HashMap::new();
+
+        let json = serde_json::to_value(&artifact).unwrap();
+        assert!(json["error_breakdown"].as_object().unwrap().is_empty());
+    }
+
+    #[test]
+    fn test_optional_cli_options() {
+        let mut artifact = sample_artifact();
+        artifact.metadata.cli_options.body = Some(r#"{"key":"val"}"#.to_string());
+        artifact.metadata.cli_options.headers = None;
+
+        let json_str = serde_json::to_string(&artifact).unwrap();
+        let deserialized: ReportArtifact = serde_json::from_str(&json_str).unwrap();
+
+        assert_eq!(
+            deserialized.metadata.cli_options.body,
+            Some(r#"{"key":"val"}"#.to_string())
+        );
+        assert!(deserialized.metadata.cli_options.headers.is_none());
+    }
+}
