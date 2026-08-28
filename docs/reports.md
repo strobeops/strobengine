@@ -93,7 +93,7 @@ from strobengine.reporting.html_report import save_html_report
 
 engine = StrobEngine(url="http://localhost:8080", concurrency=10, duration=30)
 summary = engine.run()
-# save_html_report(summary, config, "report.html")
+filepath = save_html_report(summary, engine.get_config(), "report.html")
 ```
 
 ## Historical Baseline Comparison

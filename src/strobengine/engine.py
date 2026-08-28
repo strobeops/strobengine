@@ -237,3 +237,11 @@ class StrobEngine:
 
     async def run_async(self) -> TestSummary:
         return await asyncio.to_thread(self.run)
+
+    def get_config(self):
+        """Return the active configuration (TestConfig or RequestOptions).
+
+        Returns TestConfig for constant load tests, or RequestOptions
+        as a fallback for stress/spike profile-based tests.
+        """
+        return self.config or self._options
