@@ -42,6 +42,7 @@ strobengine load http://localhost:8080/api/health -c 50 -d 30
 | [gRPC](https://github.com/strobeops/strobengine/blob/main/docs/grpc.md) | Unary calls, protobuf, deadline, chaos |
 | [HTTP/3](https://github.com/strobeops/strobengine/blob/main/docs/http3.md) | QUIC transport, 0-RTT resumption, loss recovery |
 | [SSE](https://github.com/strobeops/strobengine/blob/main/docs/sse.md) | Server-Sent Events streaming, TTFB, event intervals |
+| [Reporting](https://github.com/strobeops/strobengine/blob/main/docs/reports.md) | JSON persistence, HTML reports, baseline comparison |
 | [Docker](https://github.com/strobeops/strobengine/blob/main/docs/docker.md) | Pulling images, running containers |
 | [Testing](https://github.com/strobeops/strobengine/blob/main/docs/testing.md) | Test structure, e2e, CI/CD |
 | [Roadmap](https://github.com/strobeops/strobengine/blob/main/docs/roadmap.md) | Planned features |
