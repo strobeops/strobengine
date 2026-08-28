@@ -211,3 +211,98 @@ def _metrics_description():
         "- P99 Latency: 99% of requests completed faster than this time (worst-case spikes)."
     )
     print("- Max Latency: Maximum round-trip time across all completed requests.")
+
+
+# ---------------------------------------------------------------------------
+# Report Artifact Persistence
+# ---------------------------------------------------------------------------
+
+DEFAULT_REPORT_DIR = ".strobengine/reports"
+
+
+def _slugify_url(url: str) -> str:
+    """Convert URL to a safe filename slug."""
+    import re
+
+    return re.sub(r"[^a-zA-Z0-9_-]", "_", url)[:80]
+
+
+def _get_system_info() -> dict:
+    """Collect basic system information for report metadata."""
+    import socket
+
+    return {
+        "hostname": socket.gethostname(),
+        "platform": sys.platform,
+        "version": "0.5.0",
+    }
+
+
+def build_artifact_dict(summary: TestSummary, config: object) -> dict:
+    """Build a ReportArtifact dict matching the Rust schema in report/schema.rs."""
+    successful = summary.total_requests - summary.total_errors
+    rps = (
+        summary.total_requests / summary.duration_secs
+        if summary.duration_secs > 0
+        else 0.0
+    )
+
+    # Extract CLI options from config (TestConfig PyO3 object)
+    cli_options = {
+        "method": getattr(config, "method", "GET"),
+        "concurrency": getattr(config, "concurrency", 0),
+        "timeout_secs": getattr(config, "timeout_secs", 0),
+        "chaos": getattr(config, "chaos", False),
+        "chaos_rate": getattr(config, "chaos_rate", 0.1),
+        "body": getattr(config, "body", None),
+        "headers": getattr(config, "headers", None),
+    }
+
+    return {
+        "metadata": {
+            "timestamp": summary.timestamp,
+            "duration_secs": summary.duration_secs,
+            "target_url": summary.url,
+            "cli_options": cli_options,
+            "system_info": _get_system_info(),
+        },
+        "summary": {
+            "total_requests": summary.total_requests,
+            "successful_requests": successful,
+            "failed_requests": summary.total_errors,
+            "rps": round(rps, 2),
+            "bytes_transferred": summary.total_bytes_received,
+        },
+        "latency_percentiles": {
+            "p50_us": round(summary.p50_latency_ms * 1000.0, 1),
+            "p90_us": round(summary.p90_latency_ms * 1000.0, 1),
+            "p95_us": round(summary.p95_latency_ms * 1000.0, 1),
+            "p99_us": round(summary.p99_latency_ms * 1000.0, 1),
+            "min_us": round(summary.min_latency_ms * 1000.0, 1),
+            "max_us": round(summary.max_latency_ms * 1000.0, 1),
+            "mean_us": round(summary.average_latency_ms * 1000.0, 1),
+        },
+        "error_breakdown": {str(k): v for k, v in summary.status_codes.items()},
+    }
+
+
+def save_report(
+    summary: TestSummary,
+    config: object,
+    output_dir: str | None = None,
+    no_save: bool = False,
+) -> str | None:
+    """Persist ReportArtifact to disk. Returns filepath or None."""
+    if no_save:
+        return None
+
+    import json
+    from pathlib import Path
+
+    dirpath = Path(output_dir or DEFAULT_REPORT_DIR)
+    dirpath.mkdir(parents=True, exist_ok=True)
+    filename = f"{summary.timestamp}_{_slugify_url(summary.url)}.json"
+    filepath = dirpath / filename
+    artifact = build_artifact_dict(summary, config)
+    filepath.write_text(json.dumps(artifact, indent=2))
+    return str(filepath)

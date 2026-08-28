@@ -61,6 +61,8 @@ class TestConfig:
     quic_max_idle_timeout_ms: int | None
     sse_enabled: bool
     sse_max_events: int | None
+    output_dir: str | None
+    no_save: bool
     def __init__(
         self,
         url: str,
@@ -93,6 +95,8 @@ class TestConfig:
         quic_max_idle_timeout_ms: int | None = None,
         sse_enabled: bool = False,
         sse_max_events: int | None = None,
+        output_dir: str | None = None,
+        no_save: bool = False,
     ) -> None: ...
 
 class TestSummary:
