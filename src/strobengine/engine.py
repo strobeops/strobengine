@@ -60,6 +60,8 @@ class RequestOptions:
     quic_max_idle_timeout_ms: int | None = None
     sse_enabled: bool = False
     sse_max_events: int | None = None
+    output_dir: str | None = None
+    no_save: bool = False
 
     def __post_init__(self) -> None:
         if self.timeout <= 0:
@@ -116,6 +118,8 @@ class StrobEngine:
                 quic_max_idle_timeout_ms=self._options.quic_max_idle_timeout_ms,
                 sse_enabled=self._options.sse_enabled,
                 sse_max_events=self._options.sse_max_events,
+                output_dir=self._options.output_dir,
+                no_save=self._options.no_save,
             )
             self._profile = None
         else:

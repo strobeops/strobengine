@@ -152,9 +152,21 @@ def _global_options(
 
 
 def _output_results(
-    summary: TestSummary, url: str, duration_secs: int, json_output: bool
+    summary: TestSummary,
+    url: str,
+    duration_secs: int,
+    json_output: bool,
+    config: object | None = None,
+    output_dir: str | None = None,
+    no_save: bool = False,
 ) -> None:
     print_summary(summary, json_output=json_output)
+    if config is not None:
+        from strobengine.reporter import save_report
+
+        filepath = save_report(summary, config, output_dir=output_dir, no_save=no_save)
+        if filepath and not json_output:
+            print(f"Report saved to {filepath}", file=sys.stderr)
 
 
 def _build_request_options(
@@ -181,6 +193,8 @@ def _build_request_options(
     quic_max_idle_timeout_ms: int | None,
     sse_enabled: bool,
     sse_max_events: int | None,
+    output_dir: str | None = None,
+    no_save: bool = False,
 ) -> RequestOptions:
     return RequestOptions(
         timeout=timeout,
@@ -206,6 +220,8 @@ def _build_request_options(
         quic_max_idle_timeout_ms=quic_max_idle_timeout_ms,
         sse_enabled=sse_enabled,
         sse_max_events=sse_max_events,
+        output_dir=output_dir,
+        no_save=no_save,
     )
 
 
@@ -340,6 +356,13 @@ def load(
             "--sse-max-events", help="Maximum events to receive per connection"
         ),
     ] = None,
+    output_dir: Annotated[
+        str | None,
+        typer.Option("--output-dir", help="Report output directory"),
+    ] = None,
+    no_save: Annotated[
+        bool, typer.Option("--no-save", help="Disable report persistence")
+    ] = False,
 ) -> None:
     _configure_logging(_resolve_log_level(verbose, quiet), log_file)
     method = _validate_method(method)
@@ -371,10 +394,20 @@ def load(
             quic_max_idle_timeout_ms=quic_max_idle_timeout_ms,
             sse_enabled=sse_enabled,
             sse_max_events=sse_max_events,
+            output_dir=output_dir,
+            no_save=no_save,
         ),
     )
     summary = engine.run()
-    _output_results(summary, url, duration, json_output)
+    _output_results(
+        summary,
+        url,
+        duration,
+        json_output,
+        config=engine.config,
+        output_dir=output_dir,
+        no_save=no_save,
+    )
 
 
 @app.command()
@@ -516,6 +549,13 @@ def stress(
             "--sse-max-events", help="Maximum events to receive per connection"
         ),
     ] = None,
+    output_dir: Annotated[
+        str | None,
+        typer.Option("--output-dir", help="Report output directory"),
+    ] = None,
+    no_save: Annotated[
+        bool, typer.Option("--no-save", help="Disable report persistence")
+    ] = False,
 ) -> None:
     _configure_logging(_resolve_log_level(verbose, quiet), log_file)
     method = _validate_method(method)
@@ -549,10 +589,20 @@ def stress(
             quic_max_idle_timeout_ms=quic_max_idle_timeout_ms,
             sse_enabled=sse_enabled,
             sse_max_events=sse_max_events,
+            output_dir=output_dir,
+            no_save=no_save,
         ),
     )
     summary = engine.run()
-    _output_results(summary, url, ramp + hold, json_output)
+    _output_results(
+        summary,
+        url,
+        ramp + hold,
+        json_output,
+        config=engine.config or engine._options,
+        output_dir=output_dir,
+        no_save=no_save,
+    )
 
 
 @app.command()
@@ -698,6 +748,13 @@ def spike(
             "--sse-max-events", help="Maximum events to receive per connection"
         ),
     ] = None,
+    output_dir: Annotated[
+        str | None,
+        typer.Option("--output-dir", help="Report output directory"),
+    ] = None,
+    no_save: Annotated[
+        bool, typer.Option("--no-save", help="Disable report persistence")
+    ] = False,
 ) -> None:
     _configure_logging(_resolve_log_level(verbose, quiet), log_file)
     method = _validate_method(method)
@@ -732,10 +789,20 @@ def spike(
             quic_max_idle_timeout_ms=quic_max_idle_timeout_ms,
             sse_enabled=sse_enabled,
             sse_max_events=sse_max_events,
+            output_dir=output_dir,
+            no_save=no_save,
         ),
     )
     summary = engine.run()
-    _output_results(summary, url, pre_spike + spike_duration + post_spike, json_output)
+    _output_results(
+        summary,
+        url,
+        pre_spike + spike_duration + post_spike,
+        json_output,
+        config=engine.config or engine._options,
+        output_dir=output_dir,
+        no_save=no_save,
+    )
 
 
 _VALUE_FLAGS: set[str] = _collect_value_flags(app)
