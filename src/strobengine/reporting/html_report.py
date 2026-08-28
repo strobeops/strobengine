@@ -8,6 +8,10 @@ from jinja2 import Template
 
 from strobengine.reporter import build_artifact_dict
 
+# Load Chart.js from local asset for 100% offline reports
+_ASSETS_DIR = Path(__file__).parent / "assets"
+_CHART_JS_SOURCE = (_ASSETS_DIR / "chart.min.js").read_text(encoding="utf-8")
+
 # Pre-compiled at module level for performance
 _HTML_TEMPLATE = Template(
     """\
@@ -134,18 +138,9 @@ _HTML_TEMPLATE = Template(
 
 </div>
 
-<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>{{ chart_js_code | safe }}</script>
 <script>
 (function() {
-  if (typeof Chart === 'undefined') {
-    document.getElementById('charts-section').innerHTML =
-      '<div class="fallback"><strong>Charts unavailable offline.</strong>' +
-      '<p>Chart.js could not be loaded from CDN. Latency data:</p>' +
-      '<pre>P50={{ latency.p50 }} ms  P90={{ latency.p90 }} ms  P95={{ latency.p95 }} ms  P99={{ latency.p99 }} ms</pre>' +
-      '<pre>2xx={{ status_groups["2xx"] }}  4xx={{ status_groups["4xx"] }}  5xx={{ status_groups["5xx"] }}</pre></div>';
-    return;
-  }
-
   var ctx1 = document.getElementById('latencyChart').getContext('2d');
   new Chart(ctx1, {
     type: 'bar',
@@ -231,6 +226,7 @@ def render_html_report(summary, config, comparison=None) -> str:
         status_groups=status_groups,
         status_codes=status_codes,
         comparison=comparison,
+        chart_js_code=_CHART_JS_SOURCE,
     )
 
 
