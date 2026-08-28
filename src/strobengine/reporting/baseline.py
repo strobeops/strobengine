@@ -6,6 +6,9 @@ import json
 import sys
 from pathlib import Path
 
+from rich.console import Console
+from rich.table import Table
+
 
 def load_baseline_artifact(
     report_dir: Path = Path(".strobengine/reports"),
@@ -42,8 +45,8 @@ def load_baseline_artifact(
 def compute_comparison(current: dict, baseline: dict) -> dict:
     """Compute delta metrics between current and baseline runs.
 
-    Returns a dict with baseline metadata and percentage/point deltas
-    for RPS, P95 latency, and error rate.
+    Returns a dict with baseline metadata, current values, and percentage/point
+    deltas for RPS, P95 latency, and error rate.
     """
 
     def pct_delta(curr_val: float, base_val: float) -> float:
@@ -76,4 +79,66 @@ def compute_comparison(current: dict, baseline: dict) -> dict:
         "baseline_rps": base_summary["rps"],
         "baseline_p95_ms": round(base_lp["p95_us"] / 1000, 2),
         "baseline_error_rate": round(base_error_rate, 2),
+        "current_rps": curr_summary["rps"],
+        "current_p95_ms": round(curr_lp["p95_us"] / 1000, 2),
+        "current_error_rate": round(curr_error_rate, 2),
     }
+
+
+def print_cli_comparison(comparison: dict) -> None:
+    """Print baseline comparison table to terminal using Rich."""
+    console = Console()
+    table = Table(title="Historical Comparison", show_lines=True, padding=(0, 1))
+    table.add_column("Metric", style="bold cyan", no_wrap=True)
+    table.add_column("Baseline", justify="right")
+    table.add_column("Current", justify="right")
+    table.add_column("Delta", justify="right")
+
+    # RPS — positive delta = improvement (more throughput)
+    rps_color = (
+        "green"
+        if comparison["rps_delta"] > 0
+        else "red"
+        if comparison["rps_delta"] < 0
+        else "white"
+    )
+    table.add_row(
+        "RPS",
+        f"{comparison['baseline_rps']:.2f}",
+        f"{comparison['current_rps']:.2f}",
+        f"[{rps_color}]{comparison['rps_delta']:+.2f}%[/{rps_color}]",
+    )
+
+    # P95 Latency — negative delta = improvement (lower latency)
+    p95_color = (
+        "green"
+        if comparison["latency_p95_delta"] < 0
+        else "red"
+        if comparison["latency_p95_delta"] > 0
+        else "white"
+    )
+    table.add_row(
+        "P95 Latency",
+        f"{comparison['baseline_p95_ms']:.2f} ms",
+        f"{comparison['current_p95_ms']:.2f} ms",
+        f"[{p95_color}]{comparison['latency_p95_delta']:+.2f}%[/{p95_color}]",
+    )
+
+    # Error Rate — negative delta = improvement (fewer errors)
+    err_color = (
+        "green"
+        if comparison["error_rate_delta"] < 0
+        else "red"
+        if comparison["error_rate_delta"] > 0
+        else "white"
+    )
+    table.add_row(
+        "Error Rate",
+        f"{comparison['baseline_error_rate']:.2f}%",
+        f"{comparison['current_error_rate']:.2f}%",
+        f"[{err_color}]{comparison['error_rate_delta']:+.2f}pp[/{err_color}]",
+    )
+
+    console.print()
+    console.print(table)
+    console.print()
