@@ -75,8 +75,8 @@ This document outlines the planned trajectory and upcoming feature epics for **s
 - [x] **Artifact Persistence Engine** `[v0.5.0]`
   - [x] Automatic disk storage for raw JSON execution metrics (`--output-dir`, `--no-save`). `[v0.5.0]`
   - [x] Standardized report schema featuring execution metadata (timestamps, CLI flags, system specs, latency percentiles). `[v0.5.0]`
-- [ ] **HTML / Visual Report Generator**
-  - [ ] Standalone HTML report output with embedded latency distribution charts (p50, p90, p95, p99).
+- [x] **HTML / Visual Report Generator** `[v0.5.0]`
+  - [x] Standalone HTML report output with embedded latency distribution charts (p50, p90, p95, p99). `[v0.5.0]`
   - [ ] Summary dashboards comparing current runs against historical baseline artifacts.
 - [ ] **Export Formats**
   - [ ] Markdown summary generation for CI/CD Pull Request integration (GitHub Actions step comments).
