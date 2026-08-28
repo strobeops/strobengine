@@ -84,6 +84,38 @@ This document outlines the planned trajectory and upcoming feature epics for **s
 
 ---
 
+### Epic: Advanced Metrics & Observability
+*Target Focus: Deep Performance Insights & System Monitoring*
+
+- [ ] **Aggregate Existing Protocol Metrics** `[v0.6.0]`
+  - [ ] Forward `connection_latency_us`, `quic_*`, `sse_*` fields through aggregator to `TestSummary`
+  - [ ] Add protocol-specific sections to JSON report artifact
+
+- [ ] **Chaos Fault Tracking** `[v0.6.0]`
+  - [ ] Count injected faults by type (ConnectionDrop, LatencySpike, etc.)
+  - [ ] Include fault breakdown in JSON report artifact
+
+- [ ] **Extended Latency Statistics** `[v0.6.0]`
+  - [ ] Compute latency jitter (standard deviation)
+  - [ ] Add p99.99 percentile
+  - [ ] Add latency histogram buckets for distribution visualization
+
+- [ ] **Client System Resource Monitoring** `[v0.7.0]`
+  - [ ] Track engine CPU %, memory (RSS), thread count during test
+  - [ ] Sample at configurable interval (e.g., every 1s)
+  - [ ] Include in JSON report artifact and HTML visualization
+
+- [ ] **Connection Pool Metrics** `[v0.7.0]`
+  - [ ] Track socket creation rate vs reuse rate
+  - [ ] Report DNS resolution duration (if instrumentable)
+
+- [ ] **Protocol-Specific Deep Metrics** `[v0.8.0]`
+  - [ ] WebSocket: unsolicited pings/pongs, backpressure depth
+  - [ ] gRPC: stream concurrency utilization, flow control window exhaustion
+  - [ ] HTTP/3: congestion window size, connection migration success rate
+
+---
+
 ## Modern Web APIs
 
 ### Epic: Modern Web APIs
