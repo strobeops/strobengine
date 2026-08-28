@@ -93,6 +93,10 @@ pub struct TestConfig {
     pub sse_enabled: bool,
     #[pyo3(get, set)]
     pub sse_max_events: Option<u64>,
+    #[pyo3(get, set)]
+    pub output_dir: Option<String>,
+    #[pyo3(get, set)]
+    pub no_save: bool,
 }
 
 #[pymethods]
@@ -129,6 +133,8 @@ impl TestConfig {
         quic_max_idle_timeout_ms=None,
         sse_enabled=false,
         sse_max_events=None,
+        output_dir=None,
+        no_save=false,
     ))]
     #[allow(clippy::too_many_arguments)]
     pub fn new(
@@ -162,6 +168,8 @@ impl TestConfig {
         quic_max_idle_timeout_ms: Option<u64>,
         sse_enabled: bool,
         sse_max_events: Option<u64>,
+        output_dir: Option<String>,
+        no_save: bool,
     ) -> Self {
         Self {
             url,
@@ -194,6 +202,8 @@ impl TestConfig {
             quic_max_idle_timeout_ms,
             sse_enabled,
             sse_max_events,
+            output_dir,
+            no_save,
         }
     }
 }
@@ -369,6 +379,8 @@ mod tests {
             None,
             false,
             None,
+            None,
+            false,
         );
         assert_eq!(c.url, "http://127.0.0.1:8080");
         assert_eq!(c.concurrency, 10);
@@ -420,6 +432,8 @@ mod tests {
             None,
             false,
             None,
+            None,
+            false,
         );
         assert_eq!(c.url, "http://127.0.0.1:8080");
         assert_eq!(c.concurrency, 50);
@@ -469,6 +483,8 @@ mod tests {
             None,
             false,
             None,
+            None,
+            false,
         );
         assert_eq!(c.url, "http://127.0.0.1:8080");
         assert_eq!(c.concurrency, 1);
