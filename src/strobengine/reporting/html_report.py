@@ -1,0 +1,201 @@
+"""Standalone HTML report generator with Chart.js latency and status visualizations."""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+from jinja2 import Template
+
+from strobengine.reporter import build_artifact_dict
+
+# Pre-compiled at module level for performance
+_HTML_TEMPLATE = Template(
+    """\
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>strobengine Report — {{ metadata.target_url }}</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+         background: #0f172a; color: #e2e8f0; padding: 2rem; }
+  .container { max-width: 1100px; margin: 0 auto; }
+  h1 { font-size: 1.5rem; margin-bottom: 0.25rem; color: #f8fafc; }
+  .subtitle { color: #94a3b8; font-size: 0.875rem; margin-bottom: 1.5rem; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1.5rem; }
+  .card { background: #1e293b; border-radius: 0.75rem; padding: 1.25rem; }
+  .card h2 { font-size: 1rem; color: #94a3b8; margin-bottom: 0.75rem; text-transform: uppercase;
+             letter-spacing: 0.05em; }
+  .meta-row { display: flex; justify-content: space-between; padding: 0.35rem 0;
+              border-bottom: 1px solid #334155; }
+  .meta-row:last-child { border-bottom: none; }
+  .meta-label { color: #94a3b8; }
+  .meta-value { font-weight: 600; color: #f8fafc; }
+  .charts-row { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1.5rem; }
+  canvas { width: 100% !important; }
+  .status-table { width: 100%; border-collapse: collapse; }
+  .status-table th { text-align: left; color: #94a3b8; font-size: 0.75rem; text-transform: uppercase;
+                     padding: 0.5rem; border-bottom: 1px solid #334155; }
+  .status-table td { padding: 0.5rem; border-bottom: 1px solid #334155; }
+  .status-table td:last-child { text-align: right; font-variant-numeric: tabular-nums; }
+  .fallback { color: #f87171; background: #1e293b; border-radius: 0.5rem; padding: 1rem; margin: 1rem 0; }
+  .fallback pre { color: #e2e8f0; margin-top: 0.5rem; font-size: 0.875rem; }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>strobengine Load Test Report</h1>
+  <p class="subtitle">{{ metadata.timestamp }}</p>
+
+  <div class="grid">
+    <div class="card">
+      <h2>Test Configuration</h2>
+      <div class="meta-row"><span class="meta-label">Target URL</span><span class="meta-value">{{ metadata.target_url }}</span></div>
+      <div class="meta-row"><span class="meta-label">Method</span><span class="meta-value">{{ metadata.cli_options.method }}</span></div>
+      <div class="meta-row"><span class="meta-label">Concurrency</span><span class="meta-value">{{ metadata.cli_options.concurrency }}</span></div>
+      <div class="meta-row"><span class="meta-label">Duration</span><span class="meta-value">{{ metadata.duration_secs }}s</span></div>
+      <div class="meta-row"><span class="meta-label">Timeout</span><span class="meta-value">{{ metadata.cli_options.timeout_secs }}s</span></div>
+      <div class="meta-row"><span class="meta-label">Chaos</span><span class="meta-value">{{ "enabled" if metadata.cli_options.chaos else "disabled" }}</span></div>
+    </div>
+    <div class="card">
+      <h2>Results Summary</h2>
+      <div class="meta-row"><span class="meta-label">Total Requests</span><span class="meta-value">{{ summary.total_requests }}</span></div>
+      <div class="meta-row"><span class="meta-label">Successful</span><span class="meta-value">{{ summary.successful_requests }}</span></div>
+      <div class="meta-row"><span class="meta-label">Failed</span><span class="meta-value">{{ summary.failed_requests }}</span></div>
+      <div class="meta-row"><span class="meta-label">Requests/sec</span><span class="meta-value">{{ summary.rps }}</span></div>
+      <div class="meta-row"><span class="meta-label">Bytes Transferred</span><span class="meta-value">{{ "%.1f" | format(summary.bytes_transferred / 1024) }} KB</span></div>
+      <div class="meta-row"><span class="meta-label">Error Rate</span><span class="meta-value">{{ "%.2f" | format((summary.failed_requests / summary.total_requests * 100) if summary.total_requests > 0 else 0) }}%</span></div>
+    </div>
+  </div>
+
+  <div id="charts-section" class="charts-row">
+    <div class="card">
+      <h2>Latency Percentiles</h2>
+      <canvas id="latencyChart"></canvas>
+    </div>
+    <div class="card">
+      <h2>Status Code Distribution</h2>
+      <canvas id="statusChart"></canvas>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Status Codes</h2>
+    <table class="status-table">
+      <thead><tr><th>Code</th><th>Count</th></tr></thead>
+      <tbody>
+        {% for code, count in status_codes %}
+        <tr><td>{{ code }}</td><td>{{ count }}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+(function() {
+  if (typeof Chart === 'undefined') {
+    document.getElementById('charts-section').innerHTML =
+      '<div class="fallback"><strong>Charts unavailable offline.</strong>' +
+      '<p>Chart.js could not be loaded from CDN. Latency data:</p>' +
+      '<pre>P50={{ latency.p50 }} ms  P90={{ latency.p90 }} ms  P95={{ latency.p95 }} ms  P99={{ latency.p99 }} ms</pre>' +
+      '<pre>2xx={{ status_groups["2xx"] }}  4xx={{ status_groups["4xx"] }}  5xx={{ status_groups["5xx"] }}</pre></div>';
+    return;
+  }
+
+  var ctx1 = document.getElementById('latencyChart').getContext('2d');
+  new Chart(ctx1, {
+    type: 'bar',
+    data: {
+      labels: ['P50', 'P90', 'P95', 'P99'],
+      datasets: [{
+        label: 'Latency (ms)',
+        data: [{{ latency.p50 }}, {{ latency.p90 }}, {{ latency.p95 }}, {{ latency.p99 }}],
+        backgroundColor: ['#22d3ee', '#38bdf8', '#818cf8', '#a78bfa'],
+        borderRadius: 6,
+      }]
+    },
+    options: {
+      responsive: true,
+      plugins: { legend: { display: false } },
+      scales: {
+        y: { beginAtZero: true, grid: { color: '#334155' }, ticks: { color: '#94a3b8' } },
+        x: { grid: { display: false }, ticks: { color: '#94a3b8' } }
+      }
+    }
+  });
+
+  var ctx2 = document.getElementById('statusChart').getContext('2d');
+  new Chart(ctx2, {
+    type: 'doughnut',
+    data: {
+      labels: ['2xx', '4xx', '5xx', 'Other'],
+      datasets: [{
+        data: [{{ status_groups["2xx"] }}, {{ status_groups["4xx"] }}, {{ status_groups["5xx"] }}, {{ status_groups["other"] }}],
+        backgroundColor: ['#22c55e', '#f59e0b', '#ef4444', '#64748b'],
+        borderWidth: 0,
+      }]
+    },
+    options: {
+      responsive: true,
+      plugins: { legend: { position: 'bottom', labels: { color: '#94a3b8' } } }
+    }
+  });
+})();
+</script>
+</body>
+</html>
+"""
+)
+
+
+def render_html_report(summary, config) -> str:
+    """Render a self-contained HTML report from TestSummary + config."""
+    artifact = build_artifact_dict(summary, config)
+
+    # Convert us -> ms for chart display
+    lp = artifact["latency_percentiles"]
+    latency_ms = {
+        "p50": round((lp.get("p50_us") or 0) / 1000, 2),
+        "p90": round((lp.get("p90_us") or 0) / 1000, 2),
+        "p95": round((lp.get("p95_us") or 0) / 1000, 2),
+        "p99": round((lp.get("p99_us") or 0) / 1000, 2),
+    }
+
+    # Group status codes by class
+    status_groups = {"2xx": 0, "4xx": 0, "5xx": 0, "other": 0}
+    for code_str, count in artifact["error_breakdown"].items():
+        code = int(code_str) if code_str.isdigit() else 0
+        if 200 <= code < 300:
+            status_groups["2xx"] += count
+        elif 400 <= code < 500:
+            status_groups["4xx"] += count
+        elif 500 <= code < 600:
+            status_groups["5xx"] += count
+        else:
+            status_groups["other"] += count
+
+    # Sort status codes for display
+    status_codes = sorted(
+        artifact["error_breakdown"].items(),
+        key=lambda x: int(x[0]) if x[0].isdigit() else 0,
+    )
+
+    return _HTML_TEMPLATE.render(
+        metadata=artifact["metadata"],
+        summary=artifact["summary"],
+        latency=latency_ms,
+        status_groups=status_groups,
+        status_codes=status_codes,
+    )
+
+
+def save_html_report(summary, config, filepath: str) -> str:
+    """Render and write HTML report to disk. Returns filepath."""
+    html = render_html_report(summary, config)
+    Path(filepath).parent.mkdir(parents=True, exist_ok=True)
+    Path(filepath).write_text(html)
+    return filepath
