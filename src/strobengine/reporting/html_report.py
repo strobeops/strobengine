@@ -92,6 +92,46 @@ _HTML_TEMPLATE = Template(
       </tbody>
     </table>
   </div>
+
+{% if comparison %}
+  <div class="card">
+    <h2>Historical Comparison</h2>
+    <p class="meta-row">
+      <span class="meta-label">Baseline</span>
+      <span class="meta-value">{{ comparison.baseline_timestamp }}</span>
+    </p>
+    <table class="status-table">
+      <thead><tr><th>Metric</th><th>Baseline</th><th>Current</th><th>Delta</th></tr></thead>
+      <tbody>
+        <tr>
+          <td>RPS</td>
+          <td>{{ comparison.baseline_rps }}</td>
+          <td>{{ summary.rps }}</td>
+          <td style="color: {{ '#22c55e' if comparison.rps_delta > 0 else '#ef4444' if comparison.rps_delta < 0 else '#94a3b8' }}">
+            {{ comparison.rps_delta }}%
+          </td>
+        </tr>
+        <tr>
+          <td>P95 Latency</td>
+          <td>{{ comparison.baseline_p95_ms }} ms</td>
+          <td>{{ latency.p95 }} ms</td>
+          <td style="color: {{ '#22c55e' if comparison.latency_p95_delta < 0 else '#ef4444' if comparison.latency_p95_delta > 0 else '#94a3b8' }}">
+            {{ comparison.latency_p95_delta }}%
+          </td>
+        </tr>
+        <tr>
+          <td>Error Rate</td>
+          <td>{{ comparison.baseline_error_rate }}%</td>
+          <td>{{ "%.2f" | format((summary.failed_requests / summary.total_requests * 100) if summary.total_requests > 0 else 0) }}%</td>
+          <td style="color: {{ '#22c55e' if comparison.error_rate_delta < 0 else '#ef4444' if comparison.error_rate_delta > 0 else '#94a3b8' }}">
+            {{ comparison.error_rate_delta }}pp
+          </td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+{% endif %}
+
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
@@ -152,7 +192,7 @@ _HTML_TEMPLATE = Template(
 )
 
 
-def render_html_report(summary, config) -> str:
+def render_html_report(summary, config, comparison=None) -> str:
     """Render a self-contained HTML report from TestSummary + config."""
     artifact = build_artifact_dict(summary, config)
 
@@ -190,12 +230,13 @@ def render_html_report(summary, config) -> str:
         latency=latency_ms,
         status_groups=status_groups,
         status_codes=status_codes,
+        comparison=comparison,
     )
 
 
-def save_html_report(summary, config, filepath: str) -> str:
+def save_html_report(summary, config, filepath: str, comparison=None) -> str:
     """Render and write HTML report to disk. Returns filepath."""
-    html = render_html_report(summary, config)
+    html = render_html_report(summary, config, comparison=comparison)
     Path(filepath).parent.mkdir(parents=True, exist_ok=True)
     Path(filepath).write_text(html)
     return filepath
