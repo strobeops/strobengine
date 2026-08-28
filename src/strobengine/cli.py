@@ -169,23 +169,29 @@ def _output_results(
         filepath = save_report(summary, config, output_dir=output_dir, no_save=no_save)
         if filepath and not json_output:
             print(f"Report saved to {filepath}", file=sys.stderr)
-    if html_output:
+
+    # Compute comparison (runs for both --html and terminal display)
+    comparison = None
+    if compare_to:
         from pathlib import Path
 
+        from strobengine.reporter import build_artifact_dict
+        from strobengine.reporting.baseline import (
+            compute_comparison,
+            load_baseline_artifact,
+        )
+
+        baseline = load_baseline_artifact(baseline_file=Path(compare_to))
+        if baseline and config is not None:
+            current = build_artifact_dict(summary, config)
+            comparison = compute_comparison(current, baseline)
+            if not json_output:
+                from strobengine.reporting.baseline import print_cli_comparison
+
+                print_cli_comparison(comparison)
+
+    if html_output:
         from strobengine.reporting.html_report import save_html_report
-
-        comparison = None
-        if compare_to:
-            from strobengine.reporter import build_artifact_dict
-            from strobengine.reporting.baseline import (
-                compute_comparison,
-                load_baseline_artifact,
-            )
-
-            baseline = load_baseline_artifact(baseline_file=Path(compare_to))
-            if baseline and config is not None:
-                current = build_artifact_dict(summary, config)
-                comparison = compute_comparison(current, baseline)
 
         save_html_report(summary, config, html_output, comparison=comparison)
         if not json_output:
