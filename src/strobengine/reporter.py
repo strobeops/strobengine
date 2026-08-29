@@ -306,3 +306,17 @@ def save_report(
     artifact = build_artifact_dict(summary, config)
     filepath.write_text(json.dumps(artifact, indent=2))
     return str(filepath)
+
+
+def generate_markdown_summary(summary, config) -> str:
+    """Generate a Markdown summary string from TestSummary + config.
+
+    Returns a GitHub Actions / PR comment ready Markdown string with
+    status badge, metrics table, and collapsible error details.
+    """
+    from strobengine.reporting.markdown_report import (
+        generate_markdown_summary as _gen,
+    )
+
+    artifact = build_artifact_dict(summary, config)
+    return _gen(artifact)
