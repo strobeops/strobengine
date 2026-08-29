@@ -155,8 +155,8 @@ class TestJUnitReport:
         assert "<testcase" in xml
 
     def test_generate_junit_failure_when_errors(self):
-        from strobengine.reporting.junit_report import generate_junit_report
         from strobengine.reporter import build_artifact_dict
+        from strobengine.reporting.junit_report import generate_junit_report
 
         # 5 errors out of 100 = 5% > 1% threshold
         # Triggers failures on both load_test and error_rate_threshold testcases
@@ -169,8 +169,8 @@ class TestJUnitReport:
         assert "performance_regression" in xml
 
     def test_generate_junit_no_failure_when_clean(self):
-        from strobengine.reporting.junit_report import generate_junit_report
         from strobengine.reporter import build_artifact_dict
+        from strobengine.reporting.junit_report import generate_junit_report
 
         artifact = build_artifact_dict(_make_summary(), _make_config())
         xml = generate_junit_report(artifact)
