@@ -8,35 +8,35 @@ from xml.etree.ElementTree import Element, SubElement, tostring
 from strobengine.reporter import build_artifact_dict
 
 
-def render_junit_report(summary, config, duration_secs: float) -> str:
-    """Render a JUnit XML report from TestSummary."""
-    artifact = build_artifact_dict(summary, config)
+def generate_junit_report(artifact: dict) -> str:
+    """Generate JUnit XML with performance assertion testcases.
+
+    Includes three testcases:
+    1. Overall load test with system-out metrics
+    2. Error rate threshold (> 1% triggers failure)
+    3. P95 latency threshold (> 100ms triggers failure)
+    """
     meta = artifact["metadata"]
     s = artifact["summary"]
     lp = artifact["latency_percentiles"]
 
-    duration = duration_secs or meta.get("duration_secs", 0)
-    failures = s["failed_requests"]
-    error_rate = (
-        (s["failed_requests"] / s["total_requests"] * 100)
-        if s["total_requests"] > 0
-        else 0.0
-    )
+    duration = meta["duration_secs"]
+    failed = s["failed_requests"]
+    total = s["total_requests"]
+    error_rate = (failed / total * 100) if total > 0 else 0.0
+    p95_ms = lp["p95_us"] / 1000
 
-    # Build XML
     testsuites = Element("testsuites")
     testsuite = SubElement(
         testsuites,
         "testsuite",
-        attrib={
-            "name": "strobengine",
-            "tests": "1",
-            "failures": str(1 if failures > 0 else 0),
-            "time": f"{duration:.1f}",
-        },
+        attrib={"name": "strobengine", "tests": "3", "time": f"{duration:.1f}"},
     )
 
-    testcase = SubElement(
+    failure_count = 0
+
+    # Testcase 1: Overall load test
+    tc1 = SubElement(
         testsuite,
         "testcase",
         attrib={
@@ -45,38 +45,86 @@ def render_junit_report(summary, config, duration_secs: float) -> str:
             "time": f"{duration:.1f}",
         },
     )
-
-    # System-out with metrics
-    system_out = SubElement(testcase, "system-out")
-    system_out.text = (
+    so1 = SubElement(tc1, "system-out")
+    so1.text = (
         f"RPS: {s['rps']:.2f}, "
         f"P50: {lp['p50_us'] / 1000:.2f}ms, "
-        f"P95: {lp['p95_us'] / 1000:.2f}ms, "
+        f"P95: {p95_ms:.2f}ms, "
         f"P99: {lp['p99_us'] / 1000:.2f}ms, "
         f"Errors: {error_rate:.2f}%, "
-        f"Total: {s['total_requests']:,}"
+        f"Total: {total:,}"
     )
-
-    # If there are failures, add a failure element
-    if failures > 0:
-        failure = SubElement(
-            testcase,
+    if failed > 0:
+        SubElement(
+            tc1,
             "failure",
             attrib={
-                "message": f"{failures} requests failed ({error_rate:.2f}%)",
+                "message": f"{failed} requests failed ({error_rate:.2f}%)",
                 "type": "performance_regression",
             },
         )
-        failure.text = f"{failures} out of {s['total_requests']} requests failed"
+        failure_count += 1
+
+    # Testcase 2: Error rate threshold (> 1%)
+    tc2 = SubElement(
+        testsuite,
+        "testcase",
+        attrib={
+            "name": "error_rate_threshold",
+            "classname": "strobengine",
+            "time": "0.0",
+        },
+    )
+    if error_rate > 1.0:
+        SubElement(
+            tc2,
+            "failure",
+            attrib={
+                "message": f"Error rate {error_rate:.2f}% exceeds 1% threshold",
+                "type": "threshold_breach",
+            },
+        )
+        failure_count += 1
+
+    # Testcase 3: P95 latency threshold (> 100ms)
+    tc3 = SubElement(
+        testsuite,
+        "testcase",
+        attrib={
+            "name": "p95_latency_threshold",
+            "classname": "strobengine",
+            "time": "0.0",
+        },
+    )
+    if p95_ms > 100.0:
+        SubElement(
+            tc3,
+            "failure",
+            attrib={
+                "message": f"P95 latency {p95_ms:.2f}ms exceeds 100ms threshold",
+                "type": "threshold_breach",
+            },
+        )
+        failure_count += 1
+
+    # Set accurate failure count
+    testsuite.set("failures", str(failure_count))
 
     xml_bytes = tostring(testsuites, encoding="unicode", xml_declaration=True)
     return xml_bytes
 
 
+def render_junit_report(summary, config, duration_secs: float) -> str:
+    """Render a JUnit XML report from TestSummary (convenience wrapper)."""
+    artifact = build_artifact_dict(summary, config)
+    return generate_junit_report(artifact)
+
+
 def save_junit_report(summary, config, filepath: str, duration_secs: float) -> str:
     """Render and write JUnit XML report to disk. Returns filepath."""
     filepath = str(Path(filepath).expanduser().resolve())
-    xml = render_junit_report(summary, config, duration_secs)
+    artifact = build_artifact_dict(summary, config)
+    xml = generate_junit_report(artifact)
     Path(filepath).parent.mkdir(parents=True, exist_ok=True)
     Path(filepath).write_text(xml)
     return filepath
