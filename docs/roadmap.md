@@ -78,9 +78,9 @@ This document outlines the planned trajectory and upcoming feature epics for **s
 - [x] **HTML / Visual Report Generator** `[v0.5.0]`
   - [x] Standalone HTML report output with embedded latency distribution charts (p50, p90, p95, p99). `[v0.5.0]`
   - [x] Summary dashboards comparing current runs against historical baseline artifacts. `[v0.5.0]`
-- [ ] **Export Formats**
-  - [ ] Markdown summary generation for CI/CD Pull Request integration (GitHub Actions step comments).
-  - [ ] CSV/JUnit XML exports for standard test runner ingestion.
+- [x] **Export Formats** `[v0.5.0]`
+  - [x] Markdown summary generation for CI/CD Pull Request integration (GitHub Actions step comments). `[v0.5.0]`
+  - [x] CSV/JUnit XML exports for standard test runner ingestion. `[v0.5.0]`
 
 ---
 

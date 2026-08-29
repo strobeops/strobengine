@@ -161,6 +161,9 @@ def _output_results(
     no_save: bool = False,
     html_output: str | None = None,
     compare_to: str | None = None,
+    export_markdown: str | None = None,
+    export_junit: str | None = None,
+    export_csv: str | None = None,
 ) -> None:
     print_summary(summary, json_output=json_output)
     if config is not None:
@@ -196,6 +199,28 @@ def _output_results(
         save_html_report(summary, config, html_output, comparison=comparison)
         if not json_output:
             print(f"HTML report saved to {html_output}", file=sys.stderr)
+
+    # Export formats
+    if export_markdown:
+        from strobengine.reporting.markdown_report import save_markdown_report
+
+        save_markdown_report(summary, config, export_markdown, duration_secs)
+        if not json_output:
+            print(f"Markdown report saved to {export_markdown}", file=sys.stderr)
+
+    if export_junit:
+        from strobengine.reporting.junit_report import save_junit_report
+
+        save_junit_report(summary, config, export_junit, duration_secs)
+        if not json_output:
+            print(f"JUnit report saved to {export_junit}", file=sys.stderr)
+
+    if export_csv:
+        from strobengine.reporting.csv_report import save_csv_report
+
+        save_csv_report(summary, config, export_csv, duration_secs)
+        if not json_output:
+            print(f"CSV report saved to {export_csv}", file=sys.stderr)
 
 
 def _build_request_options(
@@ -400,6 +425,18 @@ def load(
         str | None,
         typer.Option("--compare-to", help="Baseline JSON report path for comparison"),
     ] = None,
+    export_markdown: Annotated[
+        str | None,
+        typer.Option("--markdown", help="Export results as Markdown report"),
+    ] = None,
+    export_junit: Annotated[
+        str | None,
+        typer.Option("--junit", help="Export results as JUnit XML report"),
+    ] = None,
+    export_csv: Annotated[
+        str | None,
+        typer.Option("--csv", help="Export results as CSV report"),
+    ] = None,
 ) -> None:
     _configure_logging(_resolve_log_level(verbose, quiet), log_file)
     method = _validate_method(method)
@@ -446,6 +483,9 @@ def load(
         no_save=no_save,
         html_output=html_output,
         compare_to=compare_to,
+        export_markdown=export_markdown,
+        export_junit=export_junit,
+        export_csv=export_csv,
     )
 
 
@@ -603,6 +643,18 @@ def stress(
         str | None,
         typer.Option("--compare-to", help="Baseline JSON report path for comparison"),
     ] = None,
+    export_markdown: Annotated[
+        str | None,
+        typer.Option("--markdown", help="Export results as Markdown report"),
+    ] = None,
+    export_junit: Annotated[
+        str | None,
+        typer.Option("--junit", help="Export results as JUnit XML report"),
+    ] = None,
+    export_csv: Annotated[
+        str | None,
+        typer.Option("--csv", help="Export results as CSV report"),
+    ] = None,
 ) -> None:
     _configure_logging(_resolve_log_level(verbose, quiet), log_file)
     method = _validate_method(method)
@@ -651,6 +703,9 @@ def stress(
         no_save=no_save,
         html_output=html_output,
         compare_to=compare_to,
+        export_markdown=export_markdown,
+        export_junit=export_junit,
+        export_csv=export_csv,
     )
 
 
@@ -812,6 +867,18 @@ def spike(
         str | None,
         typer.Option("--compare-to", help="Baseline JSON report path for comparison"),
     ] = None,
+    export_markdown: Annotated[
+        str | None,
+        typer.Option("--markdown", help="Export results as Markdown report"),
+    ] = None,
+    export_junit: Annotated[
+        str | None,
+        typer.Option("--junit", help="Export results as JUnit XML report"),
+    ] = None,
+    export_csv: Annotated[
+        str | None,
+        typer.Option("--csv", help="Export results as CSV report"),
+    ] = None,
 ) -> None:
     _configure_logging(_resolve_log_level(verbose, quiet), log_file)
     method = _validate_method(method)
@@ -861,6 +928,9 @@ def spike(
         no_save=no_save,
         html_output=html_output,
         compare_to=compare_to,
+        export_markdown=export_markdown,
+        export_junit=export_junit,
+        export_csv=export_csv,
     )
 
 
