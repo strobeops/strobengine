@@ -139,3 +139,114 @@ class TestMarkdownReportFile:
             _make_summary(), _make_config(), "~/test_report.md", 10.0
         )
         assert result.startswith(str(tmp_path))
+
+
+class TestJUnitReport:
+    """Tests for generate_junit_report."""
+
+    def test_generate_junit_xml_structure(self):
+        from strobengine.reporter import build_artifact_dict
+        from strobengine.reporting.junit_report import generate_junit_report
+
+        artifact = build_artifact_dict(_make_summary(), _make_config())
+        xml = generate_junit_report(artifact)
+        assert "<testsuites>" in xml
+        assert "<testsuite" in xml
+        assert "<testcase" in xml
+
+    def test_generate_junit_failure_when_errors(self):
+        from strobengine.reporting.junit_report import generate_junit_report
+        from strobengine.reporter import build_artifact_dict
+
+        # 5 errors out of 100 = 5% > 1% threshold
+        # Triggers failures on both load_test and error_rate_threshold testcases
+        artifact = build_artifact_dict(
+            _make_summary(total_errors=5, status_codes={200: 95, 500: 5}),
+            _make_config(),
+        )
+        xml = generate_junit_report(artifact)
+        assert 'failures="2"' in xml
+        assert "performance_regression" in xml
+
+    def test_generate_junit_no_failure_when_clean(self):
+        from strobengine.reporting.junit_report import generate_junit_report
+        from strobengine.reporter import build_artifact_dict
+
+        artifact = build_artifact_dict(_make_summary(), _make_config())
+        xml = generate_junit_report(artifact)
+        assert 'failures="0"' in xml
+        assert "<failure" not in xml
+
+    def test_generate_junit_error_rate_threshold(self):
+        from strobengine.reporter import build_artifact_dict
+        from strobengine.reporting.junit_report import generate_junit_report
+
+        # 5 errors out of 100 = 5% > 1% threshold
+        artifact = build_artifact_dict(
+            _make_summary(total_errors=5, status_codes={200: 95, 500: 5}),
+            _make_config(),
+        )
+        xml = generate_junit_report(artifact)
+        assert "error_rate_threshold" in xml
+        assert "threshold_breach" in xml
+
+    def test_generate_junit_p95_threshold(self):
+        from strobengine.reporter import build_artifact_dict
+        from strobengine.reporting.junit_report import generate_junit_report
+
+        # P95 = 150ms > 100ms threshold
+        artifact = build_artifact_dict(
+            _make_summary(p95_latency_ms=150.0),
+            _make_config(),
+        )
+        xml = generate_junit_report(artifact)
+        assert "p95_latency_threshold" in xml
+        assert "threshold_breach" in xml
+
+
+class TestCSVReport:
+    """Tests for generate_csv_report."""
+
+    def test_generate_csv_has_header(self):
+        from strobengine.reporter import build_artifact_dict
+        from strobengine.reporting.csv_report import generate_csv_report
+
+        artifact = build_artifact_dict(_make_summary(), _make_config())
+        csv_output = generate_csv_report(artifact)
+        first_line = csv_output.strip().split("\n")[0]
+        assert first_line == "metric,value"
+
+    def test_generate_csv_has_all_fields(self):
+        from strobengine.reporter import build_artifact_dict
+        from strobengine.reporting.csv_report import generate_csv_report
+
+        artifact = build_artifact_dict(_make_summary(), _make_config())
+        csv_output = generate_csv_report(artifact)
+        assert "timestamp" in csv_output
+        assert "target_url" in csv_output
+        assert "total_requests" in csv_output
+        assert "rps" in csv_output
+        assert "p50_us" in csv_output
+        assert "p95_us" in csv_output
+        assert "p99_us" in csv_output
+
+    def test_generate_csv_microsecond_latencies(self):
+        from strobengine.reporter import build_artifact_dict
+        from strobengine.reporting.csv_report import generate_csv_report
+
+        artifact = build_artifact_dict(_make_summary(), _make_config())
+        csv_output = generate_csv_report(artifact)
+        # p50 = 1.0 ms = 1000 us
+        assert "p50_us,1000" in csv_output
+        # p95 = 3.0 ms = 3000 us
+        assert "p95_us,3000" in csv_output
+
+    def test_generate_csv_file_output(self, tmp_path):
+        from strobengine.reporting.csv_report import save_csv_report
+
+        filepath = str(tmp_path / "report.csv")
+        result = save_csv_report(_make_summary(), _make_config(), filepath, 10.0)
+        assert result == filepath
+        assert (tmp_path / "report.csv").exists()
+        content = (tmp_path / "report.csv").read_text()
+        assert "metric,value" in content
