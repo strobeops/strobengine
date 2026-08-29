@@ -320,3 +320,30 @@ def generate_markdown_summary(summary, config) -> str:
 
     artifact = build_artifact_dict(summary, config)
     return _gen(artifact)
+
+
+def generate_junit_report(summary, config) -> str:
+    """Generate a JUnit XML string from TestSummary + config.
+
+    Returns JUnit XML with performance assertion testcases for
+    CI pipeline ingestion.
+    """
+    from strobengine.reporting.junit_report import (
+        generate_junit_report as _gen,
+    )
+
+    artifact = build_artifact_dict(summary, config)
+    return _gen(artifact)
+
+
+def generate_csv_report(summary, config) -> str:
+    """Generate a CSV string from TestSummary + config.
+
+    Returns CSV with microsecond latencies for schema consistency.
+    """
+    from strobengine.reporting.csv_report import (
+        generate_csv_report as _gen,
+    )
+
+    artifact = build_artifact_dict(summary, config)
+    return _gen(artifact)
