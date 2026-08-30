@@ -4,6 +4,66 @@ All notable changes to `strobengine` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] - 2026-08-30
+
+### Documentation
+
+- Convert README links to absolute GitHub URLs
+- *(cli)* Add --sse/--no-sse and --sse-max-events to option tables
+- *(examples)* Add SSE streaming load test examples
+- Add SSE load testing reference guide
+- Add SSE to README, quickstart, and table of contents
+- Mark HTML report generator as complete in roadmap
+- Mark baseline comparison as complete in roadmap
+- Add reporting and visualizations reference guide
+- Add Reporting & Visualizations to documentation indexes
+- Add Advanced Metrics & Observability epic to roadmap
+- Mark Export Formats as complete in roadmap
+
+### Features
+
+- *(config)* Add sse_enabled, sse_max_events to TestConfig
+- *(metrics)* Add sse_events_received, sse_first_event_us, sse_event_interval_us to RequestMetric
+- *(sse)* Implement SSE frame parser and SseEngine
+- *(sse)* Wire SSE engine into protocol detection and config routing
+- *(sse)* Centralize protocol routing and add URL normalization
+- *(deps)* Add serde with derive feature for report serialization
+- *(report)* Add ReportArtifact schema with serde serialization
+- *(config)* Add output_dir and no_save to TestConfig
+- *(python)* Wire report persistence through CLI and engine
+- *(report)* Add ReportArtifact::from_summary_and_config converter
+- *(report)* Add save_report_json with atomic writes and latest.json
+- *(report)* Invoke save_report_json on benchmark completion
+- *(reporting)* Add standalone HTML report generator with Chart.js
+- *(cli)* Add --html flag for standalone HTML report generation
+- *(reporting)* Add baseline artifact loading and delta comparison
+- *(reporting)* Add Historical Comparison section to HTML report
+- *(cli)* Add --compare-to flag for baseline comparison
+- *(reporting)* Inline Chart.js from local asset for 100% offline reports
+- *(reporting)* Add CLI terminal comparison and extend compute_comparison
+- *(engine)* Add get_config() convenience method to StrobEngine
+- *(reporting)* Add Markdown, JUnit XML, and CSV export generators
+- *(cli)* Add --markdown, --junit, --csv export flags
+- *(reporting)* Add generate_markdown_summary for GitHub Actions / PR comments
+- *(reporting)* Add generate_junit_report and generate_csv_report
+
+### Miscellaneous Tasks
+
+- *(pyproject)* Simplify readme config and update documentation URL
+- *(scripts)* Run uv lock during release version bump
+
+### Styling
+
+- *(tests)* Reorder imports in test_reporting.py for ruff isort compliance
+
+### Testing
+
+- *(config)* Update TestConfig::new calls with SSE parameters
+- *(e2e)* Add SSE streaming endpoint to mock server
+- *(e2e)* Add SSE integration tests for error paths and streaming
+- *(e2e)* Add persistence E2E tests for report artifact disk writing
+- *(reporting)* Add unit tests for Markdown summary generator
+- *(reporting)* Add JUnit XML and CSV export unit tests
 ## [0.4.1] - 2026-08-26
 
 ### Bug Fixes
@@ -21,6 +81,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Update table of contents with new pages
 - Slim README and link to documentation pages
 - Add multi-target, reporting, SSE, messaging, and caching epics to roadmap
+
+### Miscellaneous Tasks
+
+- *(release)* Bump version to 0.4.1
 
 ### Testing
 
