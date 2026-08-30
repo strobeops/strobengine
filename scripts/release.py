@@ -78,6 +78,10 @@ def main():
         count=1,
     )
 
+    # Update uv.lock to match pyproject.toml
+    print("\n2b. Updating uv.lock...")
+    run("uv lock", execute=args.execute)
+
     # Generate CHANGELOG.md via git-cliff
     print("\n3. Generating CHANGELOG.md via git-cliff...")
     run(f"git cliff --tag v{new_ver} -o CHANGELOG.md", execute=args.execute)
