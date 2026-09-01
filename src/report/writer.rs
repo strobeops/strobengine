@@ -57,6 +57,10 @@ pub fn save_report_json(
     // Atomic write: serialize → write tmp → rename to final
     let json_bytes = serde_json::to_vec_pretty(artifact)?;
     fs::write(&tmp_path, &json_bytes)?;
+
+    // Pre-emptively clear target for cross-platform compatibility (Windows)
+    let _ = fs::remove_file(&target_path);
+
     fs::rename(&tmp_path, &target_path)?;
 
     // Update latest.json pointer (also atomic)
@@ -74,6 +78,10 @@ fn update_latest_pointer(dir: &Path, filename: &str) -> Result<(), io::Error> {
     let json_bytes = serde_json::to_vec_pretty(&payload)?;
 
     fs::write(&latest_tmp, &json_bytes)?;
+
+    // Pre-emptively clear existing latest.json for cross-platform compatibility (Windows)
+    let _ = fs::remove_file(&latest_path);
+
     fs::rename(&latest_tmp, &latest_path)?;
 
     Ok(())
@@ -241,5 +249,28 @@ mod tests {
             "expected path to contain .strobengine/reports, got: {path_str}"
         );
         fs::remove_dir_all("./.strobengine").ok();
+    }
+
+    #[test]
+    fn test_save_report_json_overwrites_existing_target() {
+        let dir = std::env::temp_dir().join("strobengine_test_overwrite");
+        let artifact = sample_artifact();
+
+        // First write — creates the file
+        let path1 = save_report_json(&artifact, Some(&dir), false).unwrap();
+        assert!(path1.exists());
+        let content1 = fs::read_to_string(&path1).unwrap();
+        assert!(content1.contains("metadata"));
+
+        // Second write — should overwrite (simulates same-second collision)
+        let path2 = save_report_json(&artifact, Some(&dir), false).unwrap();
+        assert!(path2.exists());
+        let content2 = fs::read_to_string(&path2).unwrap();
+        assert!(content2.contains("metadata"));
+
+        // Both paths should be the same (same filename)
+        assert_eq!(path1, path2);
+
+        fs::remove_dir_all(&dir).ok();
     }
 }
