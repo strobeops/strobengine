@@ -97,11 +97,16 @@ impl PersistentWsSession {
             .map_err(|e| EngineError::ConnectionFailed(e.to_string()))?;
 
         for (key, value) in &self.headers {
-            if let (Ok(name), Ok(val)) = (
+            match (
                 key.as_str().parse::<http::header::HeaderName>(),
                 value.as_str().parse(),
             ) {
-                request.headers_mut().insert(name, val);
+                (Ok(name), Ok(val)) => {
+                    request.headers_mut().insert(name, val);
+                }
+                _ => {
+                    tracing::warn!(key = %key, "invalid WebSocket header skipped");
+                }
             }
         }
 
@@ -287,10 +292,13 @@ impl WebSocketEngine {
             .map_err(|e| EngineError::ConnectionFailed(e.to_string()))?;
 
         for (key, value) in headers {
-            if let (Ok(name), Ok(val)) =
-                (key.as_str().parse::<HeaderName>(), value.as_str().parse())
-            {
-                request.headers_mut().insert(name, val);
+            match (key.as_str().parse::<HeaderName>(), value.as_str().parse()) {
+                (Ok(name), Ok(val)) => {
+                    request.headers_mut().insert(name, val);
+                }
+                _ => {
+                    tracing::warn!(key = %key, "invalid WebSocket header skipped");
+                }
             }
         }
 
