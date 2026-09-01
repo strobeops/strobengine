@@ -2,6 +2,9 @@
 
 from unittest.mock import Mock
 
+import pytest
+import typer
+
 
 def _make_summary(**kwargs):
     """Create a mock TestSummary with sensible defaults."""
@@ -250,3 +253,240 @@ class TestCSVReport:
         assert (tmp_path / "report.csv").exists()
         content = (tmp_path / "report.csv").read_text()
         assert "metric,value" in content
+
+
+class TestBaselineArtifact:
+    """Tests for load_baseline_artifact."""
+
+    def test_load_baseline_from_file(self, tmp_path):
+        from strobengine.reporting.baseline import load_baseline_artifact
+
+        artifact = {
+            "metadata": {
+                "timestamp": "2026-01-01T00:00:00Z",
+                "target_url": "http://test",
+            },
+            "summary": {"rps": 10.0, "total_requests": 100, "failed_requests": 0},
+            "latency_percentiles": {"p95_us": 5000.0},
+        }
+        filepath = tmp_path / "report.json"
+        filepath.write_text(__import__("json").dumps(artifact))
+
+        result = load_baseline_artifact(baseline_file=filepath)
+        assert result is not None
+        assert result["metadata"]["target_url"] == "http://test"
+
+    def test_load_baseline_file_not_found(self, tmp_path):
+        from strobengine.reporting.baseline import load_baseline_artifact
+
+        result = load_baseline_artifact(baseline_file=tmp_path / "nonexistent.json")
+        assert result is None
+
+    def test_load_baseline_corrupt_json(self, tmp_path):
+        from strobengine.reporting.baseline import load_baseline_artifact
+
+        filepath = tmp_path / "corrupt.json"
+        filepath.write_text("not valid json {{{")
+
+        result = load_baseline_artifact(baseline_file=filepath)
+        assert result is None
+
+    def test_load_baseline_latest_pointer(self, tmp_path):
+        from strobengine.reporting.baseline import load_baseline_artifact
+
+        artifact = {
+            "metadata": {
+                "timestamp": "2026-01-01T00:00:00Z",
+                "target_url": "http://test",
+            },
+            "summary": {"rps": 10.0, "total_requests": 100, "failed_requests": 0},
+            "latency_percentiles": {"p95_us": 5000.0},
+        }
+        report_file = tmp_path / "report_20260101_000000_test.json"
+        report_file.write_text(__import__("json").dumps(artifact))
+
+        latest = tmp_path / "latest.json"
+        latest.write_text(__import__("json").dumps({"latest_report": report_file.name}))
+
+        result = load_baseline_artifact(report_dir=tmp_path)
+        assert result is not None
+        assert result["summary"]["rps"] == 10.0
+
+    def test_load_baseline_latest_missing_target(self, tmp_path):
+        from strobengine.reporting.baseline import load_baseline_artifact
+
+        latest = tmp_path / "latest.json"
+        latest.write_text(
+            __import__("json").dumps({"latest_report": "nonexistent.json"})
+        )
+
+        result = load_baseline_artifact(report_dir=tmp_path)
+        assert result is None
+
+    def test_load_baseline_no_latest_file(self, tmp_path):
+        from strobengine.reporting.baseline import load_baseline_artifact
+
+        result = load_baseline_artifact(report_dir=tmp_path)
+        assert result is None
+
+
+class TestComputeComparison:
+    """Tests for compute_comparison."""
+
+    def _make_artifact(self, rps, total_requests, failed_requests, p95_us):
+        return {
+            "metadata": {
+                "timestamp": "2026-01-01T00:00:00Z",
+                "target_url": "http://test",
+            },
+            "summary": {
+                "total_requests": total_requests,
+                "failed_requests": failed_requests,
+                "rps": rps,
+            },
+            "latency_percentiles": {"p95_us": p95_us},
+        }
+
+    def test_compute_comparison_normal(self):
+        from strobengine.reporting.baseline import compute_comparison
+
+        current = self._make_artifact(
+            rps=40.0, total_requests=200, failed_requests=10, p95_us=25000.0
+        )
+        baseline = self._make_artifact(
+            rps=30.0, total_requests=150, failed_requests=5, p95_us=35000.0
+        )
+
+        result = compute_comparison(current, baseline)
+        assert result["rps_delta"] == 33.33
+        assert result["latency_p95_delta"] < 0  # improvement (lower latency)
+        assert result["error_rate_delta"] > 0  # regression (more errors)
+
+    def test_compute_comparison_improvement(self):
+        from strobengine.reporting.baseline import compute_comparison
+
+        current = self._make_artifact(
+            rps=50.0, total_requests=500, failed_requests=0, p95_us=20000.0
+        )
+        baseline = self._make_artifact(
+            rps=30.0, total_requests=300, failed_requests=30, p95_us=35000.0
+        )
+
+        result = compute_comparison(current, baseline)
+        assert result["rps_delta"] > 0  # RPS improved
+        assert result["latency_p95_delta"] < 0  # latency improved
+        assert result["error_rate_delta"] < 0  # errors improved
+
+    def test_compute_comparison_zero_baseline_rps(self):
+        from strobengine.reporting.baseline import compute_comparison
+
+        current = self._make_artifact(
+            rps=10.0, total_requests=100, failed_requests=0, p95_us=5000.0
+        )
+        baseline = self._make_artifact(
+            rps=0.0, total_requests=100, failed_requests=0, p95_us=5000.0
+        )
+
+        result = compute_comparison(current, baseline)
+        assert result["rps_delta"] == 100.0  # base=0, curr>0 -> 100%
+
+    def test_compute_comparison_zero_baseline_p95(self):
+        from strobengine.reporting.baseline import compute_comparison
+
+        current = self._make_artifact(
+            rps=10.0, total_requests=100, failed_requests=0, p95_us=10000.0
+        )
+        baseline = self._make_artifact(
+            rps=10.0, total_requests=100, failed_requests=0, p95_us=0.0
+        )
+
+        result = compute_comparison(current, baseline)
+        assert result["latency_p95_delta"] == 100.0  # base=0, curr>0 -> 100%
+
+
+class TestHTMLReport:
+    """Tests for render_html_report and save_html_report."""
+
+    def test_render_html_contains_charts(self):
+        from strobengine.reporting.html_report import render_html_report
+
+        html = render_html_report(_make_summary(), _make_config())
+        assert "<canvas" in html
+        assert "Chart" in html
+
+    def test_render_html_contains_metadata(self):
+        from strobengine.reporting.html_report import render_html_report
+
+        html = render_html_report(_make_summary(), _make_config())
+        assert "http://localhost:8080" in html
+        assert "10.0s" in html
+
+    def test_render_html_with_comparison(self):
+        from strobengine.reporting.html_report import render_html_report
+
+        comparison = {
+            "baseline_timestamp": "2026-01-01T00:00:00Z",
+            "rps_delta": 10.5,
+            "latency_p95_delta": -5.2,
+            "error_rate_delta": -1.0,
+            "baseline_rps": 30.0,
+            "baseline_p95_ms": 35.0,
+            "baseline_error_rate": 5.0,
+        }
+        html = render_html_report(
+            _make_summary(), _make_config(), comparison=comparison
+        )
+        assert "Historical Comparison" in html
+
+    def test_render_html_without_comparison(self):
+        from strobengine.reporting.html_report import render_html_report
+
+        html = render_html_report(_make_summary(), _make_config(), comparison=None)
+        assert "Historical Comparison" not in html
+
+    def test_render_html_status_grouping(self):
+        from strobengine.reporting.html_report import render_html_report
+
+        summary = _make_summary(total_errors=10, status_codes={200: 90, 404: 5, 500: 5})
+        html = render_html_report(summary, _make_config())
+        assert "2xx" in html
+        assert "4xx" in html
+        assert "5xx" in html
+
+    def test_save_html_report_file_output(self, tmp_path):
+        from strobengine.reporting.html_report import save_html_report
+
+        filepath = str(tmp_path / "report.html")
+        result = save_html_report(_make_summary(), _make_config(), filepath)
+        assert result == filepath
+        assert (tmp_path / "report.html").exists()
+        content = (tmp_path / "report.html").read_text()
+        assert "<html" in content
+
+
+class TestCLIHelpers:
+    """Tests for cli.py helper functions."""
+
+    def test_parse_headers_valid(self):
+        from strobengine.cli import _parse_headers
+
+        result = _parse_headers(["X-Custom: value"])
+        assert result == [("X-Custom", "value")]
+
+    def test_parse_headers_invalid(self):
+        from strobengine.cli import _parse_headers
+
+        with pytest.raises(typer.BadParameter):
+            _parse_headers(["NoColonHere"])
+
+    def test_validate_method_uppercase(self):
+        from strobengine.cli import _validate_method
+
+        assert _validate_method("get") == "GET"
+        assert _validate_method("post") == "POST"
+
+    def test_validate_method_invalid(self):
+        from strobengine.cli import _validate_method
+
+        with pytest.raises(typer.BadParameter):
+            _validate_method("INVALID")
