@@ -6,9 +6,6 @@ import json
 import sys
 from pathlib import Path
 
-from rich.console import Console
-from rich.table import Table
-
 
 def load_baseline_artifact(
     report_dir: Path = Path(".strobengine/reports"),
@@ -87,6 +84,9 @@ def compute_comparison(current: dict, baseline: dict) -> dict:
 
 def print_cli_comparison(comparison: dict) -> None:
     """Print baseline comparison table to terminal using Rich."""
+    from rich.console import Console
+    from rich.table import Table
+
     console = Console()
     table = Table(title="Historical Comparison", show_lines=True, padding=(0, 1))
     table.add_column("Metric", style="bold cyan", no_wrap=True)
