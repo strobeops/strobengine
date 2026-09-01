@@ -4,6 +4,23 @@ All notable changes to `strobengine` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.1] - 2026-09-01
+
+### Bug Fixes
+
+- *(websocket)* Use user-configured timeout for persistent session read
+- *(http)* Use user-configured method for CorruptedPayload chaos fault
+- *(report)* Handle Windows fs::rename target collision in writer
+- *(reporting)* Move rich import inside print_cli_comparison
+- *(websocket)* Warn on invalid WebSocket headers instead of silent drop
+
+### Refactoring
+
+- *(reporting)* Remove dead render_markdown_report function
+
+### Testing
+
+- *(reporting)* Add unit tests for baseline, html_report, and cli helpers
 ## [0.5.0] - 2026-08-30
 
 ### Documentation
@@ -51,6 +68,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - *(pyproject)* Simplify readme config and update documentation URL
 - *(scripts)* Run uv lock during release version bump
+- *(release)* Bump version to 0.5.0
 
 ### Styling
 
