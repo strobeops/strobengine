@@ -136,7 +136,11 @@ impl PersistentWsSession {
         self.messages_sent += 1;
 
         // Read response with timeout
-        let timeout = Duration::from_secs(5);
+        let timeout = Duration::from_secs(if self.timeout_secs > 0 {
+            self.timeout_secs
+        } else {
+            5
+        });
         let read_result = tokio::time::timeout(timeout, async {
             let mut response_bytes = Vec::new();
             while let Some(Ok(msg)) = stream.next().await {
