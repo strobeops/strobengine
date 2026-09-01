@@ -97,7 +97,7 @@ impl ProtocolEngine for HttpEngine {
             Some(ChaosFault::CorruptedPayload) => {
                 tracing::trace!("chaos: corrupted payload injected");
                 self.client
-                    .post(target_url)
+                    .request(self.method.clone(), target_url)
                     .header(CHAOS_HEADER, "corrupted-payload")
                     .body(CORRUPTED_BODY)
             }
