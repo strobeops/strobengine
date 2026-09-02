@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from strobengine.reporter import build_artifact_dict
+from strobengine.reporting import us_to_ms
 
 
 def generate_markdown_summary(artifact: dict) -> str:
@@ -43,10 +44,10 @@ def generate_markdown_summary(artifact: dict) -> str:
         f"| Successful | {s['successful_requests']:,} |",
         f"| Failed | {failed:,} |",
         f"| Requests/sec | {s['rps']:.2f} |",
-        f"| P50 Latency | {lp['p50_us'] / 1000:.2f} ms |",
-        f"| P90 Latency | {lp['p90_us'] / 1000:.2f} ms |",
-        f"| P95 Latency | {lp['p95_us'] / 1000:.2f} ms |",
-        f"| P99 Latency | {lp['p99_us'] / 1000:.2f} ms |",
+        f"| P50 Latency | {us_to_ms(lp['p50_us'])} ms |",
+        f"| P90 Latency | {us_to_ms(lp['p90_us'])} ms |",
+        f"| P95 Latency | {us_to_ms(lp['p95_us'])} ms |",
+        f"| P99 Latency | {us_to_ms(lp['p99_us'])} ms |",
         f"| Error Rate | {error_rate:.2f}% |",
         "",
     ]

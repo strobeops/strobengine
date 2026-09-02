@@ -6,6 +6,8 @@ import json
 import sys
 from pathlib import Path
 
+from strobengine.reporting import us_to_ms
+
 
 def load_baseline_artifact(
     report_dir: Path = Path(".strobengine/reports"),
@@ -94,10 +96,10 @@ def compute_comparison(current: dict, baseline: dict) -> dict:
         "rps_delta": pct_delta(curr_summary["rps"], base_summary["rps"]),
         "error_rate_delta": round(curr_error_rate - base_error_rate, 2),
         "baseline_rps": base_summary["rps"],
-        "baseline_p95_ms": round(base_lp["p95_us"] / 1000, 2),
+        "baseline_p95_ms": us_to_ms(base_lp["p95_us"]),
         "baseline_error_rate": round(base_error_rate, 2),
         "current_rps": curr_summary["rps"],
-        "current_p95_ms": round(curr_lp["p95_us"] / 1000, 2),
+        "current_p95_ms": us_to_ms(curr_lp["p95_us"]),
         "current_error_rate": round(curr_error_rate, 2),
     }
 
