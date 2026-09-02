@@ -577,41 +577,11 @@ fn run_load_profiles(
         // Build protocol engine based on URL scheme
         let engine: Arc<dyn ProtocolEngine> = if protocols::is_protocol_url(&url) {
             // Build a minimal TestConfig for protocol detection
-            let ws_config = TestConfig::new(
+            let ws_config = TestConfig::for_protocol_detection(
                 url.clone(),
                 profile.max_concurrency(),
                 profile.total_duration(),
                 timeout_secs,
-                chaos,
-                chaos_rate,
-                no_progress,
-                method.as_str(),
-                final_body
-                    .as_ref()
-                    .and_then(|b| String::from_utf8(b.to_vec()).ok()),
-                None,
-                headers,
-                config::WsMode::Handshake,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                false,
-                false,
-                None,
-                None,
-                None,
-                None,
-                None,
-                false,
-                false,
-                None,
-                false,
-                None,
-                None,
-                false,
             );
             protocols::detect_protocol(&url, &ws_config, chaos_engine)
         } else {
