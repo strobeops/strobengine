@@ -533,11 +533,13 @@ fn run_load_test(py: Python<'_>, config: TestConfig) -> PyResult<metrics::TestSu
         if !config.no_save {
             let artifact =
                 report::schema::ReportArtifact::from_summary_and_config(&summary, &config);
-            let _ = report::writer::save_report_json(
+            if let Err(e) = report::writer::save_report_json(
                 &artifact,
                 config.output_dir.as_deref().map(std::path::Path::new),
                 false,
-            );
+            ) {
+                tracing::warn!(error = %e, "failed to save report artifact");
+            }
         }
 
         Ok(summary)
