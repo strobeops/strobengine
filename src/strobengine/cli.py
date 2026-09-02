@@ -279,6 +279,19 @@ def _build_request_options(
     )
 
 
+# NOTE: CLI Option Duplication
+#
+# The load, stress, and spike subcommands share ~34 identical option
+# definitions (Annotated[type, typer.Option(...)]). Typer does not
+# support shared option definitions via type aliases, mixins, or
+# @app.callback() without changing CLI UX (options must precede the
+# subcommand). This duplication is a known Typer limitation.
+#
+# If Typer adds shared option support in the future, refactor these
+# into a shared option set. For now, each subcommand defines its
+# options independently.
+
+
 @app.command()
 def load(
     url: Annotated[str, typer.Argument(help="Target HTTP/HTTPS URL")],
