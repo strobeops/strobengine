@@ -355,8 +355,9 @@ impl WebSocketEngine {
             Some(w) => w,
             None => return RequestMetric::error(req_start.elapsed().as_micros()),
         };
+        let payload_len = payload_bytes.len() as u64;
         let send_result = write
-            .send(Message::Binary(Bytes::from(payload_bytes.clone())))
+            .send(Message::Binary(Bytes::from(payload_bytes)))
             .await;
 
         let latency_micros = req_start.elapsed().as_micros();
@@ -367,7 +368,7 @@ impl WebSocketEngine {
                 RequestMetric {
                     latency_micros,
                     status_code: 200,
-                    bytes_received: payload_bytes.len() as u64,
+                    bytes_received: payload_len,
                     is_reconnect: false,
                     connection_latency_us: None,
                     timestamp_sent_ns: Some(wallclock_ns()),
