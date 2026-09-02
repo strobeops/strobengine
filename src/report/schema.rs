@@ -115,7 +115,7 @@ impl ReportArtifact {
                 total_requests: summary.total_requests as u64,
                 successful_requests: successful,
                 failed_requests: summary.total_errors as u64,
-                rps: (rps * 100.0).round() / 100.0,
+                rps,
                 bytes_transferred: summary.total_bytes_received,
             },
             latency_percentiles: LatencyPercentiles {
