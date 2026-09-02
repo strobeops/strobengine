@@ -230,11 +230,17 @@ def _slugify_url(url: str) -> str:
 def _get_system_info() -> dict:
     """Collect basic system information for report metadata."""
     import socket
+    from importlib.metadata import PackageNotFoundError, version
+
+    try:
+        pkg_version = version("strobengine")
+    except PackageNotFoundError:
+        pkg_version = "0.0.0-dev"
 
     return {
         "hostname": socket.gethostname(),
         "platform": sys.platform,
-        "version": "0.5.0",
+        "version": pkg_version,
     }
 
 
