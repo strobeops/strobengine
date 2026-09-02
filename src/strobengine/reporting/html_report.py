@@ -192,12 +192,14 @@ def render_html_report(summary, config, comparison=None) -> str:
     artifact = build_artifact_dict(summary, config)
 
     # Convert us -> ms for chart display
+    from strobengine.reporting import us_to_ms
+
     lp = artifact["latency_percentiles"]
     latency_ms = {
-        "p50": round((lp.get("p50_us") or 0) / 1000, 2),
-        "p90": round((lp.get("p90_us") or 0) / 1000, 2),
-        "p95": round((lp.get("p95_us") or 0) / 1000, 2),
-        "p99": round((lp.get("p99_us") or 0) / 1000, 2),
+        "p50": us_to_ms(lp.get("p50_us")),
+        "p90": us_to_ms(lp.get("p90_us")),
+        "p95": us_to_ms(lp.get("p95_us")),
+        "p99": us_to_ms(lp.get("p99_us")),
     }
 
     # Group status codes by class

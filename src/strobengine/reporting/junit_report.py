@@ -24,7 +24,9 @@ def generate_junit_report(artifact: dict) -> str:
     failed = s["failed_requests"]
     total = s["total_requests"]
     error_rate = (failed / total * 100) if total > 0 else 0.0
-    p95_ms = lp["p95_us"] / 1000
+    from strobengine.reporting import us_to_ms
+
+    p95_ms = us_to_ms(lp["p95_us"])
 
     testsuites = Element("testsuites")
     testsuite = SubElement(
@@ -48,9 +50,9 @@ def generate_junit_report(artifact: dict) -> str:
     so1 = SubElement(tc1, "system-out")
     so1.text = (
         f"RPS: {s['rps']:.2f}, "
-        f"P50: {lp['p50_us'] / 1000:.2f}ms, "
-        f"P95: {p95_ms:.2f}ms, "
-        f"P99: {lp['p99_us'] / 1000:.2f}ms, "
+        f"P50: {us_to_ms(lp['p50_us'])}ms, "
+        f"P95: {p95_ms}ms, "
+        f"P99: {us_to_ms(lp['p99_us'])}ms, "
         f"Errors: {error_rate:.2f}%, "
         f"Total: {total:,}"
     )
