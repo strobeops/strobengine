@@ -4,6 +4,24 @@ All notable changes to `strobengine` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.2] - 2026-09-02
+
+### Bug Fixes
+
+- *(report)* Remove forced 2-decimal rounding of RPS in report schema
+- *(lib)* Log report persistence errors instead of silently discarding
+- *(reporter)* Replace hardcoded version string with dynamic resolution
+- *(reporting)* Validate baseline artifact structure in compute_comparison
+
+### Refactoring
+
+- *(lib)* Remove unnecessary clones on config.body, config.form, config.headers
+- *(websocket)* Remove unnecessary payload_bytes.clone() in publisher iteration
+- *(reporting)* Extract us_to_ms helper for latency conversion
+
+### Styling
+
+- *(tests)* Move duplicate inline imports to top of test_reporting.py
 ## [0.5.1] - 2026-09-01
 
 ### Bug Fixes
@@ -13,6 +31,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - *(report)* Handle Windows fs::rename target collision in writer
 - *(reporting)* Move rich import inside print_cli_comparison
 - *(websocket)* Warn on invalid WebSocket headers instead of silent drop
+
+### Miscellaneous Tasks
+
+- *(release)* Bump version to 0.5.1
 
 ### Refactoring
 
