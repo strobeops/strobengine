@@ -3,6 +3,57 @@ use std::time::Duration;
 use crate::chaos::DEFAULT_CHAOS_RATE;
 use pyo3::prelude::*;
 
+/// WebSocket protocol options (internal, not exposed to Python).
+#[derive(Debug, Clone, Default)]
+#[allow(dead_code)]
+pub(crate) struct WsOptions {
+    pub mode: WsMode,
+    pub payload: Option<String>,
+    pub persistent: bool,
+    pub keepalive_secs: Option<u64>,
+    pub max_messages: Option<u64>,
+    pub role: Option<String>,
+    pub publish_interval_ms: Option<u64>,
+    pub subscribers: Option<usize>,
+}
+
+/// gRPC protocol options (internal, not exposed to Python).
+#[derive(Debug, Clone, Default)]
+#[allow(dead_code)]
+pub(crate) struct GrpcOptions {
+    pub service: Option<String>,
+    pub method: Option<String>,
+    pub payload: Option<String>,
+    pub deadline_ms: Option<u64>,
+    pub proto_path: Option<String>,
+    pub use_reflection: bool,
+}
+
+/// HTTP/3 + QUIC options (internal, not exposed to Python).
+#[derive(Debug, Clone, Default)]
+#[allow(dead_code)]
+pub(crate) struct Http3Options {
+    pub enabled: bool,
+    pub zero_rtt: bool,
+    pub max_idle_timeout_ms: Option<u64>,
+}
+
+/// SSE streaming options (internal, not exposed to Python).
+#[derive(Debug, Clone, Default)]
+#[allow(dead_code)]
+pub(crate) struct SseOptions {
+    pub enabled: bool,
+    pub max_events: Option<u64>,
+}
+
+/// Report output options (internal, not exposed to Python).
+#[derive(Debug, Clone, Default)]
+#[allow(dead_code)]
+pub(crate) struct OutputOptions {
+    pub output_dir: Option<String>,
+    pub no_save: bool,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 #[pyclass(from_py_object)]
 pub enum WsMode {
@@ -205,6 +256,52 @@ impl TestConfig {
             output_dir,
             no_save,
         }
+    }
+}
+
+impl TestConfig {
+    /// Minimal config for protocol detection (used by `run_load_profiles`).
+    /// Replaces the 32-line positional call with a concise factory.
+    pub fn for_protocol_detection(
+        url: String,
+        concurrency: usize,
+        duration_secs: u64,
+        timeout_secs: u64,
+    ) -> Self {
+        Self::new(
+            url,
+            concurrency,
+            duration_secs,
+            timeout_secs,
+            false,
+            DEFAULT_CHAOS_RATE,
+            false,
+            "GET",
+            None,
+            None,
+            None,
+            WsMode::Handshake,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            false,
+            false,
+            None,
+            None,
+            None,
+            None,
+            None,
+            false,
+            false,
+            None,
+            false,
+            None,
+            None,
+            false,
+        )
     }
 }
 
