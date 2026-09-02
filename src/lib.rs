@@ -72,11 +72,11 @@ fn parse_method(method_str: &str) -> PyResult<Method> {
     })
 }
 
-fn parse_body(body: Option<String>) -> Option<bytes::Bytes> {
-    body.map(bytes::Bytes::from)
+fn parse_body(body: Option<&str>) -> Option<bytes::Bytes> {
+    body.map(|b| bytes::Bytes::copy_from_slice(b.as_bytes()))
 }
 
-fn parse_form(form: Option<Vec<(String, String)>>) -> Option<bytes::Bytes> {
+fn parse_form(form: Option<&[(String, String)]>) -> Option<bytes::Bytes> {
     form.map(|pairs| {
         let encoded: String = pairs
             .iter()
@@ -87,7 +87,7 @@ fn parse_form(form: Option<Vec<(String, String)>>) -> Option<bytes::Bytes> {
     })
 }
 
-fn parse_headers(headers: Option<Vec<(String, String)>>) -> PyResult<HeaderMap> {
+fn parse_headers(headers: Option<&[(String, String)]>) -> PyResult<HeaderMap> {
     let mut header_map = HeaderMap::new();
 
     if let Some(h) = headers {
@@ -96,7 +96,7 @@ fn parse_headers(headers: Option<Vec<(String, String)>>) -> PyResult<HeaderMap> 
                 pyo3::exceptions::PyValueError::new_err(format!("Invalid header name '{k}': {e}"))
             })?;
 
-            let val = HeaderValue::from_str(&v).map_err(|e| {
+            let val = HeaderValue::from_str(v).map_err(|e| {
                 pyo3::exceptions::PyValueError::new_err(format!(
                     "Invalid header value for '{k}': {e}"
                 ))
@@ -479,9 +479,9 @@ fn run_load_test(py: Python<'_>, config: TestConfig) -> PyResult<metrics::TestSu
                 protocols::detect_protocol(&url, &config, chaos)
             } else {
                 let method = parse_method(&config.method)?;
-                let body = parse_body(config.body.clone());
-                let form = parse_form(config.form.clone());
-                let header_map = parse_headers(config.headers.clone())?;
+                let body = parse_body(config.body.as_deref());
+                let form = parse_form(config.form.as_deref());
+                let header_map = parse_headers(config.headers.as_deref())?;
 
                 // Resolve payload and auto-inject Content-Type
                 let is_form = form.is_some();
@@ -577,9 +577,9 @@ fn run_load_profiles(
         let chaos_engine = ChaosEngine::new(chaos, chaos_rate);
 
         let method = parse_method(method)?;
-        let raw_body = parse_body(body);
-        let raw_form = parse_form(form);
-        let mut header_map = parse_headers(headers.clone())?;
+        let raw_body = parse_body(body.as_deref());
+        let raw_form = parse_form(form.as_deref());
+        let mut header_map = parse_headers(headers.as_deref())?;
 
         // Resolve payload and auto-inject Content-Type
         let is_form = raw_form.is_some();
