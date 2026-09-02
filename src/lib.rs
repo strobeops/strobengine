@@ -138,6 +138,70 @@ impl Drop for WorkerGuard {
     }
 }
 
+/// Spawn a single worker task that executes iterations for the given duration.
+fn spawn_worker(
+    engine: Arc<dyn ProtocolEngine>,
+    url: String,
+    counters: Arc<LiveCounters>,
+    tx: tokio::sync::mpsc::Sender<RequestMetric>,
+    token: CancellationToken,
+    duration: Duration,
+) -> tokio::task::JoinHandle<()> {
+    tokio::spawn(async move {
+        let _guard = WorkerGuard(Arc::clone(&counters));
+        counters.active_workers.fetch_add(1, Ordering::Relaxed);
+
+        // Create worker-local context for persistent connections
+        let mut worker_ctx = engine.create_worker_context().await;
+
+        let start = Instant::now();
+        while start.elapsed() < duration && !token.is_cancelled() {
+            counters.total_requests.fetch_add(1, Ordering::Relaxed);
+
+            let metric = if let Some(ref mut ctx) = worker_ctx {
+                tokio::select! {
+                    _ = token.cancelled() => {
+                        tracing::debug!("worker cancelled");
+                        break;
+                    }
+                    m = engine.execute_iteration_with_context(&url, ctx.as_mut()) => m,
+                }
+            } else {
+                tokio::select! {
+                    _ = token.cancelled() => {
+                        tracing::debug!("worker cancelled");
+                        break;
+                    }
+                    m = engine.execute_iteration(&url) => m,
+                }
+            };
+
+            counters.completed_requests.fetch_add(1, Ordering::Relaxed);
+            counters
+                .bytes_received
+                .fetch_add(metric.bytes_received, Ordering::Relaxed);
+            counters
+                .latency_sum_micros
+                .fetch_add(metric.latency_micros as u64, Ordering::Relaxed);
+            counters.latency_count.fetch_add(1, Ordering::Relaxed);
+
+            if metric.status_code == 0 || metric.status_code >= 400 {
+                counters.errors.fetch_add(1, Ordering::Relaxed);
+            }
+
+            let _ = tx.send(metric).await;
+        }
+
+        // Clean up persistent session if any
+        if let Some(mut ctx) = worker_ctx
+            && let Some(session) =
+                ctx.downcast_mut::<crate::protocols::websocket::PersistentWsSession>()
+        {
+            session.close().await;
+        }
+    })
+}
+
 #[allow(clippy::too_many_arguments)]
 async fn execute_test(
     engine: Arc<dyn ProtocolEngine>,
@@ -228,65 +292,14 @@ async fn execute_test(
             let mut handles = Vec::with_capacity(concurrency);
 
             for _ in 0..concurrency {
-                let engine = Arc::clone(&engine);
-                let url = url.clone();
-                let counters = Arc::clone(&counters);
-                let tx = tx.clone();
-                let token = cancel_token.clone();
-
-                handles.push(tokio::spawn(async move {
-                    let _guard = WorkerGuard(Arc::clone(&counters));
-                    counters.active_workers.fetch_add(1, Ordering::Relaxed);
-
-                    // Create worker-local context for persistent connections
-                    let mut worker_ctx = engine.create_worker_context().await;
-
-                    let start = Instant::now();
-                    while start.elapsed() < duration && !token.is_cancelled() {
-                        counters.total_requests.fetch_add(1, Ordering::Relaxed);
-
-                        let metric = if let Some(ref mut ctx) = worker_ctx {
-                            tokio::select! {
-                                _ = token.cancelled() => {
-                                    tracing::debug!("worker cancelled");
-                                    break;
-                                }
-                                m = engine.execute_iteration_with_context(&url, ctx.as_mut()) => m,
-                            }
-                        } else {
-                            tokio::select! {
-                                _ = token.cancelled() => {
-                                    tracing::debug!("worker cancelled");
-                                    break;
-                                }
-                                m = engine.execute_iteration(&url) => m,
-                            }
-                        };
-
-                        counters.completed_requests.fetch_add(1, Ordering::Relaxed);
-                        counters
-                            .bytes_received
-                            .fetch_add(metric.bytes_received, Ordering::Relaxed);
-                        counters
-                            .latency_sum_micros
-                            .fetch_add(metric.latency_micros as u64, Ordering::Relaxed);
-                        counters.latency_count.fetch_add(1, Ordering::Relaxed);
-
-                        if metric.status_code == 0 || metric.status_code >= 400 {
-                            counters.errors.fetch_add(1, Ordering::Relaxed);
-                        }
-
-                        let _ = tx.send(metric).await;
-                    }
-
-                    // Clean up persistent session if any
-                    if let Some(mut ctx) = worker_ctx
-                        && let Some(session) =
-                            ctx.downcast_mut::<crate::protocols::websocket::PersistentWsSession>()
-                    {
-                        session.close().await;
-                    }
-                }));
+                handles.push(spawn_worker(
+                    Arc::clone(&engine),
+                    url.clone(),
+                    Arc::clone(&counters),
+                    tx.clone(),
+                    cancel_token.clone(),
+                    duration,
+                ));
             }
 
             // NOTE: Drop outer `tx` so only worker clones hold channel senders
@@ -331,58 +344,16 @@ async fn execute_test(
                     while current_concurrency < target {
                         let child_token = cancel_clone.child_token();
                         let remaining = total_duration.saturating_sub(elapsed);
-                        let engine = Arc::clone(&engine_clone);
-                        let url = url_clone.clone();
-                        let counters = Arc::clone(&counters_clone);
-                        let tx = tx_supervisor.clone();
-                        let token = child_token.clone();
 
-                        let handle = tokio::spawn(async move {
-                            let _guard = WorkerGuard(Arc::clone(&counters));
-                            counters.active_workers.fetch_add(1, Ordering::Relaxed);
+                        let handle = spawn_worker(
+                            Arc::clone(&engine_clone),
+                            url_clone.clone(),
+                            Arc::clone(&counters_clone),
+                            tx_supervisor.clone(),
+                            child_token.clone(),
+                            remaining,
+                        );
 
-                            // Create worker-local context for persistent connections
-                            let mut worker_ctx = engine.create_worker_context().await;
-
-                            let start = Instant::now();
-                            while start.elapsed() < remaining && !token.is_cancelled() {
-                                counters.total_requests.fetch_add(1, Ordering::Relaxed);
-
-                                let metric = if let Some(ref mut ctx) = worker_ctx {
-                                    tokio::select! {
-                                        _ = token.cancelled() => break,
-                                        m = engine.execute_iteration_with_context(&url, ctx.as_mut()) => m,
-                                    }
-                                } else {
-                                    tokio::select! {
-                                        _ = token.cancelled() => break,
-                                        m = engine.execute_iteration(&url) => m,
-                                    }
-                                };
-
-                                counters.completed_requests.fetch_add(1, Ordering::Relaxed);
-                                counters
-                                    .bytes_received
-                                    .fetch_add(metric.bytes_received, Ordering::Relaxed);
-                                counters
-                                    .latency_sum_micros
-                                    .fetch_add(metric.latency_micros as u64, Ordering::Relaxed);
-                                counters.latency_count.fetch_add(1, Ordering::Relaxed);
-
-                                if metric.status_code == 0 || metric.status_code >= 400 {
-                                    counters.errors.fetch_add(1, Ordering::Relaxed);
-                                }
-
-                                let _ = tx.send(metric).await;
-                            }
-
-                            // Clean up persistent session if any
-                            if let Some(mut ctx) = worker_ctx
-                                && let Some(session) = ctx.downcast_mut::<crate::protocols::websocket::PersistentWsSession>()
-                            {
-                                session.close().await;
-                            }
-                        });
                         child_tokens.push(child_token);
                         handles.push(handle);
                         current_concurrency += 1;
