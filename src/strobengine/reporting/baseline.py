@@ -44,12 +44,32 @@ def compute_comparison(current: dict, baseline: dict) -> dict:
 
     Returns a dict with baseline metadata, current values, and percentage/point
     deltas for RPS, P95 latency, and error rate.
+
+    Raises ValueError if either artifact is missing required keys.
     """
 
     def pct_delta(curr_val: float, base_val: float) -> float:
         if base_val == 0:
             return 0.0 if curr_val == 0 else 100.0
         return round(((curr_val - base_val) / base_val) * 100, 2)
+
+    # Validate required structure
+    for label, artifact in [("current", current), ("baseline", baseline)]:
+        for key in ["summary", "latency_percentiles", "metadata"]:
+            if key not in artifact:
+                raise ValueError(
+                    f"Invalid {label} artifact: missing required key '{key}'"
+                )
+        for subkey in ["rps", "total_requests", "failed_requests"]:
+            if subkey not in artifact["summary"]:
+                raise ValueError(
+                    f"Invalid {label} artifact: missing 'summary.{subkey}'"
+                )
+        for subkey in ["p95_us"]:
+            if subkey not in artifact["latency_percentiles"]:
+                raise ValueError(
+                    f"Invalid {label} artifact: missing 'latency_percentiles.{subkey}'"
+                )
 
     curr_summary = current["summary"]
     base_summary = baseline["summary"]
