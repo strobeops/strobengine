@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sys
+from dataclasses import dataclass
 from enum import StrEnum
 from typing import Annotated
 
@@ -18,6 +19,26 @@ VALID_METHODS = {"GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"}
 class WsRole(StrEnum):
     publisher = "publisher"
     subscriber = "subscriber"
+
+
+@dataclass
+class ExportOptions:
+    """Options controlling report output and persistence."""
+
+    output_dir: str | None = None
+    no_save: bool = False
+    html_output: str | None = None
+    compare_to: str | None = None
+    export_markdown: str | None = None
+    export_junit: str | None = None
+    export_csv: str | None = None
+    json_output: bool = False
+
+
+def _report_saved(filepath: str | None, exports: ExportOptions) -> None:
+    """Print report path to stderr unless in JSON mode or saving is disabled."""
+    if filepath and not exports.json_output and not exports.no_save:
+        print(f"Report saved to {filepath}", file=sys.stderr)
 
 
 def _get_version() -> str:
@@ -155,27 +176,21 @@ def _output_results(
     summary: TestSummary,
     url: str,
     duration_secs: int,
-    json_output: bool,
-    config: object | None = None,
-    output_dir: str | None = None,
-    no_save: bool = False,
-    html_output: str | None = None,
-    compare_to: str | None = None,
-    export_markdown: str | None = None,
-    export_junit: str | None = None,
-    export_csv: str | None = None,
+    config: object | None,
+    exports: ExportOptions,
 ) -> None:
-    print_summary(summary, json_output=json_output)
+    print_summary(summary, json_output=exports.json_output)
     if config is not None:
         from strobengine.reporter import save_report
 
-        filepath = save_report(summary, config, output_dir=output_dir, no_save=no_save)
-        if filepath and not json_output:
-            print(f"Report saved to {filepath}", file=sys.stderr)
+        filepath = save_report(
+            summary, config, output_dir=exports.output_dir, no_save=exports.no_save
+        )
+        _report_saved(filepath, exports)
 
     # Compute comparison (runs for both --html and terminal display)
     comparison = None
-    if compare_to:
+    if exports.compare_to:
         from pathlib import Path
 
         from strobengine.reporter import build_artifact_dict
@@ -184,43 +199,39 @@ def _output_results(
             load_baseline_artifact,
         )
 
-        baseline = load_baseline_artifact(baseline_file=Path(compare_to))
+        baseline = load_baseline_artifact(baseline_file=Path(exports.compare_to))
         if baseline and config is not None:
             current = build_artifact_dict(summary, config)
             comparison = compute_comparison(current, baseline)
-            if not json_output:
+            if not exports.json_output:
                 from strobengine.reporting.baseline import print_cli_comparison
 
                 print_cli_comparison(comparison)
 
-    if html_output:
+    if exports.html_output:
         from strobengine.reporting.html_report import save_html_report
 
-        save_html_report(summary, config, html_output, comparison=comparison)
-        if not json_output:
-            print(f"HTML report saved to {html_output}", file=sys.stderr)
+        save_html_report(summary, config, exports.html_output, comparison=comparison)
+        _report_saved(exports.html_output, exports)
 
     # Export formats
-    if export_markdown:
+    if exports.export_markdown:
         from strobengine.reporting.markdown_report import save_markdown_report
 
-        save_markdown_report(summary, config, export_markdown, duration_secs)
-        if not json_output:
-            print(f"Markdown report saved to {export_markdown}", file=sys.stderr)
+        save_markdown_report(summary, config, exports.export_markdown, duration_secs)
+        _report_saved(exports.export_markdown, exports)
 
-    if export_junit:
+    if exports.export_junit:
         from strobengine.reporting.junit_report import save_junit_report
 
-        save_junit_report(summary, config, export_junit, duration_secs)
-        if not json_output:
-            print(f"JUnit report saved to {export_junit}", file=sys.stderr)
+        save_junit_report(summary, config, exports.export_junit, duration_secs)
+        _report_saved(exports.export_junit, exports)
 
-    if export_csv:
+    if exports.export_csv:
         from strobengine.reporting.csv_report import save_csv_report
 
-        save_csv_report(summary, config, export_csv, duration_secs)
-        if not json_output:
-            print(f"CSV report saved to {export_csv}", file=sys.stderr)
+        save_csv_report(summary, config, exports.export_csv, duration_secs)
+        _report_saved(exports.export_csv, exports)
 
 
 def _build_request_options(
@@ -486,12 +497,7 @@ def load(
         ),
     )
     summary = engine.run()
-    _output_results(
-        summary,
-        url,
-        duration,
-        json_output,
-        config=engine.config,
+    exports = ExportOptions(
         output_dir=output_dir,
         no_save=no_save,
         html_output=html_output,
@@ -499,7 +505,9 @@ def load(
         export_markdown=export_markdown,
         export_junit=export_junit,
         export_csv=export_csv,
+        json_output=json_output,
     )
+    _output_results(summary, url, duration, engine.config, exports)
 
 
 @app.command()
@@ -706,12 +714,7 @@ def stress(
         ),
     )
     summary = engine.run()
-    _output_results(
-        summary,
-        url,
-        ramp + hold,
-        json_output,
-        config=engine.get_config(),
+    exports = ExportOptions(
         output_dir=output_dir,
         no_save=no_save,
         html_output=html_output,
@@ -719,7 +722,9 @@ def stress(
         export_markdown=export_markdown,
         export_junit=export_junit,
         export_csv=export_csv,
+        json_output=json_output,
     )
+    _output_results(summary, url, ramp + hold, engine.get_config(), exports)
 
 
 @app.command()
@@ -931,12 +936,7 @@ def spike(
         ),
     )
     summary = engine.run()
-    _output_results(
-        summary,
-        url,
-        pre_spike + spike_duration + post_spike,
-        json_output,
-        config=engine.get_config(),
+    exports = ExportOptions(
         output_dir=output_dir,
         no_save=no_save,
         html_output=html_output,
@@ -944,6 +944,14 @@ def spike(
         export_markdown=export_markdown,
         export_junit=export_junit,
         export_csv=export_csv,
+        json_output=json_output,
+    )
+    _output_results(
+        summary,
+        url,
+        pre_spike + spike_duration + post_spike,
+        engine.get_config(),
+        exports,
     )
 
 
