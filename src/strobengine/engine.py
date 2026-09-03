@@ -33,6 +33,13 @@ class WsModeEnum(StrEnum):
     stream = "stream"
 
 
+_WS_MODE_MAP: dict[WsModeEnum, WsMode] = {
+    WsModeEnum.handshake: WsMode.handshake(),
+    WsModeEnum.ping_pong: WsMode.ping_pong(),
+    WsModeEnum.stream: WsMode.stream(),
+}
+
+
 @dataclass
 class RequestOptions:
     """Encapsulates common HTTP and execution parameters with validation."""
@@ -98,11 +105,7 @@ class StrobEngine:
                 body=self._options.body,
                 form=self._options.form,
                 headers=self._options.headers,
-                ws_mode=WsMode.ping_pong()
-                if self._options.ws_mode == WsModeEnum.ping_pong
-                else WsMode.stream()
-                if self._options.ws_mode == WsModeEnum.stream
-                else WsMode.handshake(),
+                ws_mode=_WS_MODE_MAP.get(self._options.ws_mode, WsMode.handshake()),
                 ws_payload=self._options.ws_payload,
                 ws_role=self._options.ws_role,
                 ws_publish_interval_ms=self._options.ws_publish_interval_ms,
