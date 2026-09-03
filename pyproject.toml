@@ -31,6 +31,7 @@ features = ["pyo3/extension-module"]
 module-name = "strobengine._strobengine"
 python-packages = ["strobengine"]
 python-source = "src"
+include = ["src/strobengine/reporting/assets/*"]
 
 [tool.uv]
 cache-keys = [{ file = "pyproject.toml" }, { file = "src/**/*.rs" }, { file = "Cargo.toml" }, { file = "Cargo.lock" }]
