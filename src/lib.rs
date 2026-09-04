@@ -244,6 +244,12 @@ async fn execute_test(
     let aggregator = tokio::spawn(async move {
         let mut latencies = Vec::new();
         let mut e2e_latencies = Vec::new();
+        let mut connection_latencies = Vec::new();
+        let mut quic_stats = metrics::QuicMetrics::default();
+        let mut sse_stats = metrics::SseMetrics::default();
+        let mut has_quic = false;
+        let mut quic_handshakes = Vec::new();
+        let mut sse_first_events = Vec::new();
         let mut status_codes: std::collections::HashMap<u16, u64> =
             std::collections::HashMap::new();
         let mut total_bytes: u64 = 0;
@@ -253,10 +259,65 @@ async fn execute_test(
             if let Some(e2e) = metric.e2e_latency_us {
                 e2e_latencies.push(e2e);
             }
+            if let Some(conn) = metric.connection_latency_us {
+                connection_latencies.push(conn);
+            }
+            // QUIC aggregation
+            if metric.quic_handshake_us.is_some()
+                || metric.quic_0rtt_used
+                || metric.quic_retransmits.is_some()
+            {
+                has_quic = true;
+                if metric.quic_0rtt_used {
+                    quic_stats.zero_rtt_accepted_count += 1;
+                }
+                if let Some(retrans) = metric.quic_retransmits {
+                    quic_stats.retransmissions += retrans;
+                }
+                if let Some(handshake) = metric.quic_handshake_us {
+                    quic_handshakes.push(handshake);
+                }
+            }
+            // SSE aggregation
+            if let Some(events) = metric.sse_events_received {
+                sse_stats.total_events_received += events;
+            }
+            if let Some(first) = metric.sse_first_event_us {
+                sse_first_events.push(first);
+            }
             *status_codes.entry(metric.status_code).or_insert(0) += 1;
             total_bytes += metric.bytes_received;
         }
-        (latencies, e2e_latencies, status_codes, total_bytes)
+
+        // Compute QUIC avg handshake (convert us to ms)
+        if !quic_handshakes.is_empty() {
+            let sum: u64 = quic_handshakes.iter().sum();
+            quic_stats.avg_handshake_ms =
+                Some((sum as f64 / quic_handshakes.len() as f64) / 1000.0);
+        }
+
+        // Compute SSE avg TTFB (convert us to ms)
+        if !sse_first_events.is_empty() {
+            let sum: u64 = sse_first_events.iter().sum();
+            sse_stats.avg_ttfb_ms = Some((sum as f64 / sse_first_events.len() as f64) / 1000.0);
+        }
+
+        let quic_opt = if has_quic { Some(quic_stats) } else { None };
+        let sse_opt = if sse_stats.total_events_received > 0 || !sse_first_events.is_empty() {
+            Some(sse_stats)
+        } else {
+            None
+        };
+
+        (
+            latencies,
+            e2e_latencies,
+            status_codes,
+            total_bytes,
+            connection_latencies,
+            quic_opt,
+            sse_opt,
+        )
     });
 
     // Spawn progress render task (only on TTY when enabled)
@@ -407,7 +468,15 @@ async fn execute_test(
     }
 
     // Receive latency results (channel closes automatically as all tx references dropped)
-    let (latencies, e2e_latencies, status_codes, total_bytes) = aggregator
+    let (
+        latencies,
+        e2e_latencies,
+        status_codes,
+        total_bytes,
+        connection_latencies,
+        quic_metrics,
+        sse_metrics,
+    ) = aggregator
         .await
         .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
 
@@ -434,6 +503,9 @@ async fn execute_test(
         workers,
         status_codes,
         e2e_latencies,
+        connection_latencies,
+        quic_metrics,
+        sse_metrics,
     ))
 }
 
