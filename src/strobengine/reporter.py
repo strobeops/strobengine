@@ -264,6 +264,9 @@ def build_artifact_dict(summary: TestSummary, config: object) -> dict:
         "headers": getattr(config, "headers", None),
     }
 
+    # Get protocol-specific sections from summary.to_dict()
+    summary_dict = summary.to_dict()
+
     return {
         "metadata": {
             "timestamp": summary.timestamp,
@@ -289,6 +292,9 @@ def build_artifact_dict(summary: TestSummary, config: object) -> dict:
             "mean_us": round(summary.average_latency_ms * 1000.0, 1),
         },
         "error_breakdown": {str(k): v for k, v in summary.status_codes.items()},
+        "avg_connection_latency_us": summary.avg_connection_latency_us,
+        "quic": summary_dict.get("quic"),
+        "sse": summary_dict.get("sse"),
     }
 
 
