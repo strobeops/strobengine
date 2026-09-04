@@ -2,6 +2,8 @@ use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 
+use crate::metrics::{QuicMetrics, SseMetrics};
+
 /// Top-level report artifact persisted to disk after each load test.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ReportArtifact {
@@ -9,6 +11,12 @@ pub struct ReportArtifact {
     pub summary: ReportSummary,
     pub latency_percentiles: LatencyPercentiles,
     pub error_breakdown: HashMap<String, u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub avg_connection_latency_us: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub quic: Option<QuicMetrics>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sse: Option<SseMetrics>,
 }
 
 /// Test run metadata including configuration and system information.
@@ -128,6 +136,13 @@ impl ReportArtifact {
                 mean_us: summary.average_latency_ms * 1000.0,
             },
             error_breakdown,
+            avg_connection_latency_us: if summary.avg_connection_latency_us > 0.0 {
+                Some(summary.avg_connection_latency_us)
+            } else {
+                None
+            },
+            quic: summary.quic.clone(),
+            sse: summary.sse.clone(),
         }
     }
 }
@@ -181,6 +196,9 @@ mod tests {
                 mean_us: 2200.0,
             },
             error_breakdown,
+            avg_connection_latency_us: None,
+            quic: None,
+            sse: None,
         }
     }
 

@@ -119,7 +119,7 @@ impl LiveCounters {
 }
 
 #[pyclass(skip_from_py_object)]
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct TestSummary {
     #[pyo3(get)]
     pub url: String,
@@ -165,51 +165,26 @@ pub struct TestSummary {
 
 #[pymethods]
 impl TestSummary {
-    pub fn to_dict<'a>(&self, py: Python<'a>) -> PyResult<Bound<'a, PyDict>> {
-        let dict = PyDict::new(py);
-        dict.set_item("url", &self.url)?;
-        dict.set_item("total_requests", self.total_requests)?;
-        dict.set_item("total_errors", self.total_errors)?;
-        dict.set_item("average_latency_ms", self.average_latency_ms)?;
-        dict.set_item("p95_latency_ms", self.p95_latency_ms)?;
-        dict.set_item("p99_latency_ms", self.p99_latency_ms)?;
-        dict.set_item("min_latency_ms", self.min_latency_ms)?;
-        dict.set_item("p50_latency_ms", self.p50_latency_ms)?;
-        dict.set_item("p90_latency_ms", self.p90_latency_ms)?;
-        dict.set_item("max_latency_ms", self.max_latency_ms)?;
-        dict.set_item("total_bytes_received", self.total_bytes_received)?;
-        dict.set_item("duration_secs", self.duration_secs)?;
-        dict.set_item("workers", self.workers)?;
-        dict.set_item("timestamp", &self.timestamp)?;
-        dict.set_item("raw_command", self.raw_command.as_deref())?;
-        let status_dict = PyDict::new(py);
-        for (&code, &count) in &self.status_codes {
-            status_dict.set_item(code, count)?;
-        }
-        dict.set_item("status_codes", &status_dict)?;
-        dict.set_item("avg_e2e_latency_us", self.avg_e2e_latency_us)?;
-        dict.set_item("avg_connection_latency_us", self.avg_connection_latency_us)?;
-        match &self.quic {
-            Some(quic) => dict.set_item("quic", quic.clone())?,
-            None => dict.set_item("quic", py.None())?,
-        }
-        match &self.sse {
-            Some(sse) => dict.set_item("sse", sse.clone())?,
-            None => dict.set_item("sse", py.None())?,
-        }
-        Ok(dict)
+    #[pyo3(signature = (indent=None))]
+    pub fn to_json(&self, _py: Python<'_>, indent: Option<usize>) -> PyResult<String> {
+        let json_str = if indent.is_some() {
+            serde_json::to_string_pretty(self)
+                .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(e.to_string()))?
+        } else {
+            serde_json::to_string(self)
+                .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(e.to_string()))?
+        };
+        Ok(json_str)
     }
 
-    #[pyo3(signature = (indent=None))]
-    pub fn to_json(&self, py: Python<'_>, indent: Option<usize>) -> PyResult<String> {
+    pub fn to_dict<'a>(&self, py: Python<'a>) -> PyResult<Bound<'a, PyDict>> {
         let json_mod = py.import("json")?;
-        let dict = self.to_dict(py)?;
-        let kwargs = PyDict::new(py);
-        if let Some(i) = indent {
-            kwargs.set_item("indent", i)?;
-        }
-        let json_str = json_mod.call_method("dumps", (&dict,), Some(&kwargs))?;
-        json_str.extract()
+        let json_str = self.to_json(py, None)?;
+        let obj = json_mod.call_method1("loads", (&json_str,))?;
+        let dict = obj.cast_into::<PyDict>().map_err(|_| {
+            PyErr::new::<pyo3::exceptions::PyTypeError, _>("Expected a dict from json.loads")
+        })?;
+        Ok(dict)
     }
 }
 
@@ -496,5 +471,62 @@ mod tests {
         );
         assert_eq!(s.status_codes.get(&200), Some(&10));
         assert_eq!(s.status_codes.get(&500), Some(&3));
+    }
+
+    #[test]
+    fn test_aggregate_quic_and_sse_metrics() {
+        let s = calculate_summary(
+            "http://example.com".into(),
+            5,
+            0,
+            vec![1000, 2000, 3000, 4000, 5000],
+            5120,
+            5.0,
+            2,
+            HashMap::new(),
+            vec![],
+            vec![100, 200, 300, 400, 500],
+            Some(QuicMetrics {
+                zero_rtt_accepted_count: 3,
+                retransmissions: 10,
+                avg_handshake_ms: Some(1.5),
+            }),
+            Some(SseMetrics {
+                total_events_received: 100,
+                avg_ttfb_ms: Some(0.5),
+            }),
+        );
+
+        assert!((s.avg_connection_latency_us - 300.0).abs() < 1e-6);
+
+        let quic = s.quic.as_ref().unwrap();
+        assert_eq!(quic.zero_rtt_accepted_count, 3);
+        assert_eq!(quic.retransmissions, 10);
+        assert!((quic.avg_handshake_ms.unwrap() - 1.5).abs() < 1e-6);
+
+        let sse = s.sse.as_ref().unwrap();
+        assert_eq!(sse.total_events_received, 100);
+        assert!((sse.avg_ttfb_ms.unwrap() - 0.5).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_summary_optional_protocol_metrics_defaults() {
+        let s = calculate_summary(
+            "http://example.com".into(),
+            1,
+            0,
+            vec![1000],
+            0,
+            1.0,
+            1,
+            HashMap::new(),
+            vec![],
+            vec![],
+            None,
+            None,
+        );
+        assert!(s.quic.is_none());
+        assert!(s.sse.is_none());
+        assert_eq!(s.avg_connection_latency_us, 0.0);
     }
 }
