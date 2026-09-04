@@ -123,7 +123,15 @@ The `--http3` flag enables HTTP/3 mode explicitly.
 ## Metrics
 
 HTTP/3 load tests produce the same `TestSummary` metrics as HTTP, plus
-QUIC-specific fields:
+aggregated QUIC metrics in `TestSummary.quic`:
+
+| Field | Description |
+|-------|-------------|
+| `zero_rtt_accepted_count` | Number of successful 0-RTT connections |
+| `retransmissions` | Total QUIC packet retransmissions |
+| `avg_handshake_ms` | Average QUIC handshake duration in milliseconds |
+
+Per-iteration fields available in `RequestMetric`:
 
 | Metric | Description |
 |--------|-------------|
@@ -138,6 +146,7 @@ QUIC-specific fields:
 | `max_latency_ms` | Maximum latency |
 | `total_bytes_received` | Total bytes received |
 | `status_codes` | Status code distribution (200=success, 0=network error) |
+| `avg_connection_latency_us` | Average connection establishment latency in microseconds |
 | `quic_handshake_us` | QUIC handshake duration (persistent sessions) |
 | `quic_0rtt_used` | Whether 0-RTT was accepted (persistent sessions) |
 | `quic_retransmits` | Packet retransmission count since last iteration |
