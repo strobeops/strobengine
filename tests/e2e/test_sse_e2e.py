@@ -1,4 +1,5 @@
 import asyncio
+import json
 
 from strobengine.engine import RequestOptions, StrobEngine
 
@@ -79,3 +80,29 @@ class TestSseE2E:
 
         assert summary.total_requests > 0
         assert summary.total_errors == 0
+
+    async def test_sse_metrics_json_export(self, mock_server: str):
+        engine = StrobEngine(
+            url=f"{mock_server}/sse?count=5",
+            concurrency=2,
+            duration=3,
+            options=RequestOptions(
+                no_progress=True,
+                sse_enabled=True,
+                timeout=5,
+            ),
+        )
+        summary = await asyncio.wait_for(engine.run_async(), timeout=15.0)
+
+        # PyO3 getter attributes
+        assert summary.sse is not None
+        assert summary.sse.total_events_received > 0
+        assert summary.sse.avg_ttfb_ms is not None
+        assert summary.quic is None
+
+        # JSON report export output
+        json_data = json.loads(summary.to_json())
+        assert "sse" in json_data
+        assert json_data["sse"]["total_events_received"] > 0
+        assert "avg_connection_latency_us" in json_data
+        assert json_data["quic"] is None
