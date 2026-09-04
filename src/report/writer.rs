@@ -134,6 +134,9 @@ mod tests {
                 mean_us: 2200.0,
             },
             error_breakdown,
+            avg_connection_latency_us: None,
+            quic: None,
+            sse: None,
         }
     }
 

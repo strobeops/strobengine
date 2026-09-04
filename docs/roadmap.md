@@ -89,7 +89,7 @@ This document outlines the planned trajectory and upcoming feature epics for **s
 
 - [x] **Aggregate Existing Protocol Metrics** `[v0.6.0]`
   - [x] Forward `connection_latency_us`, `quic_*`, `sse_*` fields through aggregator to `TestSummary`
-  - [ ] Add protocol-specific sections to JSON report artifact
+  - [x] Add protocol-specific sections to JSON report artifact
 
 - [ ] **Chaos Fault Tracking** `[v0.6.0]`
   - [ ] Count injected faults by type (ConnectionDrop, LatencySpike, etc.)
