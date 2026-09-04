@@ -74,6 +74,26 @@ impl RequestMetric {
     }
 }
 
+#[pyclass(skip_from_py_object)]
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+pub struct QuicMetrics {
+    #[pyo3(get)]
+    pub zero_rtt_accepted_count: u64,
+    #[pyo3(get)]
+    pub retransmissions: u64,
+    #[pyo3(get)]
+    pub avg_handshake_ms: Option<f64>,
+}
+
+#[pyclass(skip_from_py_object)]
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+pub struct SseMetrics {
+    #[pyo3(get)]
+    pub total_events_received: u64,
+    #[pyo3(get)]
+    pub avg_ttfb_ms: Option<f64>,
+}
+
 pub struct LiveCounters {
     pub total_requests: AtomicU64,
     pub errors: AtomicU64,
@@ -135,6 +155,12 @@ pub struct TestSummary {
     pub status_codes: HashMap<u16, u64>,
     #[pyo3(get)]
     pub avg_e2e_latency_us: f64,
+    #[pyo3(get)]
+    pub avg_connection_latency_us: f64,
+    #[pyo3(get)]
+    pub quic: Option<QuicMetrics>,
+    #[pyo3(get)]
+    pub sse: Option<SseMetrics>,
 }
 
 #[pymethods]
@@ -162,6 +188,15 @@ impl TestSummary {
         }
         dict.set_item("status_codes", &status_dict)?;
         dict.set_item("avg_e2e_latency_us", self.avg_e2e_latency_us)?;
+        dict.set_item("avg_connection_latency_us", self.avg_connection_latency_us)?;
+        match &self.quic {
+            Some(quic) => dict.set_item("quic", quic.clone())?,
+            None => dict.set_item("quic", py.None())?,
+        }
+        match &self.sse {
+            Some(sse) => dict.set_item("sse", sse.clone())?,
+            None => dict.set_item("sse", py.None())?,
+        }
         Ok(dict)
     }
 
@@ -189,12 +224,22 @@ pub fn calculate_summary(
     workers: usize,
     status_codes: HashMap<u16, u64>,
     e2e_latencies: Vec<u128>,
+    connection_latencies: Vec<u128>,
+    quic_metrics: Option<QuicMetrics>,
+    sse_metrics: Option<SseMetrics>,
 ) -> TestSummary {
     let avg_e2e_latency_us = if e2e_latencies.is_empty() {
         0.0
     } else {
         let sum: u128 = e2e_latencies.iter().sum();
         sum as f64 / e2e_latencies.len() as f64
+    };
+
+    let avg_connection_latency_us = if connection_latencies.is_empty() {
+        0.0
+    } else {
+        let sum: u128 = connection_latencies.iter().sum();
+        sum as f64 / connection_latencies.len() as f64
     };
 
     if latencies.is_empty() {
@@ -216,6 +261,9 @@ pub fn calculate_summary(
             raw_command: None,
             status_codes,
             avg_e2e_latency_us,
+            avg_connection_latency_us,
+            quic: quic_metrics,
+            sse: sse_metrics,
         };
     }
 
@@ -251,6 +299,9 @@ pub fn calculate_summary(
         raw_command: None,
         status_codes,
         avg_e2e_latency_us,
+        avg_connection_latency_us,
+        quic: quic_metrics,
+        sse: sse_metrics,
     }
 }
 
@@ -270,6 +321,9 @@ mod tests {
             4,
             HashMap::new(),
             vec![],
+            vec![],
+            None,
+            None,
         );
         assert_eq!(s.url, "http://example.com");
         assert_eq!(s.total_requests, 10);
@@ -295,6 +349,9 @@ mod tests {
             2,
             HashMap::new(),
             vec![],
+            vec![],
+            None,
+            None,
         );
         assert_eq!(s.total_requests, 1);
         assert_eq!(s.average_latency_ms, 5.0);
@@ -320,6 +377,9 @@ mod tests {
             1,
             HashMap::new(),
             vec![],
+            vec![],
+            None,
+            None,
         );
         assert_eq!(s.average_latency_ms, 1.5);
         assert_eq!(s.min_latency_ms, 1.0);
@@ -341,6 +401,9 @@ mod tests {
             1,
             HashMap::new(),
             vec![],
+            vec![],
+            None,
+            None,
         );
         assert!((s.average_latency_ms - 0.0505).abs() < 1e-6);
         assert_eq!(s.min_latency_ms, 0.001);
@@ -363,6 +426,9 @@ mod tests {
             1,
             HashMap::new(),
             vec![],
+            vec![],
+            None,
+            None,
         );
         assert_eq!(s.total_requests, 5);
         assert_eq!(s.total_errors, 5);
@@ -380,6 +446,9 @@ mod tests {
             1,
             HashMap::new(),
             vec![],
+            vec![],
+            None,
+            None,
         );
         assert!((s.average_latency_ms - 12.345).abs() < 1e-6);
     }
@@ -396,6 +465,9 @@ mod tests {
             1,
             HashMap::new(),
             vec![],
+            vec![],
+            None,
+            None,
         );
         assert_eq!(s.p95_latency_ms, 3.0);
         assert_eq!(s.p99_latency_ms, 3.0);
@@ -418,6 +490,9 @@ mod tests {
             1,
             codes,
             vec![],
+            vec![],
+            None,
+            None,
         );
         assert_eq!(s.status_codes.get(&200), Some(&10));
         assert_eq!(s.status_codes.get(&500), Some(&3));

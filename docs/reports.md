@@ -42,6 +42,9 @@ These flags appear on all three subcommands (`load`, `stress`, `spike`):
 | `summary` | `total_requests`, `successful_requests`, `failed_requests`, `rps`, `bytes_transferred` |
 | `latency_percentiles` | `p50_us`, `p90_us`, `p95_us`, `p99_us`, `min_us`, `max_us`, `mean_us` |
 | `error_breakdown` | Status code string → count (e.g., `"200": 950, "500": 50`) |
+| `avg_connection_latency_us` | Average connection establishment latency in microseconds |
+| `quic` | `zero_rtt_accepted_count`, `retransmissions`, `avg_handshake_ms` *(HTTP/3 only)* |
+| `sse` | `total_events_received`, `avg_ttfb_ms` *(SSE only)* |
 
 All latency values are stored in **microseconds**.
 
@@ -58,7 +61,10 @@ All latency values are stored in **microseconds**.
   },
   "summary": { "total_requests": 1500, "successful_requests": 1485, "failed_requests": 15, "rps": 50.0, "bytes_transferred": 524288 },
   "latency_percentiles": { "p50_us": 1200.0, "p90_us": 3500.0, "p95_us": 5200.0, "p99_us": 9800.0, "min_us": 200.0, "max_us": 15000.0, "mean_us": 2800.0 },
-  "error_breakdown": { "200": 1485, "500": 15 }
+  "error_breakdown": { "200": 1485, "500": 15 },
+  "avg_connection_latency_us": 850.0,
+  "quic": null,
+  "sse": null
 }
 ```
 

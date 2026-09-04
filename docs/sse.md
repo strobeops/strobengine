@@ -141,7 +141,14 @@ connection.
 ## Metrics
 
 SSE load tests produce the same `TestSummary` metrics as HTTP, plus
-SSE-specific fields:
+aggregated SSE metrics in `TestSummary.sse`:
+
+| Field | Description |
+|-------|-------------|
+| `total_events_received` | Total SSE events received across all iterations |
+| `avg_ttfb_ms` | Average time to first event in milliseconds |
+
+Per-iteration fields available in `RequestMetric`:
 
 | Metric | Description |
 |--------|-------------|

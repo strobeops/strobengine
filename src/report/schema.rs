@@ -335,6 +335,9 @@ mod tests {
             raw_command: None,
             status_codes,
             avg_e2e_latency_us: 0.0,
+            avg_connection_latency_us: 0.0,
+            quic: None,
+            sse: None,
         };
 
         let config = TestConfig::new(
