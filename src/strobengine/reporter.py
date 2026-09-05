@@ -295,6 +295,7 @@ def build_artifact_dict(summary: TestSummary, config: object) -> dict:
         "avg_connection_latency_us": summary.avg_connection_latency_us,
         "quic": summary_dict.get("quic"),
         "sse": summary_dict.get("sse"),
+        "chaos": summary_dict.get("chaos"),
     }
 
 
