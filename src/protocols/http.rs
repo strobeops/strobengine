@@ -88,7 +88,8 @@ impl ProtocolEngine for HttpEngine {
             req
         };
 
-        let request = match self.chaos.select_fault() {
+        let chaos_fault = self.chaos.select_fault();
+        let request = match chaos_fault {
             Some(ChaosFault::LatencySpike { duration_ms }) => {
                 tracing::trace!(duration_ms, "chaos: latency spike injected");
                 tokio::time::sleep(Duration::from_millis(duration_ms)).await;
@@ -148,6 +149,7 @@ impl ProtocolEngine for HttpEngine {
             sse_events_received: None,
             sse_first_event_us: None,
             sse_event_interval_us: None,
+            chaos_fault,
         }
     }
 }

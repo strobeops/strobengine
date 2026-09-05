@@ -52,6 +52,7 @@ pub struct RequestMetric {
     pub sse_events_received: Option<u64>,
     pub sse_first_event_us: Option<u64>,
     pub sse_event_interval_us: Option<u64>,
+    pub chaos_fault: Option<crate::chaos::ChaosFault>,
 }
 
 impl RequestMetric {
@@ -70,6 +71,7 @@ impl RequestMetric {
             sse_events_received: None,
             sse_first_event_us: None,
             sse_event_interval_us: None,
+            chaos_fault: None,
         }
     }
 }
@@ -161,6 +163,10 @@ pub struct TestSummary {
     pub quic: Option<QuicMetrics>,
     #[pyo3(get)]
     pub sse: Option<SseMetrics>,
+    #[pyo3(get)]
+    pub chaos_injected_total: u64,
+    #[pyo3(get)]
+    pub chaos_faults_by_type: HashMap<String, u64>,
 }
 
 #[pymethods]
@@ -202,6 +208,8 @@ pub fn calculate_summary(
     connection_latencies: Vec<u128>,
     quic_metrics: Option<QuicMetrics>,
     sse_metrics: Option<SseMetrics>,
+    chaos_injected_total: u64,
+    chaos_faults_by_type: HashMap<String, u64>,
 ) -> TestSummary {
     let avg_e2e_latency_us = if e2e_latencies.is_empty() {
         0.0
@@ -239,6 +247,8 @@ pub fn calculate_summary(
             avg_connection_latency_us,
             quic: quic_metrics,
             sse: sse_metrics,
+            chaos_injected_total,
+            chaos_faults_by_type,
         };
     }
 
@@ -277,6 +287,8 @@ pub fn calculate_summary(
         avg_connection_latency_us,
         quic: quic_metrics,
         sse: sse_metrics,
+        chaos_injected_total,
+        chaos_faults_by_type,
     }
 }
 
@@ -299,6 +311,8 @@ mod tests {
             vec![],
             None,
             None,
+            0,
+            HashMap::new(),
         );
         assert_eq!(s.url, "http://example.com");
         assert_eq!(s.total_requests, 10);
@@ -327,6 +341,8 @@ mod tests {
             vec![],
             None,
             None,
+            0,
+            HashMap::new(),
         );
         assert_eq!(s.total_requests, 1);
         assert_eq!(s.average_latency_ms, 5.0);
@@ -355,6 +371,8 @@ mod tests {
             vec![],
             None,
             None,
+            0,
+            HashMap::new(),
         );
         assert_eq!(s.average_latency_ms, 1.5);
         assert_eq!(s.min_latency_ms, 1.0);
@@ -379,6 +397,8 @@ mod tests {
             vec![],
             None,
             None,
+            0,
+            HashMap::new(),
         );
         assert!((s.average_latency_ms - 0.0505).abs() < 1e-6);
         assert_eq!(s.min_latency_ms, 0.001);
@@ -404,6 +424,8 @@ mod tests {
             vec![],
             None,
             None,
+            0,
+            HashMap::new(),
         );
         assert_eq!(s.total_requests, 5);
         assert_eq!(s.total_errors, 5);
@@ -424,6 +446,8 @@ mod tests {
             vec![],
             None,
             None,
+            0,
+            HashMap::new(),
         );
         assert!((s.average_latency_ms - 12.345).abs() < 1e-6);
     }
@@ -443,6 +467,8 @@ mod tests {
             vec![],
             None,
             None,
+            0,
+            HashMap::new(),
         );
         assert_eq!(s.p95_latency_ms, 3.0);
         assert_eq!(s.p99_latency_ms, 3.0);
@@ -468,6 +494,8 @@ mod tests {
             vec![],
             None,
             None,
+            0,
+            HashMap::new(),
         );
         assert_eq!(s.status_codes.get(&200), Some(&10));
         assert_eq!(s.status_codes.get(&500), Some(&3));
@@ -495,6 +523,8 @@ mod tests {
                 total_events_received: 100,
                 avg_ttfb_ms: Some(0.5),
             }),
+            0,
+            HashMap::new(),
         );
 
         assert!((s.avg_connection_latency_us - 300.0).abs() < 1e-6);
@@ -524,6 +554,8 @@ mod tests {
             vec![],
             None,
             None,
+            0,
+            HashMap::new(),
         );
         assert!(s.quic.is_none());
         assert!(s.sse.is_none());

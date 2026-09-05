@@ -137,6 +137,7 @@ mod tests {
             avg_connection_latency_us: None,
             quic: None,
             sse: None,
+            chaos: None,
         }
     }
 

@@ -379,6 +379,7 @@ impl WebSocketEngine {
                     sse_events_received: None,
                     sse_first_event_us: None,
                     sse_event_interval_us: None,
+                    chaos_fault: fault,
                 }
             }
             Err(e) => {
@@ -475,6 +476,7 @@ impl WebSocketEngine {
                     sse_events_received: None,
                     sse_first_event_us: None,
                     sse_event_interval_us: None,
+                    chaos_fault: fault,
                 }
             }
             Ok(None) => RequestMetric::error(latency_micros),
@@ -598,6 +600,7 @@ impl ProtocolEngine for WebSocketEngine {
             sse_events_received: None,
             sse_first_event_us: None,
             sse_event_interval_us: None,
+            chaos_fault: fault,
         }
     }
 
@@ -702,6 +705,7 @@ impl ProtocolEngine for WebSocketEngine {
                     sse_events_received: None,
                     sse_first_event_us: None,
                     sse_event_interval_us: None,
+                    chaos_fault: fault,
                 }
             }
             Err(_) => RequestMetric {
@@ -718,6 +722,7 @@ impl ProtocolEngine for WebSocketEngine {
                 sse_events_received: None,
                 sse_first_event_us: None,
                 sse_event_interval_us: None,
+                chaos_fault: fault,
             },
         }
     }

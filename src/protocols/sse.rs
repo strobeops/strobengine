@@ -253,6 +253,7 @@ impl ProtocolEngine for SseEngine {
                 sse_events_received: Some(0),
                 sse_first_event_us: None,
                 sse_event_interval_us: None,
+                chaos_fault: None,
             };
         }
 
@@ -283,6 +284,7 @@ impl ProtocolEngine for SseEngine {
                             sse_events_received: Some(events.len() as u64),
                             sse_first_event_us: Some(latency_micros as u64),
                             sse_event_interval_us: None,
+                            chaos_fault: None,
                         };
                     }
                 }
@@ -309,6 +311,7 @@ impl ProtocolEngine for SseEngine {
             sse_events_received: Some(0),
             sse_first_event_us: None,
             sse_event_interval_us: None,
+            chaos_fault: None,
         }
     }
 
@@ -372,6 +375,7 @@ impl ProtocolEngine for SseEngine {
                     .first_event_time
                     .map(|t| t.elapsed().as_micros() as u64),
                 sse_event_interval_us: None,
+                chaos_fault: None,
             };
         }
 
@@ -419,6 +423,7 @@ impl ProtocolEngine for SseEngine {
                             sse_events_received: Some(session.events_received),
                             sse_first_event_us: first_event_us,
                             sse_event_interval_us: interval_us,
+                            chaos_fault: None,
                         };
                     }
                 }
@@ -447,6 +452,7 @@ impl ProtocolEngine for SseEngine {
                 .first_event_time
                 .map(|t| t.elapsed().as_micros() as u64),
             sse_event_interval_us: None,
+            chaos_fault: None,
         }
     }
 }

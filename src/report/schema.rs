@@ -2,6 +2,7 @@ use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 
+use crate::chaos::ChaosMetrics;
 use crate::metrics::{QuicMetrics, SseMetrics};
 
 /// Top-level report artifact persisted to disk after each load test.
@@ -17,6 +18,8 @@ pub struct ReportArtifact {
     pub quic: Option<QuicMetrics>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sse: Option<SseMetrics>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub chaos: Option<ChaosMetrics>,
 }
 
 /// Test run metadata including configuration and system information.
@@ -143,6 +146,14 @@ impl ReportArtifact {
             },
             quic: summary.quic.clone(),
             sse: summary.sse.clone(),
+            chaos: if summary.chaos_injected_total > 0 {
+                Some(ChaosMetrics {
+                    total_injected: summary.chaos_injected_total,
+                    faults_by_type: summary.chaos_faults_by_type.clone(),
+                })
+            } else {
+                None
+            },
         }
     }
 }
@@ -199,6 +210,7 @@ mod tests {
             avg_connection_latency_us: None,
             quic: None,
             sse: None,
+            chaos: None,
         }
     }
 
@@ -356,6 +368,8 @@ mod tests {
             avg_connection_latency_us: 0.0,
             quic: None,
             sse: None,
+            chaos_injected_total: 0,
+            chaos_faults_by_type: std::collections::HashMap::new(),
         };
 
         let config = TestConfig::new(

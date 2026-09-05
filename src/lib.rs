@@ -253,6 +253,9 @@ async fn execute_test(
         let mut status_codes: std::collections::HashMap<u16, u64> =
             std::collections::HashMap::new();
         let mut total_bytes: u64 = 0;
+        let mut chaos_injected_total: u64 = 0;
+        let mut chaos_faults_by_type: std::collections::HashMap<String, u64> =
+            std::collections::HashMap::new();
         let mut rx = rx;
         while let Some(metric) = rx.recv().await {
             latencies.push(metric.latency_micros);
@@ -284,6 +287,13 @@ async fn execute_test(
             }
             if let Some(first) = metric.sse_first_event_us {
                 sse_first_events.push(first);
+            }
+            // Chaos aggregation
+            if let Some(ref fault) = metric.chaos_fault {
+                chaos_injected_total += 1;
+                *chaos_faults_by_type
+                    .entry(fault.name().to_string())
+                    .or_insert(0) += 1;
             }
             *status_codes.entry(metric.status_code).or_insert(0) += 1;
             total_bytes += metric.bytes_received;
@@ -317,6 +327,8 @@ async fn execute_test(
             connection_latencies,
             quic_opt,
             sse_opt,
+            chaos_injected_total,
+            chaos_faults_by_type,
         )
     });
 
@@ -476,6 +488,8 @@ async fn execute_test(
         connection_latencies,
         quic_metrics,
         sse_metrics,
+        chaos_injected_total,
+        chaos_faults_by_type,
     ) = aggregator
         .await
         .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
@@ -506,6 +520,8 @@ async fn execute_test(
         connection_latencies,
         quic_metrics,
         sse_metrics,
+        chaos_injected_total,
+        chaos_faults_by_type,
     ))
 }
 
