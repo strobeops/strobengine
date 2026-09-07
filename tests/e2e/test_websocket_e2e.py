@@ -106,8 +106,8 @@ class TestWebSocketLoadTest:
         ws_url = mock_server.replace("http://", "ws://") + "/ws"
         engine = StrobEngine(
             url=ws_url,
-            concurrency=3,
-            duration=2,
+            concurrency=5,
+            duration=3,
             options=RequestOptions(
                 no_progress=True,
                 ws_mode="stream",
@@ -115,15 +115,19 @@ class TestWebSocketLoadTest:
                 chaos=True,
             ),
         )
-        summary = await asyncio.wait_for(engine.run_async(), timeout=10.0)
+        summary = await asyncio.wait_for(engine.run_async(), timeout=15.0)
 
         # Chaos may cause some errors but engine should not crash
         assert summary.total_requests > 0
-        assert summary.duration_secs >= 1.5
+        assert summary.duration_secs >= 2.5
         # Assert chaos caused errors (ConnectionDrop or CorruptedPayload)
         assert summary.total_errors > 0
         # Assert status codes include chaos-related codes
         assert 0 in summary.status_codes or any(k >= 400 for k in summary.status_codes)
+        # Assert chaos fault tracking
+        assert summary.chaos_injected_total >= 0
+        if summary.chaos_injected_total > 0:
+            assert len(summary.chaos_faults_by_type) > 0
 
     async def test_websocket_continuous_streaming(self, mock_server: str):
         ws_url = mock_server.replace("http://", "ws://") + "/ws"

@@ -38,6 +38,8 @@ def _make_summary(**kwargs):
         "raw_command": None,
         "status_codes": {200: 100},
         "avg_e2e_latency_us": 0.0,
+        "chaos_injected_total": 0,
+        "chaos_faults_by_type": {},
     }
     defaults.update(kwargs)
     for k, v in defaults.items():
@@ -112,6 +114,29 @@ class TestMarkdownSummary:
         md = generate_markdown_summary(artifact)
         assert "FAIL" in md  # zero requests = FAIL
         assert "0.00%" in md
+
+
+class TestBuildArtifactDict:
+    """Tests for build_artifact_dict structure."""
+
+    def test_chaos_faults_structure(self):
+        summary = _make_summary(
+            chaos_injected_total=5,
+            chaos_faults_by_type={"ConnectionDrop": 3, "LatencySpike": 2},
+        )
+        artifact = build_artifact_dict(summary, _make_config())
+
+        assert "chaos_faults" in artifact
+        chaos = artifact["chaos_faults"]
+        assert chaos["injected_total"] == 5
+        assert chaos["by_type"]["ConnectionDrop"] == 3
+        assert chaos["by_type"]["LatencySpike"] == 2
+
+    def test_chaos_faults_zero_when_no_injections(self):
+        artifact = build_artifact_dict(_make_summary(), _make_config())
+        chaos = artifact["chaos_faults"]
+        assert chaos["injected_total"] == 0
+        assert chaos["by_type"] == {}
 
 
 class TestMarkdownReportFile:
