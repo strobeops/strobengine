@@ -22,6 +22,8 @@ def _make_summary(**kwargs):
         "raw_command": "strobengine.load http://example.com",
         "status_codes": {200: 995, 500: 5},
         "avg_e2e_latency_us": 0.0,
+        "chaos_injected_total": 0,
+        "chaos_faults_by_type": {},
         "to_dict": lambda: {
             "url": "http://example.com",
             "total_requests": 1000,
@@ -39,6 +41,8 @@ def _make_summary(**kwargs):
             "timestamp": "2026-08-10T10:00:00+00:00",
             "raw_command": "strobengine.load http://example.com",
             "status_codes": {200: 995, 500: 5},
+            "chaos_injected_total": 0,
+            "chaos_faults_by_type": {},
         },
         "to_json": lambda indent=None: '{"url": "http://example.com"}',
     }
