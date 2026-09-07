@@ -91,9 +91,9 @@ This document outlines the planned trajectory and upcoming feature epics for **s
   - [x] Forward `connection_latency_us`, `quic_*`, `sse_*` fields through aggregator to `TestSummary`
   - [x] Add protocol-specific sections to JSON report artifact
 
-- [ ] **Chaos Fault Tracking** `[v0.6.0]`
-  - [ ] Count injected faults by type (ConnectionDrop, LatencySpike, etc.)
-  - [ ] Include fault breakdown in JSON report artifact
+- [x] **Chaos Fault Tracking** `[v0.6.0]`
+  - [x] Count injected faults by type (ConnectionDrop, LatencySpike, etc.)
+  - [x] Include fault breakdown in JSON report artifact
 
 - [ ] **Extended Latency Statistics** `[v0.6.0]`
   - [ ] Compute latency jitter (standard deviation)

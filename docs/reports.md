@@ -45,6 +45,7 @@ These flags appear on all three subcommands (`load`, `stress`, `spike`):
 | `avg_connection_latency_us` | Average connection establishment latency in microseconds |
 | `quic` | `zero_rtt_accepted_count`, `retransmissions`, `avg_handshake_ms` *(HTTP/3 only)* |
 | `sse` | `total_events_received`, `avg_ttfb_ms` *(SSE only)* |
+| `chaos_faults` | `injected_total`, `by_type` *(chaos-enabled runs only)* |
 
 All latency values are stored in **microseconds**.
 
@@ -64,7 +65,15 @@ All latency values are stored in **microseconds**.
   "error_breakdown": { "200": 1485, "500": 15 },
   "avg_connection_latency_us": 850.0,
   "quic": null,
-  "sse": null
+  "sse": null,
+  "chaos_faults": {
+    "injected_total": 12,
+    "by_type": {
+      "ConnectionDrop": 5,
+      "LatencySpike": 4,
+      "CorruptedPayload": 3
+    }
+  }
 }
 ```
 
