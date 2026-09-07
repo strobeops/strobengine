@@ -127,6 +127,15 @@ def _print_rich(
     if _is_grpc_mapped(summary.status_codes):
         table.add_row("Protocol", "gRPC (status codes mapped to HTTP equivalents)")
 
+    # Chaos faults (if any were injected)
+    if getattr(summary, "chaos_injected_total", 0) > 0:
+        table.add_row(
+            "Chaos Faults",
+            f"{_format_number(summary.chaos_injected_total)} injected",
+        )
+        for fault_type, count in summary.chaos_faults_by_type.items():
+            table.add_row(f"  {fault_type}", _format_number(count))
+
     console.print()
     console.print(table)
     console.print()
@@ -191,6 +200,15 @@ def _print_plain(
 
     if _is_grpc_mapped(summary.status_codes):
         lines.append("  Protocol:       gRPC (status codes mapped to HTTP equivalents)")
+
+    # Chaos faults
+    if getattr(summary, "chaos_injected_total", 0) > 0:
+        lines.append(
+            f"  Chaos Faults:  {_format_number(summary.chaos_injected_total)} injected"
+        )
+        for fault_type, count in summary.chaos_faults_by_type.items():
+            lines.append(f"    {fault_type}: {_format_number(count)}")
+
     lines.append(sep)
 
     print("\n".join(lines))
@@ -295,7 +313,10 @@ def build_artifact_dict(summary: TestSummary, config: object) -> dict:
         "avg_connection_latency_us": summary.avg_connection_latency_us,
         "quic": summary_dict.get("quic"),
         "sse": summary_dict.get("sse"),
-        "chaos": summary_dict.get("chaos"),
+        "chaos_faults": {
+            "injected_total": getattr(summary, "chaos_injected_total", 0),
+            "by_type": getattr(summary, "chaos_faults_by_type", {}),
+        },
     }
 
 
