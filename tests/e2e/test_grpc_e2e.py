@@ -40,6 +40,10 @@ class TestGrpcE2E:
         assert summary.total_requests > 0
         assert summary.total_errors > 0
         assert summary.duration_secs >= 1.5
+        # Assert chaos fault tracking
+        assert summary.chaos_injected_total >= 0
+        if summary.chaos_injected_total > 0:
+            assert len(summary.chaos_faults_by_type) > 0
 
     async def test_grpc_custom_headers(self):
         engine = StrobEngine(
