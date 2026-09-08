@@ -370,6 +370,9 @@ mod tests {
             sse: None,
             chaos_injected_total: 0,
             chaos_faults_by_type: std::collections::HashMap::new(),
+            std_dev_latency_ms: 0.0,
+            p99_99_latency_ms: 0.0,
+            latency_histogram: std::collections::HashMap::new(),
         };
 
         let config = TestConfig::new(
