@@ -167,6 +167,12 @@ pub struct TestSummary {
     pub chaos_injected_total: u64,
     #[pyo3(get)]
     pub chaos_faults_by_type: HashMap<String, u64>,
+    #[pyo3(get)]
+    pub std_dev_latency_ms: f64,
+    #[pyo3(get)]
+    pub p99_99_latency_ms: f64,
+    #[pyo3(get)]
+    pub latency_histogram: HashMap<String, u64>,
 }
 
 #[pymethods]
@@ -192,6 +198,71 @@ impl TestSummary {
         })?;
         Ok(dict)
     }
+}
+
+/// Calculate standard deviation of latencies in microseconds.
+/// Returns 0.0 if fewer than 2 values.
+fn calculate_std_dev_us(latencies: &[u128]) -> f64 {
+    if latencies.len() < 2 {
+        return 0.0;
+    }
+    let mean = latencies.iter().sum::<u128>() as f64 / latencies.len() as f64;
+    let variance = latencies
+        .iter()
+        .map(|&x| {
+            let diff = x as f64 - mean;
+            diff * diff
+        })
+        .sum::<f64>()
+        / latencies.len() as f64;
+    variance.sqrt()
+}
+
+/// Compute latency histogram from sorted latencies (in microseconds).
+fn calculate_histogram(latencies: &[u128]) -> HashMap<String, u64> {
+    let mut buckets: HashMap<String, u64> = HashMap::new();
+
+    // Initialize exact bucket keys matching the output schema
+    buckets.insert("<1ms".to_string(), 0);
+    buckets.insert("1-5ms".to_string(), 0);
+    buckets.insert("5-10ms".to_string(), 0);
+    buckets.insert("10-25ms".to_string(), 0);
+    buckets.insert("25-50ms".to_string(), 0);
+    buckets.insert("50-100ms".to_string(), 0);
+    buckets.insert("100-250ms".to_string(), 0);
+    buckets.insert("250-500ms".to_string(), 0);
+    buckets.insert("500-1000ms".to_string(), 0);
+    buckets.insert(">1000ms".to_string(), 0);
+
+    // Classify latencies into buckets
+    for &lat in latencies {
+        let ms = lat as f64 / MICROS_PER_MILLI;
+        let bucket_key = if ms < 1.0 {
+            "<1ms"
+        } else if ms < 5.0 {
+            "1-5ms"
+        } else if ms < 10.0 {
+            "5-10ms"
+        } else if ms < 25.0 {
+            "10-25ms"
+        } else if ms < 50.0 {
+            "25-50ms"
+        } else if ms < 100.0 {
+            "50-100ms"
+        } else if ms < 250.0 {
+            "100-250ms"
+        } else if ms < 500.0 {
+            "250-500ms"
+        } else if ms < 1000.0 {
+            "500-1000ms"
+        } else {
+            ">1000ms"
+        };
+
+        *buckets.get_mut(bucket_key).unwrap() += 1;
+    }
+
+    buckets
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -249,6 +320,9 @@ pub fn calculate_summary(
             sse: sse_metrics,
             chaos_injected_total,
             chaos_faults_by_type,
+            std_dev_latency_ms: 0.0,
+            p99_99_latency_ms: 0.0,
+            latency_histogram: HashMap::new(),
         };
     }
 
@@ -265,6 +339,14 @@ pub fn calculate_summary(
     let p90_idx = (len * 90 / 100).min(len - 1);
     let p95_idx = (len * 95 / 100).min(len - 1);
     let p99_idx = (len * 99 / 100).min(len - 1);
+    let p99_99_idx = (len * 9999 / 10000).min(len - 1);
+
+    // Compute standard deviation
+    let std_dev_us = calculate_std_dev_us(&latencies);
+    let std_dev_latency_ms = std_dev_us / MICROS_PER_MILLI;
+
+    // Compute histogram
+    let latency_histogram = calculate_histogram(&latencies);
 
     TestSummary {
         url,
@@ -289,6 +371,9 @@ pub fn calculate_summary(
         sse: sse_metrics,
         chaos_injected_total,
         chaos_faults_by_type,
+        std_dev_latency_ms,
+        p99_99_latency_ms: latencies[p99_99_idx] as f64 / MICROS_PER_MILLI,
+        latency_histogram,
     }
 }
 
@@ -560,5 +645,70 @@ mod tests {
         assert!(s.quic.is_none());
         assert!(s.sse.is_none());
         assert_eq!(s.avg_connection_latency_us, 0.0);
+    }
+
+    #[test]
+    fn test_std_dev_single_value() {
+        let latencies = vec![5000];
+        assert_eq!(calculate_std_dev_us(&latencies), 0.0);
+    }
+
+    #[test]
+    fn test_std_dev_empty() {
+        let latencies: Vec<u128> = vec![];
+        assert_eq!(calculate_std_dev_us(&latencies), 0.0);
+    }
+
+    #[test]
+    fn test_std_dev_calculation() {
+        // Known values: [1000, 2000, 3000, 4000, 5000] us
+        // Mean = 3000, StdDev = sqrt(2000000) ≈ 1414.21 us
+        let latencies = vec![1000, 2000, 3000, 4000, 5000];
+        let std_dev = calculate_std_dev_us(&latencies);
+        assert!((std_dev - 1414.21).abs() < 1.0);
+    }
+
+    #[test]
+    fn test_p99_99_percentile() {
+        let latencies: Vec<u128> = (1..=10000).collect();
+        let s = calculate_summary(
+            "http://example.com".into(),
+            10000,
+            0,
+            latencies,
+            0,
+            1.0,
+            1,
+            HashMap::new(),
+            vec![],
+            vec![],
+            None,
+            None,
+            0,
+            HashMap::new(),
+        );
+        // p99.99 should be very close to max
+        assert!(s.p99_99_latency_ms >= s.p99_latency_ms);
+        assert!(s.p99_99_latency_ms <= s.max_latency_ms);
+    }
+
+    #[test]
+    fn test_histogram_bucket_distribution() {
+        let latencies = vec![500, 1500, 7500, 15000, 75000];
+        let hist = calculate_histogram(&latencies);
+        assert_eq!(hist["<1ms"], 1); // 500us = 0.5ms
+        assert_eq!(hist["1-5ms"], 1); // 1500us = 1.5ms
+        assert_eq!(hist["5-10ms"], 1); // 7500us = 7.5ms
+        assert_eq!(hist["10-25ms"], 1); // 15000us = 15ms
+        assert_eq!(hist["50-100ms"], 1); // 75000us = 75ms
+    }
+
+    #[test]
+    fn test_histogram_all_empty() {
+        let latencies: Vec<u128> = vec![];
+        let hist = calculate_histogram(&latencies);
+        assert_eq!(hist["<1ms"], 0);
+        assert_eq!(hist[">1000ms"], 0);
+        assert_eq!(hist.len(), 10);
     }
 }
