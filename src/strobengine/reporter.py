@@ -101,6 +101,8 @@ def _print_rich(
     table.add_row("P95 Latency", f"{summary.p95_latency_ms:.2f} ms")
     table.add_row("P99 Latency", f"{summary.p99_latency_ms:.2f} ms")
     table.add_row("Max Latency", f"{summary.max_latency_ms:.2f} ms")
+    table.add_row("Std Dev (Jitter)", f"{summary.std_dev_latency_ms:.2f} ms")
+    table.add_row("P99.99 Latency", f"{summary.p99_99_latency_ms:.2f} ms")
 
     # Errors
     if summary.total_errors > 0:
@@ -181,7 +183,9 @@ def _print_plain(
     lines.append(f"  P90 Latency:    {summary.p90_latency_ms:.2f} ms")
     lines.append(f"  P95 Latency:    {summary.p95_latency_ms:.2f} ms")
     lines.append(f"  P99 Latency:    {summary.p99_latency_ms:.2f} ms")
-    lines.append(f"  Max Latency:    {summary.max_latency_ms:.2f} ms")
+    lines.append(f"  Max Latency:     {summary.max_latency_ms:.2f} ms")
+    lines.append(f"  Std Dev:         {summary.std_dev_latency_ms:.2f} ms")
+    lines.append(f"  P99.99 Latency:  {summary.p99_99_latency_ms:.2f} ms")
 
     if summary.total_errors > 0:
         rate = _error_rate(summary.total_requests, summary.total_errors)
@@ -305,10 +309,13 @@ def build_artifact_dict(summary: TestSummary, config: object) -> dict:
             "p90_us": round(summary.p90_latency_ms * 1000.0, 1),
             "p95_us": round(summary.p95_latency_ms * 1000.0, 1),
             "p99_us": round(summary.p99_latency_ms * 1000.0, 1),
+            "p99_99_us": round(summary.p99_99_latency_ms * 1000.0, 1),
             "min_us": round(summary.min_latency_ms * 1000.0, 1),
             "max_us": round(summary.max_latency_ms * 1000.0, 1),
             "mean_us": round(summary.average_latency_ms * 1000.0, 1),
+            "std_dev_us": round(summary.std_dev_latency_ms * 1000.0, 1),
         },
+        "latency_histogram": summary.latency_histogram,
         "error_breakdown": {str(k): v for k, v in summary.status_codes.items()},
         "avg_connection_latency_us": summary.avg_connection_latency_us,
         "quic": summary_dict.get("quic"),

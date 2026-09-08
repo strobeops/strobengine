@@ -24,6 +24,9 @@ def _make_summary(**kwargs):
         "avg_e2e_latency_us": 0.0,
         "chaos_injected_total": 0,
         "chaos_faults_by_type": {},
+        "std_dev_latency_ms": 5.0,
+        "p99_99_latency_ms": 149.0,
+        "latency_histogram": {"<1ms": 10, "1-5ms": 50, "5-10ms": 40},
         "to_dict": lambda: {
             "url": "http://example.com",
             "total_requests": 1000,
