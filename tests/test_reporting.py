@@ -40,6 +40,9 @@ def _make_summary(**kwargs):
         "avg_e2e_latency_us": 0.0,
         "chaos_injected_total": 0,
         "chaos_faults_by_type": {},
+        "std_dev_latency_ms": 0.5,
+        "p99_99_latency_ms": 9.5,
+        "latency_histogram": {"<1ms": 10, "1-5ms": 50, "5-10ms": 40},
     }
     defaults.update(kwargs)
     for k, v in defaults.items():
