@@ -95,10 +95,10 @@ This document outlines the planned trajectory and upcoming feature epics for **s
   - [x] Count injected faults by type (ConnectionDrop, LatencySpike, etc.)
   - [x] Include fault breakdown in JSON report artifact
 
-- [ ] **Extended Latency Statistics** `[v0.6.0]`
-  - [ ] Compute latency jitter (standard deviation)
-  - [ ] Add p99.99 percentile
-  - [ ] Add latency histogram buckets for distribution visualization
+- [x] **Extended Latency Statistics** `[v0.6.0]`
+  - [x] Compute latency jitter (standard deviation)
+  - [x] Add p99.99 percentile
+  - [x] Add latency histogram buckets for distribution visualization
 
 - [ ] **Client System Resource Monitoring** `[v0.7.0]`
   - [ ] Track engine CPU %, memory (RSS), thread count during test

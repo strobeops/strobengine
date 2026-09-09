@@ -40,7 +40,8 @@ These flags appear on all three subcommands (`load`, `stress`, `spike`):
 | `cli_options` | `method`, `concurrency`, `timeout_secs`, `chaos`, `chaos_rate`, `body`, `headers` |
 | `system_info` | `hostname`, `platform`, `version` |
 | `summary` | `total_requests`, `successful_requests`, `failed_requests`, `rps`, `bytes_transferred` |
-| `latency_percentiles` | `p50_us`, `p90_us`, `p95_us`, `p99_us`, `min_us`, `max_us`, `mean_us` |
+| `latency_percentiles` | `p50_us`, `p90_us`, `p95_us`, `p99_us`, `p99_99_us`, `min_us`, `max_us`, `mean_us`, `std_dev_us` |
+| `latency_histogram` | Bucket distribution (e.g., `"<1ms": 1240`, `"1-5ms": 750`, ...) |
 | `error_breakdown` | Status code string → count (e.g., `"200": 950, "500": 50`) |
 | `avg_connection_latency_us` | Average connection establishment latency in microseconds |
 | `quic` | `zero_rtt_accepted_count`, `retransmissions`, `avg_handshake_ms` *(HTTP/3 only)* |
