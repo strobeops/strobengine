@@ -46,6 +46,39 @@ def _format_bytes(n: int) -> str:
     return f"{val:.1f} PB"
 
 
+def _render_histogram(histogram: dict[str, int], max_width: int = 20) -> list[str]:
+    """Render ASCII bar chart from latency histogram buckets."""
+    if not histogram or not any(v > 0 for v in histogram.values()):
+        return []
+
+    max_count = max(histogram.values())
+    if max_count == 0:
+        max_count = 1
+
+    lines = ["  Latency Distribution:"]
+    bucket_order = [
+        "<1ms",
+        "1-5ms",
+        "5-10ms",
+        "10-25ms",
+        "25-50ms",
+        "50-100ms",
+        "100-250ms",
+        "250-500ms",
+        "500-1000ms",
+        ">1000ms",
+    ]
+    for bucket in bucket_order:
+        count = histogram.get(bucket, 0)
+        if count == 0:
+            continue
+        bar_len = int((count / max_count) * max_width)
+        bar = "█" * max(1, bar_len)
+        lines.append(f"    {bucket:<12s}: {bar} {_format_number(count)}")
+
+    return lines
+
+
 def _error_rate(total: int, errors: int) -> str:
     if total == 0:
         return "0.00%"
@@ -103,6 +136,13 @@ def _print_rich(
     table.add_row("Max Latency", f"{summary.max_latency_ms:.2f} ms")
     table.add_row("Std Dev (Jitter)", f"{summary.std_dev_latency_ms:.2f} ms")
     table.add_row("P99.99 Latency", f"{summary.p99_99_latency_ms:.2f} ms")
+
+    # Latency histogram
+    histogram = getattr(summary, "latency_histogram", {})
+    if histogram and any(v > 0 for v in histogram.values()):
+        table.add_row("Histogram", "")
+        for line in _render_histogram(histogram):
+            table.add_row("", line)
 
     # Errors
     if summary.total_errors > 0:
@@ -186,6 +226,11 @@ def _print_plain(
     lines.append(f"  Max Latency:     {summary.max_latency_ms:.2f} ms")
     lines.append(f"  Std Dev:         {summary.std_dev_latency_ms:.2f} ms")
     lines.append(f"  P99.99 Latency:  {summary.p99_99_latency_ms:.2f} ms")
+
+    # Latency histogram
+    histogram = getattr(summary, "latency_histogram", {})
+    if histogram and any(v > 0 for v in histogram.values()):
+        lines.extend(_render_histogram(histogram))
 
     if summary.total_errors > 0:
         rate = _error_rate(summary.total_requests, summary.total_errors)
