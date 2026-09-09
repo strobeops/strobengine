@@ -4,6 +4,50 @@ All notable changes to `strobengine` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.0] - 2026-09-09
+
+### Bug Fixes
+
+- *(pyi)* Add QuicMetrics, SseMetrics stubs and missing TestSummary properties
+- *(metrics)* Use serde_json for to_json and add protocol fields to schema
+- *(reporter)* Include protocol sections in JSON report artifact
+- *(reporter)* Use correct chaos_faults structure in JSON artifact
+
+### Documentation
+
+- *(cli)* Document known CLI option duplication across subcommands
+- Update documentation for QuicMetrics and SseMetrics
+- Update roadmap and report schema for chaos fault tracking
+- Update roadmap and report schema for extended latency statistics
+
+### Features
+
+- *(metrics)* Add QuicMetrics, SseMetrics, and connection latency to TestSummary
+- *(aggregator)* Aggregate connection latency, QUIC, and SSE metrics in execute_test
+- *(chaos)* Add ChaosMetrics struct and ChaosFault name helper
+- *(metrics)* Add chaos fields to RequestMetric and TestSummary
+- *(protocols)* Set chaos_fault on RequestMetric in all engines
+- *(aggregator)* Collect chaos metrics in existing Tokio loop
+- *(reports)* Include chaos metrics in JSON report artifact
+- *(metrics)* Add latency jitter, p99.99, and histogram bucketing
+- *(reporter)* Expose extended latency stats in terminal and artifact output
+
+### Refactoring
+
+- *(lib)* Extract spawn_worker helper from execute_test
+- *(config)* Add protocol sub-structs and for_protocol_detection
+- *(lib)* Use for_protocol_detection in run_load_profiles
+- *(cli)* Extract ExportOptions dataclass and deduplicate _output_results
+- *(cli)* Replace 27-param _build_request_options with **kwargs
+- *(reporting)* Extract inline HTML template to separate file
+- *(engine)* Replace nested ternary with dictionary WsMode mapping
+
+### Testing
+
+- *(report)* Update TestSummary test fixture for new metric fields
+- *(e2e)* Add test for SSE metrics JSON export
+- *(e2e)* Add chaos fault tracking verification tests
+- *(e2e)* Add latency stats JSON and terminal output E2E tests
 ## [0.5.2] - 2026-09-02
 
 ### Bug Fixes
@@ -12,6 +56,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - *(lib)* Log report persistence errors instead of silently discarding
 - *(reporter)* Replace hardcoded version string with dynamic resolution
 - *(reporting)* Validate baseline artifact structure in compute_comparison
+
+### Miscellaneous Tasks
+
+- *(release)* Bump version to 0.5.2
 
 ### Refactoring
 
