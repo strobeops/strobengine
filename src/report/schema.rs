@@ -69,9 +69,27 @@ pub struct LatencyPercentiles {
     pub p90_us: f64,
     pub p95_us: f64,
     pub p99_us: f64,
+    pub p99_99_us: f64,
     pub min_us: f64,
     pub max_us: f64,
     pub mean_us: f64,
+    pub std_dev_us: f64,
+}
+
+impl From<&crate::metrics::TestSummary> for LatencyPercentiles {
+    fn from(s: &crate::metrics::TestSummary) -> Self {
+        Self {
+            p50_us: s.p50_latency_ms * 1000.0,
+            p90_us: s.p90_latency_ms * 1000.0,
+            p95_us: s.p95_latency_ms * 1000.0,
+            p99_us: s.p99_latency_ms * 1000.0,
+            p99_99_us: s.p99_99_latency_ms * 1000.0,
+            min_us: s.min_latency_ms * 1000.0,
+            max_us: s.max_latency_ms * 1000.0,
+            mean_us: s.average_latency_ms * 1000.0,
+            std_dev_us: s.std_dev_latency_ms * 1000.0,
+        }
+    }
 }
 
 fn get_system_info() -> SystemInfo {
@@ -129,15 +147,7 @@ impl ReportArtifact {
                 rps,
                 bytes_transferred: summary.total_bytes_received,
             },
-            latency_percentiles: LatencyPercentiles {
-                p50_us: summary.p50_latency_ms * 1000.0,
-                p90_us: summary.p90_latency_ms * 1000.0,
-                p95_us: summary.p95_latency_ms * 1000.0,
-                p99_us: summary.p99_latency_ms * 1000.0,
-                min_us: summary.min_latency_ms * 1000.0,
-                max_us: summary.max_latency_ms * 1000.0,
-                mean_us: summary.average_latency_ms * 1000.0,
-            },
+            latency_percentiles: LatencyPercentiles::from(summary),
             error_breakdown,
             avg_connection_latency_us: if summary.avg_connection_latency_us > 0.0 {
                 Some(summary.avg_connection_latency_us)
@@ -202,9 +212,11 @@ mod tests {
                 p90_us: 3000.0,
                 p95_us: 4500.0,
                 p99_us: 9000.0,
+                p99_99_us: 14000.0,
                 min_us: 100.0,
                 max_us: 15000.0,
                 mean_us: 2200.0,
+                std_dev_us: 3500.0,
             },
             error_breakdown,
             avg_connection_latency_us: None,
@@ -274,18 +286,22 @@ mod tests {
             p90_us: 3000.0,
             p95_us: 4500.0,
             p99_us: 9000.0,
+            p99_99_us: 14000.0,
             min_us: 100.0,
             max_us: 15000.0,
             mean_us: 2200.0,
+            std_dev_us: 3500.0,
         };
         let json = serde_json::to_value(&lp).unwrap();
         assert_eq!(json["p50_us"], 1500.0);
         assert_eq!(json["p90_us"], 3000.0);
         assert_eq!(json["p95_us"], 4500.0);
         assert_eq!(json["p99_us"], 9000.0);
+        assert_eq!(json["p99_99_us"], 14000.0);
         assert_eq!(json["min_us"], 100.0);
         assert_eq!(json["max_us"], 15000.0);
         assert_eq!(json["mean_us"], 2200.0);
+        assert_eq!(json["std_dev_us"], 3500.0);
     }
 
     #[test]
