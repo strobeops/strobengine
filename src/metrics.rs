@@ -177,6 +177,18 @@ pub struct TestSummary {
 
 #[pymethods]
 impl TestSummary {
+    pub fn clone(&self) -> Self {
+        Clone::clone(self)
+    }
+
+    pub fn __copy__(&self) -> Self {
+        self.clone()
+    }
+
+    pub fn __deepcopy__(&self, _py: Python<'_>) -> Self {
+        self.clone()
+    }
+
     #[pyo3(signature = (indent=None))]
     pub fn to_json(&self, _py: Python<'_>, indent: Option<usize>) -> PyResult<String> {
         let json_str = if indent.is_some() {

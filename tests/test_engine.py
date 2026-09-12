@@ -70,14 +70,15 @@ class TestStrobEngineInit:
 class TestStrobEngineRun:
     @patch("strobengine.engine.run_load_test")
     def test_run_returns_summary(self, mock_run):
-        expected = _make_summary()
-        mock_run.return_value = expected
+        mock_run.return_value = _make_summary()
 
         engine = StrobEngine(url="http://example.com")
         result = engine.run()
 
         mock_run.assert_called_once_with(engine.config)
-        assert result is expected
+        # Verify enrichment was applied (clone creates independent copy)
+        assert result.raw_command is not None
+        assert "http://example.com" in result.raw_command
 
     @patch("strobengine.engine.run_load_test")
     def test_run_with_custom_params(self, mock_run):
@@ -94,13 +95,14 @@ class TestStrobEngineRun:
 class TestStrobEngineRunAsync:
     @patch("strobengine.engine.run_load_test")
     async def test_run_async_returns_summary(self, mock_run):
-        expected = _make_summary()
-        mock_run.return_value = expected
+        mock_run.return_value = _make_summary()
 
         engine = StrobEngine(url="http://example.com")
         result = await engine.run_async()
 
-        assert result is expected
+        # Verify enrichment was applied (clone creates independent copy)
+        assert result.raw_command is not None
+        assert "http://example.com" in result.raw_command
 
 
 class TestLoadTestFactory:

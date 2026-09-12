@@ -212,13 +212,14 @@ class StrobEngine:
         )
 
     def _enrich_summary(self, summary: TestSummary) -> TestSummary:
-        summary.timestamp = datetime.now(UTC).isoformat()
+        enriched = summary.clone()
+        enriched.timestamp = datetime.now(UTC).isoformat()
         if self.config is not None:
-            summary.workers = self.config.concurrency
-        summary.raw_command = (
-            f"strobengine.run(url='{summary.url}', workers={summary.workers})"
+            enriched.workers = self.config.concurrency
+        enriched.raw_command = (
+            f"strobengine.run(url='{summary.url}', workers={enriched.workers})"
         )
-        return summary
+        return enriched
 
     def run(self) -> TestSummary:
         opts = self._options
