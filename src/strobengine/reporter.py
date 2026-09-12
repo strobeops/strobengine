@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import shutil
 import sys
 
 from strobengine._strobengine import TestSummary
@@ -46,10 +47,18 @@ def _format_bytes(n: int) -> str:
     return f"{val:.1f} PB"
 
 
-def _render_histogram(histogram: dict[str, int], max_width: int = 20) -> list[str]:
+def _render_histogram(
+    histogram: dict[str, int], max_width: int | None = None
+) -> list[str]:
     """Render ASCII bar chart from latency histogram buckets."""
     if not histogram or not any(v > 0 for v in histogram.values()):
         return []
+
+    # Dynamic width based on terminal size
+    if max_width is None:
+        terminal_width = shutil.get_terminal_size((80, 24)).columns
+        # Reserve space for label (12) + separator (2) + count (~8) + padding (2)
+        max_width = max(10, terminal_width - 24)
 
     max_count = max(histogram.values())
     if max_count == 0:
