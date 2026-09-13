@@ -277,42 +277,44 @@ fn calculate_histogram(latencies: &[u128]) -> HashMap<String, u64> {
     buckets
 }
 
-#[allow(clippy::too_many_arguments)]
-pub fn calculate_summary(
-    url: String,
-    total_requests: u64,
-    total_errors: u64,
-    mut latencies: Vec<u128>,
-    total_bytes: u64,
-    duration_secs: f64,
-    workers: usize,
-    status_codes: HashMap<u16, u64>,
-    e2e_latencies: Vec<u128>,
-    connection_latencies: Vec<u128>,
-    quic_metrics: Option<QuicMetrics>,
-    sse_metrics: Option<SseMetrics>,
-    chaos_injected_total: u64,
-    chaos_faults_by_type: HashMap<String, u64>,
-) -> TestSummary {
-    let avg_e2e_latency_us = if e2e_latencies.is_empty() {
+/// Input parameters for summary calculation.
+pub struct SummaryInput {
+    pub url: String,
+    pub total_requests: u64,
+    pub total_errors: u64,
+    pub latencies: Vec<u128>,
+    pub total_bytes: u64,
+    pub duration_secs: f64,
+    pub workers: usize,
+    pub status_codes: HashMap<u16, u64>,
+    pub e2e_latencies: Vec<u128>,
+    pub connection_latencies: Vec<u128>,
+    pub quic_metrics: Option<QuicMetrics>,
+    pub sse_metrics: Option<SseMetrics>,
+    pub chaos_injected_total: u64,
+    pub chaos_faults_by_type: HashMap<String, u64>,
+}
+
+pub fn calculate_summary(input: SummaryInput) -> TestSummary {
+    let avg_e2e_latency_us = if input.e2e_latencies.is_empty() {
         0.0
     } else {
-        let sum: u128 = e2e_latencies.iter().sum();
-        sum as f64 / e2e_latencies.len() as f64
+        let sum: u128 = input.e2e_latencies.iter().sum();
+        sum as f64 / input.e2e_latencies.len() as f64
     };
 
-    let avg_connection_latency_us = if connection_latencies.is_empty() {
+    let avg_connection_latency_us = if input.connection_latencies.is_empty() {
         0.0
     } else {
-        let sum: u128 = connection_latencies.iter().sum();
-        sum as f64 / connection_latencies.len() as f64
+        let sum: u128 = input.connection_latencies.iter().sum();
+        sum as f64 / input.connection_latencies.len() as f64
     };
 
-    if latencies.is_empty() {
+    if input.latencies.is_empty() {
         return TestSummary {
-            url,
-            total_requests: total_requests as usize,
-            total_errors: total_errors as usize,
+            url: input.url,
+            total_requests: input.total_requests as usize,
+            total_errors: input.total_errors as usize,
             average_latency_ms: 0.0,
             p95_latency_ms: 0.0,
             p99_latency_ms: 0.0,
@@ -320,24 +322,25 @@ pub fn calculate_summary(
             p50_latency_ms: 0.0,
             p90_latency_ms: 0.0,
             max_latency_ms: 0.0,
-            total_bytes_received: total_bytes,
-            duration_secs,
-            workers,
+            total_bytes_received: input.total_bytes,
+            duration_secs: input.duration_secs,
+            workers: input.workers,
             timestamp: String::new(),
             raw_command: None,
-            status_codes,
+            status_codes: input.status_codes,
             avg_e2e_latency_us,
             avg_connection_latency_us,
-            quic: quic_metrics,
-            sse: sse_metrics,
-            chaos_injected_total,
-            chaos_faults_by_type,
+            quic: input.quic_metrics,
+            sse: input.sse_metrics,
+            chaos_injected_total: input.chaos_injected_total,
+            chaos_faults_by_type: input.chaos_faults_by_type,
             std_dev_latency_ms: 0.0,
             p99_99_latency_ms: 0.0,
             latency_histogram: HashMap::new(),
         };
     }
 
+    let mut latencies = input.latencies;
     latencies.sort_unstable();
 
     let len = latencies.len();
@@ -361,9 +364,9 @@ pub fn calculate_summary(
     let latency_histogram = calculate_histogram(&latencies);
 
     TestSummary {
-        url,
-        total_requests: total_requests as usize,
-        total_errors: total_errors as usize,
+        url: input.url,
+        total_requests: input.total_requests as usize,
+        total_errors: input.total_errors as usize,
         average_latency_ms,
         p95_latency_ms: latencies[p95_idx] as f64 / MICROS_PER_MILLI,
         p99_latency_ms: latencies[p99_idx] as f64 / MICROS_PER_MILLI,
@@ -371,18 +374,18 @@ pub fn calculate_summary(
         p50_latency_ms: latencies[p50_idx] as f64 / MICROS_PER_MILLI,
         p90_latency_ms: latencies[p90_idx] as f64 / MICROS_PER_MILLI,
         max_latency_ms,
-        total_bytes_received: total_bytes,
-        duration_secs,
-        workers,
+        total_bytes_received: input.total_bytes,
+        duration_secs: input.duration_secs,
+        workers: input.workers,
         timestamp: String::new(),
         raw_command: None,
-        status_codes,
+        status_codes: input.status_codes,
         avg_e2e_latency_us,
         avg_connection_latency_us,
-        quic: quic_metrics,
-        sse: sse_metrics,
-        chaos_injected_total,
-        chaos_faults_by_type,
+        quic: input.quic_metrics,
+        sse: input.sse_metrics,
+        chaos_injected_total: input.chaos_injected_total,
+        chaos_faults_by_type: input.chaos_faults_by_type,
         std_dev_latency_ms,
         p99_99_latency_ms: latencies[p99_99_idx] as f64 / MICROS_PER_MILLI,
         latency_histogram,
@@ -395,22 +398,22 @@ mod tests {
 
     #[test]
     fn empty_latencies_returns_zeros() {
-        let s = calculate_summary(
-            "http://example.com".into(),
-            10,
-            3,
-            vec![],
-            0,
-            1.0,
-            4,
-            HashMap::new(),
-            vec![],
-            vec![],
-            None,
-            None,
-            0,
-            HashMap::new(),
-        );
+        let s = calculate_summary(SummaryInput {
+            url: "http://example.com".into(),
+            total_requests: 10,
+            total_errors: 3,
+            latencies: vec![],
+            total_bytes: 0,
+            duration_secs: 1.0,
+            workers: 4,
+            status_codes: HashMap::new(),
+            e2e_latencies: vec![],
+            connection_latencies: vec![],
+            quic_metrics: None,
+            sse_metrics: None,
+            chaos_injected_total: 0,
+            chaos_faults_by_type: HashMap::new(),
+        });
         assert_eq!(s.url, "http://example.com");
         assert_eq!(s.total_requests, 10);
         assert_eq!(s.total_errors, 3);
@@ -425,22 +428,22 @@ mod tests {
 
     #[test]
     fn single_request() {
-        let s = calculate_summary(
-            "http://example.com".into(),
-            1,
-            0,
-            vec![5000],
-            1024,
-            2.0,
-            2,
-            HashMap::new(),
-            vec![],
-            vec![],
-            None,
-            None,
-            0,
-            HashMap::new(),
-        );
+        let s = calculate_summary(SummaryInput {
+            url: "http://example.com".into(),
+            total_requests: 1,
+            total_errors: 0,
+            latencies: vec![5000],
+            total_bytes: 1024,
+            duration_secs: 2.0,
+            workers: 2,
+            status_codes: HashMap::new(),
+            e2e_latencies: vec![],
+            connection_latencies: vec![],
+            quic_metrics: None,
+            sse_metrics: None,
+            chaos_injected_total: 0,
+            chaos_faults_by_type: HashMap::new(),
+        });
         assert_eq!(s.total_requests, 1);
         assert_eq!(s.average_latency_ms, 5.0);
         assert_eq!(s.min_latency_ms, 5.0);
@@ -455,22 +458,22 @@ mod tests {
 
     #[test]
     fn two_requests() {
-        let s = calculate_summary(
-            "http://example.com".into(),
-            2,
-            0,
-            vec![1000, 2000],
-            0,
-            1.0,
-            1,
-            HashMap::new(),
-            vec![],
-            vec![],
-            None,
-            None,
-            0,
-            HashMap::new(),
-        );
+        let s = calculate_summary(SummaryInput {
+            url: "http://example.com".into(),
+            total_requests: 2,
+            total_errors: 0,
+            latencies: vec![1000, 2000],
+            total_bytes: 0,
+            duration_secs: 1.0,
+            workers: 1,
+            status_codes: HashMap::new(),
+            e2e_latencies: vec![],
+            connection_latencies: vec![],
+            quic_metrics: None,
+            sse_metrics: None,
+            chaos_injected_total: 0,
+            chaos_faults_by_type: HashMap::new(),
+        });
         assert_eq!(s.average_latency_ms, 1.5);
         assert_eq!(s.min_latency_ms, 1.0);
         assert_eq!(s.p95_latency_ms, 2.0);
@@ -481,22 +484,22 @@ mod tests {
     #[test]
     fn uniform_hundred_values() {
         let latencies: Vec<u128> = (1..=100).collect();
-        let s = calculate_summary(
-            "http://example.com".into(),
-            100,
-            0,
+        let s = calculate_summary(SummaryInput {
+            url: "http://example.com".into(),
+            total_requests: 100,
+            total_errors: 0,
             latencies,
-            0,
-            1.0,
-            1,
-            HashMap::new(),
-            vec![],
-            vec![],
-            None,
-            None,
-            0,
-            HashMap::new(),
-        );
+            total_bytes: 0,
+            duration_secs: 1.0,
+            workers: 1,
+            status_codes: HashMap::new(),
+            e2e_latencies: vec![],
+            connection_latencies: vec![],
+            quic_metrics: None,
+            sse_metrics: None,
+            chaos_injected_total: 0,
+            chaos_faults_by_type: HashMap::new(),
+        });
         assert!((s.average_latency_ms - 0.0505).abs() < 1e-6);
         assert_eq!(s.min_latency_ms, 0.001);
         assert!((s.p50_latency_ms - 0.051).abs() < 1e-6);
@@ -508,65 +511,65 @@ mod tests {
 
     #[test]
     fn all_errors() {
-        let s = calculate_summary(
-            "http://example.com".into(),
-            5,
-            5,
-            vec![100, 200, 300],
-            0,
-            1.0,
-            1,
-            HashMap::new(),
-            vec![],
-            vec![],
-            None,
-            None,
-            0,
-            HashMap::new(),
-        );
+        let s = calculate_summary(SummaryInput {
+            url: "http://example.com".into(),
+            total_requests: 5,
+            total_errors: 5,
+            latencies: vec![100, 200, 300],
+            total_bytes: 0,
+            duration_secs: 1.0,
+            workers: 1,
+            status_codes: HashMap::new(),
+            e2e_latencies: vec![],
+            connection_latencies: vec![],
+            quic_metrics: None,
+            sse_metrics: None,
+            chaos_injected_total: 0,
+            chaos_faults_by_type: HashMap::new(),
+        });
         assert_eq!(s.total_requests, 5);
         assert_eq!(s.total_errors, 5);
     }
 
     #[test]
     fn microsecond_to_millisecond_conversion() {
-        let s = calculate_summary(
-            "http://example.com".into(),
-            1,
-            0,
-            vec![12345],
-            0,
-            1.0,
-            1,
-            HashMap::new(),
-            vec![],
-            vec![],
-            None,
-            None,
-            0,
-            HashMap::new(),
-        );
+        let s = calculate_summary(SummaryInput {
+            url: "http://example.com".into(),
+            total_requests: 1,
+            total_errors: 0,
+            latencies: vec![12345],
+            total_bytes: 0,
+            duration_secs: 1.0,
+            workers: 1,
+            status_codes: HashMap::new(),
+            e2e_latencies: vec![],
+            connection_latencies: vec![],
+            quic_metrics: None,
+            sse_metrics: None,
+            chaos_injected_total: 0,
+            chaos_faults_by_type: HashMap::new(),
+        });
         assert!((s.average_latency_ms - 12.345).abs() < 1e-6);
     }
 
     #[test]
     fn unsorted_latencies_are_sorted() {
-        let s = calculate_summary(
-            "http://example.com".into(),
-            3,
-            0,
-            vec![3000, 1000, 2000],
-            0,
-            1.0,
-            1,
-            HashMap::new(),
-            vec![],
-            vec![],
-            None,
-            None,
-            0,
-            HashMap::new(),
-        );
+        let s = calculate_summary(SummaryInput {
+            url: "http://example.com".into(),
+            total_requests: 3,
+            total_errors: 0,
+            latencies: vec![3000, 1000, 2000],
+            total_bytes: 0,
+            duration_secs: 1.0,
+            workers: 1,
+            status_codes: HashMap::new(),
+            e2e_latencies: vec![],
+            connection_latencies: vec![],
+            quic_metrics: None,
+            sse_metrics: None,
+            chaos_injected_total: 0,
+            chaos_faults_by_type: HashMap::new(),
+        });
         assert_eq!(s.p95_latency_ms, 3.0);
         assert_eq!(s.p99_latency_ms, 3.0);
         assert_eq!(s.min_latency_ms, 1.0);
@@ -578,51 +581,51 @@ mod tests {
         let mut codes = HashMap::new();
         codes.insert(200, 10);
         codes.insert(500, 3);
-        let s = calculate_summary(
-            "http://example.com".into(),
-            13,
-            3,
-            vec![100],
-            0,
-            1.0,
-            1,
-            codes,
-            vec![],
-            vec![],
-            None,
-            None,
-            0,
-            HashMap::new(),
-        );
+        let s = calculate_summary(SummaryInput {
+            url: "http://example.com".into(),
+            total_requests: 13,
+            total_errors: 3,
+            latencies: vec![100],
+            total_bytes: 0,
+            duration_secs: 1.0,
+            workers: 1,
+            status_codes: codes,
+            e2e_latencies: vec![],
+            connection_latencies: vec![],
+            quic_metrics: None,
+            sse_metrics: None,
+            chaos_injected_total: 0,
+            chaos_faults_by_type: HashMap::new(),
+        });
         assert_eq!(s.status_codes.get(&200), Some(&10));
         assert_eq!(s.status_codes.get(&500), Some(&3));
     }
 
     #[test]
     fn test_aggregate_quic_and_sse_metrics() {
-        let s = calculate_summary(
-            "http://example.com".into(),
-            5,
-            0,
-            vec![1000, 2000, 3000, 4000, 5000],
-            5120,
-            5.0,
-            2,
-            HashMap::new(),
-            vec![],
-            vec![100, 200, 300, 400, 500],
-            Some(QuicMetrics {
+        let s = calculate_summary(SummaryInput {
+            url: "http://example.com".into(),
+            total_requests: 5,
+            total_errors: 0,
+            latencies: vec![1000, 2000, 3000, 4000, 5000],
+            total_bytes: 5120,
+            duration_secs: 5.0,
+            workers: 2,
+            status_codes: HashMap::new(),
+            e2e_latencies: vec![],
+            connection_latencies: vec![100, 200, 300, 400, 500],
+            quic_metrics: Some(QuicMetrics {
                 zero_rtt_accepted_count: 3,
                 retransmissions: 10,
                 avg_handshake_ms: Some(1.5),
             }),
-            Some(SseMetrics {
+            sse_metrics: Some(SseMetrics {
                 total_events_received: 100,
                 avg_ttfb_ms: Some(0.5),
             }),
-            0,
-            HashMap::new(),
-        );
+            chaos_injected_total: 0,
+            chaos_faults_by_type: HashMap::new(),
+        });
 
         assert!((s.avg_connection_latency_us - 300.0).abs() < 1e-6);
 
@@ -638,22 +641,22 @@ mod tests {
 
     #[test]
     fn test_summary_optional_protocol_metrics_defaults() {
-        let s = calculate_summary(
-            "http://example.com".into(),
-            1,
-            0,
-            vec![1000],
-            0,
-            1.0,
-            1,
-            HashMap::new(),
-            vec![],
-            vec![],
-            None,
-            None,
-            0,
-            HashMap::new(),
-        );
+        let s = calculate_summary(SummaryInput {
+            url: "http://example.com".into(),
+            total_requests: 1,
+            total_errors: 0,
+            latencies: vec![1000],
+            total_bytes: 0,
+            duration_secs: 1.0,
+            workers: 1,
+            status_codes: HashMap::new(),
+            e2e_latencies: vec![],
+            connection_latencies: vec![],
+            quic_metrics: None,
+            sse_metrics: None,
+            chaos_injected_total: 0,
+            chaos_faults_by_type: HashMap::new(),
+        });
         assert!(s.quic.is_none());
         assert!(s.sse.is_none());
         assert_eq!(s.avg_connection_latency_us, 0.0);
@@ -683,22 +686,22 @@ mod tests {
     #[test]
     fn test_p99_99_percentile() {
         let latencies: Vec<u128> = (1..=10000).collect();
-        let s = calculate_summary(
-            "http://example.com".into(),
-            10000,
-            0,
+        let s = calculate_summary(SummaryInput {
+            url: "http://example.com".into(),
+            total_requests: 10000,
+            total_errors: 0,
             latencies,
-            0,
-            1.0,
-            1,
-            HashMap::new(),
-            vec![],
-            vec![],
-            None,
-            None,
-            0,
-            HashMap::new(),
-        );
+            total_bytes: 0,
+            duration_secs: 1.0,
+            workers: 1,
+            status_codes: HashMap::new(),
+            e2e_latencies: vec![],
+            connection_latencies: vec![],
+            quic_metrics: None,
+            sse_metrics: None,
+            chaos_injected_total: 0,
+            chaos_faults_by_type: HashMap::new(),
+        });
         // p99.99 should be very close to max
         assert!(s.p99_99_latency_ms >= s.p99_latency_ms);
         assert!(s.p99_99_latency_ms <= s.max_latency_ms);
