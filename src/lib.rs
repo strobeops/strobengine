@@ -506,13 +506,13 @@ async fn execute_test(
         ));
     }
 
-    Ok(metrics::calculate_summary(
+    Ok(metrics::calculate_summary(metrics::SummaryInput {
         url,
-        total,
-        errors,
+        total_requests: total,
+        total_errors: errors,
         latencies,
         total_bytes,
-        elapsed,
+        duration_secs: elapsed,
         workers,
         status_codes,
         e2e_latencies,
@@ -521,7 +521,7 @@ async fn execute_test(
         sse_metrics,
         chaos_injected_total,
         chaos_faults_by_type,
-    ))
+    }))
 }
 
 #[pyfunction]
