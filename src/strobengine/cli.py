@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sys
+from collections.abc import Callable
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import Annotated
@@ -297,6 +298,39 @@ def _build_request_options(**kwargs: object) -> RequestOptions:
     )
 
 
+def _run_load_test(
+    url: str,
+    options: RequestOptions,
+    engine_factory: Callable[..., StrobEngine],
+    duration: int,
+    json_output: bool = False,
+    log_file: str | None = None,
+) -> None:
+    """Consolidated runner across load, stress, and spike subcommands."""
+    # Suppress logging when JSON output is requested
+    if json_output:
+        _configure_logging("off", log_file)
+    else:
+        _configure_logging(_resolve_log_level(options.no_progress, False), log_file)
+
+    # Validate method before creating engine
+    options.method = _validate_method(options.method)
+
+    engine = engine_factory(url=url, options=options)
+    summary = engine.run()
+    exports = ExportOptions(
+        output_dir=options.output_dir,
+        no_save=options.no_save,
+        html_output=None,
+        compare_to=None,
+        export_markdown=None,
+        export_junit=None,
+        export_csv=None,
+        json_output=json_output,
+    )
+    _output_results(summary, url, duration, engine.get_config(), exports)
+
+
 # NOTE: CLI Option Duplication
 #
 # The load, stress, and spike subcommands share ~34 identical option
@@ -469,28 +503,19 @@ def load(
         typer.Option("--csv", help="Export results as CSV report"),
     ] = None,
 ) -> None:
-    _configure_logging(_resolve_log_level(verbose, quiet), log_file)
-    method = _validate_method(method)
-    engine = StrobEngine.load_test(
+    options = _build_request_options(
+        **{k: v for k, v in locals().items() if k in _REQUEST_FIELDS}
+    )
+    _run_load_test(
         url=url,
-        concurrency=concurrency,
-        duration=duration,
-        options=_build_request_options(
-            **{k: v for k, v in locals().items() if k in _REQUEST_FIELDS}
+        options=options,
+        engine_factory=lambda **kw: StrobEngine.load_test(
+            concurrency=concurrency, duration=duration, **kw
         ),
-    )
-    summary = engine.run()
-    exports = ExportOptions(
-        output_dir=output_dir,
-        no_save=no_save,
-        html_output=html_output,
-        compare_to=compare_to,
-        export_markdown=export_markdown,
-        export_junit=export_junit,
-        export_csv=export_csv,
+        duration=duration,
         json_output=json_output,
+        log_file=log_file,
     )
-    _output_results(summary, url, duration, engine.config, exports)
 
 
 @app.command()
@@ -660,30 +685,23 @@ def stress(
         typer.Option("--csv", help="Export results as CSV report"),
     ] = None,
 ) -> None:
-    _configure_logging(_resolve_log_level(verbose, quiet), log_file)
-    method = _validate_method(method)
-    engine = StrobEngine.stress_test(
+    options = _build_request_options(
+        **{k: v for k, v in locals().items() if k in _REQUEST_FIELDS}
+    )
+    _run_load_test(
         url=url,
-        start_concurrency=start,
-        max_concurrency=target,
-        ramp_duration=ramp,
-        hold_duration=hold,
-        options=_build_request_options(
-            **{k: v for k, v in locals().items() if k in _REQUEST_FIELDS}
+        options=options,
+        engine_factory=lambda **kw: StrobEngine.stress_test(
+            start_concurrency=start,
+            max_concurrency=target,
+            ramp_duration=ramp,
+            hold_duration=hold,
+            **kw,
         ),
-    )
-    summary = engine.run()
-    exports = ExportOptions(
-        output_dir=output_dir,
-        no_save=no_save,
-        html_output=html_output,
-        compare_to=compare_to,
-        export_markdown=export_markdown,
-        export_junit=export_junit,
-        export_csv=export_csv,
+        duration=ramp + hold,
         json_output=json_output,
+        log_file=log_file,
     )
-    _output_results(summary, url, ramp + hold, engine.get_config(), exports)
 
 
 @app.command()
@@ -857,36 +875,23 @@ def spike(
         typer.Option("--csv", help="Export results as CSV report"),
     ] = None,
 ) -> None:
-    _configure_logging(_resolve_log_level(verbose, quiet), log_file)
-    method = _validate_method(method)
-    engine = StrobEngine.spike_test(
+    options = _build_request_options(
+        **{k: v for k, v in locals().items() if k in _REQUEST_FIELDS}
+    )
+    _run_load_test(
         url=url,
-        baseline=baseline,
-        peak_concurrency=peak,
-        pre_spike_duration=pre_spike,
-        spike_duration=spike_duration,
-        post_spike_duration=post_spike,
-        options=_build_request_options(
-            **{k: v for k, v in locals().items() if k in _REQUEST_FIELDS}
+        options=options,
+        engine_factory=lambda **kw: StrobEngine.spike_test(
+            baseline=baseline,
+            peak_concurrency=peak,
+            pre_spike_duration=pre_spike,
+            spike_duration=spike_duration,
+            post_spike_duration=post_spike,
+            **kw,
         ),
-    )
-    summary = engine.run()
-    exports = ExportOptions(
-        output_dir=output_dir,
-        no_save=no_save,
-        html_output=html_output,
-        compare_to=compare_to,
-        export_markdown=export_markdown,
-        export_junit=export_junit,
-        export_csv=export_csv,
+        duration=pre_spike + spike_duration + post_spike,
         json_output=json_output,
-    )
-    _output_results(
-        summary,
-        url,
-        pre_spike + spike_duration + post_spike,
-        engine.get_config(),
-        exports,
+        log_file=log_file,
     )
 
 
