@@ -4,6 +4,20 @@ All notable changes to `strobengine` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.1] - 2026-09-13
+
+### Bug Fixes
+
+- *(lib)* Remove unnecessary clippy::too_many_arguments suppression
+
+### Features
+
+- *(reporter)* Use dynamic terminal width for histogram bar rendering
+
+### Refactoring
+
+- *(schema)* Derive LatencyPercentiles from TestSummary via From impl
+- *(engine)* Clone TestSummary before enrichment to prevent in-place mutation
 ## [0.6.0] - 2026-09-09
 
 ### Bug Fixes
@@ -31,6 +45,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - *(reports)* Include chaos metrics in JSON report artifact
 - *(metrics)* Add latency jitter, p99.99, and histogram bucketing
 - *(reporter)* Expose extended latency stats in terminal and artifact output
+
+### Miscellaneous Tasks
+
+- *(release)* Bump version to 0.6.0
 
 ### Refactoring
 
