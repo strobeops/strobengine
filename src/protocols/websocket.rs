@@ -9,7 +9,9 @@ use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 
 use crate::chaos::{ChaosEngine, ChaosFault};
 use crate::config::WsMode;
-use crate::metrics::{RequestMetric, create_pubsub_payload, parse_pubsub_payload, wallclock_ns};
+use crate::metrics::{
+    ConnectionMetrics, RequestMetric, create_pubsub_payload, parse_pubsub_payload, wallclock_ns,
+};
 
 use super::ProtocolEngine;
 
@@ -370,9 +372,11 @@ impl WebSocketEngine {
                     status_code: 200,
                     bytes_received: payload_len,
                     is_reconnect: false,
-                    connection_latency_us: None,
-                    timestamp_sent_ns: Some(wallclock_ns()),
-                    e2e_latency_us: None,
+                    connection: ConnectionMetrics {
+                        connection_latency_us: None,
+                        timestamp_sent_ns: Some(wallclock_ns()),
+                        e2e_latency_us: None,
+                    },
                     quic_handshake_us: None,
                     quic_0rtt_used: false,
                     quic_retransmits: None,
@@ -467,9 +471,11 @@ impl WebSocketEngine {
                     status_code: 200,
                     bytes_received: bytes,
                     is_reconnect: false,
-                    connection_latency_us: None,
-                    timestamp_sent_ns: None,
-                    e2e_latency_us,
+                    connection: ConnectionMetrics {
+                        connection_latency_us: None,
+                        timestamp_sent_ns: None,
+                        e2e_latency_us,
+                    },
                     quic_handshake_us: None,
                     quic_0rtt_used: false,
                     quic_retransmits: None,
@@ -591,9 +597,11 @@ impl ProtocolEngine for WebSocketEngine {
             status_code,
             bytes_received,
             is_reconnect: false,
-            connection_latency_us: None,
-            timestamp_sent_ns: None,
-            e2e_latency_us: None,
+            connection: ConnectionMetrics {
+                connection_latency_us: None,
+                timestamp_sent_ns: None,
+                e2e_latency_us: None,
+            },
             quic_handshake_us: None,
             quic_0rtt_used: false,
             quic_retransmits: None,
@@ -696,9 +704,11 @@ impl ProtocolEngine for WebSocketEngine {
                     status_code: 200,
                     bytes_received: response_bytes.len() as u64,
                     is_reconnect: connection_latency_us > 0,
-                    connection_latency_us: Some(connection_latency_us),
-                    timestamp_sent_ns: None,
-                    e2e_latency_us: None,
+                    connection: ConnectionMetrics {
+                        connection_latency_us: Some(connection_latency_us),
+                        timestamp_sent_ns: None,
+                        e2e_latency_us: None,
+                    },
                     quic_handshake_us: None,
                     quic_0rtt_used: false,
                     quic_retransmits: None,
@@ -713,9 +723,11 @@ impl ProtocolEngine for WebSocketEngine {
                 status_code: 0,
                 bytes_received: 0,
                 is_reconnect: connection_latency_us > 0,
-                connection_latency_us: Some(connection_latency_us),
-                timestamp_sent_ns: None,
-                e2e_latency_us: None,
+                connection: ConnectionMetrics {
+                    connection_latency_us: Some(connection_latency_us),
+                    timestamp_sent_ns: None,
+                    e2e_latency_us: None,
+                },
                 quic_handshake_us: None,
                 quic_0rtt_used: false,
                 quic_retransmits: None,
@@ -998,7 +1010,7 @@ mod tests {
             .await;
 
         assert_eq!(metric.status_code, 200);
-        assert!(metric.timestamp_sent_ns.is_some());
+        assert!(metric.connection.timestamp_sent_ns.is_some());
     }
 
     #[tokio::test]
@@ -1039,6 +1051,6 @@ mod tests {
 
         assert_eq!(metric.status_code, 200);
         assert!(metric.bytes_received > 0);
-        assert!(metric.e2e_latency_us.is_some());
+        assert!(metric.connection.e2e_latency_us.is_some());
     }
 }

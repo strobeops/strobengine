@@ -38,14 +38,20 @@ pub fn parse_pubsub_payload(data: &[u8]) -> Option<(u128, &[u8])> {
     Some((sent_ns, rest))
 }
 
+/// Connection-related metrics for a single request.
+#[derive(Debug, Clone, Default)]
+pub struct ConnectionMetrics {
+    pub connection_latency_us: Option<u128>,
+    pub timestamp_sent_ns: Option<u128>,
+    pub e2e_latency_us: Option<u128>,
+}
+
 pub struct RequestMetric {
     pub latency_micros: u128,
     pub status_code: u16,
     pub bytes_received: u64,
     pub is_reconnect: bool,
-    pub connection_latency_us: Option<u128>,
-    pub timestamp_sent_ns: Option<u128>,
-    pub e2e_latency_us: Option<u128>,
+    pub connection: ConnectionMetrics,
     pub quic_handshake_us: Option<u64>,
     pub quic_0rtt_used: bool,
     pub quic_retransmits: Option<u64>,
@@ -62,9 +68,7 @@ impl RequestMetric {
             status_code: 0,
             bytes_received: 0,
             is_reconnect: false,
-            connection_latency_us: None,
-            timestamp_sent_ns: None,
-            e2e_latency_us: None,
+            connection: ConnectionMetrics::default(),
             quic_handshake_us: None,
             quic_0rtt_used: false,
             quic_retransmits: None,

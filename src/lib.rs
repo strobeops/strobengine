@@ -258,10 +258,10 @@ async fn execute_test(
         let mut rx = rx;
         while let Some(metric) = rx.recv().await {
             latencies.push(metric.latency_micros);
-            if let Some(e2e) = metric.e2e_latency_us {
+            if let Some(e2e) = metric.connection.e2e_latency_us {
                 e2e_latencies.push(e2e);
             }
-            if let Some(conn) = metric.connection_latency_us {
+            if let Some(conn) = metric.connection.connection_latency_us {
                 connection_latencies.push(conn);
             }
             // QUIC aggregation
