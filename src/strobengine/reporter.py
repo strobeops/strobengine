@@ -308,6 +308,9 @@ def _get_system_info() -> dict:
     }
 
 
+# NOTE: If modifying this structure, update `ReportArtifact` in `src/report/schema.rs`
+# This dict mirrors the Rust ReportArtifact schema. Adding a new field requires
+# updating both Python (here) and Rust (schema.rs:ReportArtifact::from_summary_and_config).
 def build_artifact_dict(summary: TestSummary, config: object) -> dict:
     """Build a ReportArtifact dict matching the Rust schema in report/schema.rs."""
     successful = summary.total_requests - summary.total_errors
