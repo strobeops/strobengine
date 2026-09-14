@@ -182,3 +182,5 @@ def run_load_profiles(
     form: list[tuple[str, str]] | None = None,
     headers: list[tuple[str, str]] | None = None,
 ) -> TestSummary: ...
+
+HISTOGRAM_BUCKET_ORDER: list[str]
