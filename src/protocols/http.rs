@@ -6,7 +6,7 @@ use http::Method;
 use reqwest::Url;
 
 use crate::chaos::{ChaosEngine, ChaosFault};
-use crate::metrics::RequestMetric;
+use crate::metrics::{ConnectionMetrics, RequestMetric};
 
 use super::ProtocolEngine;
 
@@ -140,9 +140,11 @@ impl ProtocolEngine for HttpEngine {
             status_code,
             bytes_received,
             is_reconnect: false,
-            connection_latency_us: None,
-            timestamp_sent_ns: None,
-            e2e_latency_us: None,
+            connection: ConnectionMetrics {
+                connection_latency_us: None,
+                timestamp_sent_ns: None,
+                e2e_latency_us: None,
+            },
             quic_handshake_us: None,
             quic_0rtt_used: false,
             quic_retransmits: None,

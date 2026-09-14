@@ -9,7 +9,7 @@ use quinn::{ClientConfig, Endpoint, TokioRuntime, TransportConfig};
 use tokio::sync::OnceCell;
 
 use crate::chaos::{ChaosEngine, ChaosFault};
-use crate::metrics::RequestMetric;
+use crate::metrics::{ConnectionMetrics, RequestMetric};
 
 use super::ProtocolEngine;
 
@@ -374,9 +374,11 @@ impl ProtocolEngine for Http3Engine {
             status_code: result.0,
             bytes_received: result.1,
             is_reconnect: false,
-            connection_latency_us: Some(connection_latency_us),
-            timestamp_sent_ns: None,
-            e2e_latency_us: None,
+            connection: ConnectionMetrics {
+                connection_latency_us: Some(connection_latency_us),
+                timestamp_sent_ns: None,
+                e2e_latency_us: None,
+            },
             quic_handshake_us: None,
             quic_0rtt_used: false,
             quic_retransmits: None,
@@ -479,9 +481,11 @@ impl ProtocolEngine for Http3Engine {
             status_code: result.0,
             bytes_received: result.1,
             is_reconnect,
-            connection_latency_us: None,
-            timestamp_sent_ns: None,
-            e2e_latency_us: None,
+            connection: ConnectionMetrics {
+                connection_latency_us: None,
+                timestamp_sent_ns: None,
+                e2e_latency_us: None,
+            },
             quic_handshake_us: handshake_us,
             quic_0rtt_used: used_0rtt,
             quic_retransmits: Some(retransmits),

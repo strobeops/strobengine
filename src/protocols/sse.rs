@@ -7,7 +7,7 @@ use futures_util::StreamExt;
 use futures_util::stream::Stream;
 
 use crate::chaos::{ChaosEngine, ChaosFault};
-use crate::metrics::RequestMetric;
+use crate::metrics::{ConnectionMetrics, RequestMetric};
 
 use super::ProtocolEngine;
 
@@ -244,9 +244,11 @@ impl ProtocolEngine for SseEngine {
                 status_code,
                 bytes_received: 0,
                 is_reconnect: false,
-                connection_latency_us: None,
-                timestamp_sent_ns: None,
-                e2e_latency_us: None,
+                connection: ConnectionMetrics {
+                    connection_latency_us: None,
+                    timestamp_sent_ns: None,
+                    e2e_latency_us: None,
+                },
                 quic_handshake_us: None,
                 quic_0rtt_used: false,
                 quic_retransmits: None,
@@ -275,9 +277,11 @@ impl ProtocolEngine for SseEngine {
                             status_code,
                             bytes_received: total_bytes,
                             is_reconnect: false,
-                            connection_latency_us: None,
-                            timestamp_sent_ns: None,
-                            e2e_latency_us: None,
+                            connection: ConnectionMetrics {
+                                connection_latency_us: None,
+                                timestamp_sent_ns: None,
+                                e2e_latency_us: None,
+                            },
                             quic_handshake_us: None,
                             quic_0rtt_used: false,
                             quic_retransmits: None,
@@ -302,9 +306,11 @@ impl ProtocolEngine for SseEngine {
             status_code,
             bytes_received: total_bytes,
             is_reconnect: false,
-            connection_latency_us: None,
-            timestamp_sent_ns: None,
-            e2e_latency_us: None,
+            connection: ConnectionMetrics {
+                connection_latency_us: None,
+                timestamp_sent_ns: None,
+                e2e_latency_us: None,
+            },
             quic_handshake_us: None,
             quic_0rtt_used: false,
             quic_retransmits: None,
@@ -364,9 +370,11 @@ impl ProtocolEngine for SseEngine {
                 status_code: session.status_code,
                 bytes_received: 0,
                 is_reconnect: false,
-                connection_latency_us: None,
-                timestamp_sent_ns: None,
-                e2e_latency_us: None,
+                connection: ConnectionMetrics {
+                    connection_latency_us: None,
+                    timestamp_sent_ns: None,
+                    e2e_latency_us: None,
+                },
                 quic_handshake_us: None,
                 quic_0rtt_used: false,
                 quic_retransmits: None,
@@ -414,9 +422,11 @@ impl ProtocolEngine for SseEngine {
                             status_code,
                             bytes_received: total_bytes,
                             is_reconnect: false,
-                            connection_latency_us: None,
-                            timestamp_sent_ns: None,
-                            e2e_latency_us: None,
+                            connection: ConnectionMetrics {
+                                connection_latency_us: None,
+                                timestamp_sent_ns: None,
+                                e2e_latency_us: None,
+                            },
                             quic_handshake_us: None,
                             quic_0rtt_used: false,
                             quic_retransmits: None,
@@ -441,9 +451,11 @@ impl ProtocolEngine for SseEngine {
             status_code,
             bytes_received: total_bytes,
             is_reconnect: false,
-            connection_latency_us: None,
-            timestamp_sent_ns: None,
-            e2e_latency_us: None,
+            connection: ConnectionMetrics {
+                connection_latency_us: None,
+                timestamp_sent_ns: None,
+                e2e_latency_us: None,
+            },
             quic_handshake_us: None,
             quic_0rtt_used: false,
             quic_retransmits: None,
