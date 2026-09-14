@@ -230,6 +230,20 @@ fn calculate_std_dev_us(latencies: &[u128]) -> f64 {
     variance.sqrt()
 }
 
+/// Canonical bucket order for latency histograms.
+pub const HISTOGRAM_BUCKET_ORDER: &[&str] = &[
+    "<1ms",
+    "1-5ms",
+    "5-10ms",
+    "10-25ms",
+    "25-50ms",
+    "50-100ms",
+    "100-250ms",
+    "250-500ms",
+    "500-1000ms",
+    ">1000ms",
+];
+
 /// Compute latency histogram from sorted latencies (in microseconds).
 fn calculate_histogram(latencies: &[u128]) -> HashMap<String, u64> {
     let mut buckets: HashMap<String, u64> = HashMap::new();

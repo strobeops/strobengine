@@ -4,7 +4,7 @@ import os
 import shutil
 import sys
 
-from strobengine._strobengine import TestSummary
+from strobengine._strobengine import HISTOGRAM_BUCKET_ORDER, TestSummary
 
 _HAS_RICH = False
 try:
@@ -65,19 +65,7 @@ def _render_histogram(
         max_count = 1
 
     lines = ["  Latency Distribution:"]
-    bucket_order = [
-        "<1ms",
-        "1-5ms",
-        "5-10ms",
-        "10-25ms",
-        "25-50ms",
-        "50-100ms",
-        "100-250ms",
-        "250-500ms",
-        "500-1000ms",
-        ">1000ms",
-    ]
-    for bucket in bucket_order:
+    for bucket in HISTOGRAM_BUCKET_ORDER:
         count = histogram.get(bucket, 0)
         if count == 0:
             continue
