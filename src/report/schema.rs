@@ -6,6 +6,8 @@ use crate::chaos::ChaosMetrics;
 use crate::metrics::{QuicMetrics, SseMetrics};
 
 /// Top-level report artifact persisted to disk after each load test.
+// NOTE: This struct is mirrored in Python as `build_artifact_dict` in `src/strobengine/reporter.py`.
+// Adding a new field requires updating both Rust (here) and Python (reporter.py).
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ReportArtifact {
     pub metadata: ReportMetadata,

@@ -142,6 +142,47 @@ class TestBuildArtifactDict:
         assert chaos["by_type"] == {}
 
 
+class TestArtifactSchemaConsistency:
+    """Verify build_artifact_dict output matches Rust ReportArtifact schema."""
+
+    def test_artifact_has_required_keys(self):
+        artifact = build_artifact_dict(_make_summary(), _make_config())
+        required_keys = {
+            "metadata",
+            "summary",
+            "latency_percentiles",
+            "latency_histogram",
+            "error_breakdown",
+            "avg_connection_latency_us",
+            "quic",
+            "sse",
+            "chaos_faults",
+        }
+        assert required_keys.issubset(artifact.keys())
+
+    def test_metadata_structure(self):
+        artifact = build_artifact_dict(_make_summary(), _make_config())
+        metadata = artifact["metadata"]
+        assert "timestamp" in metadata
+        assert "duration_secs" in metadata
+        assert "target_url" in metadata
+        assert "cli_options" in metadata
+        assert "system_info" in metadata
+
+    def test_latency_percentiles_has_microsecond_fields(self):
+        artifact = build_artifact_dict(_make_summary(), _make_config())
+        lp = artifact["latency_percentiles"]
+        assert "p50_us" in lp
+        assert "p90_us" in lp
+        assert "p95_us" in lp
+        assert "p99_us" in lp
+        assert "p99_99_us" in lp
+        assert "min_us" in lp
+        assert "max_us" in lp
+        assert "mean_us" in lp
+        assert "std_dev_us" in lp
+
+
 class TestMarkdownReportFile:
     """Tests for save_markdown_report file output."""
 
