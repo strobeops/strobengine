@@ -21,7 +21,9 @@ class TestPersistenceE2E:
         reports_dir = tmp_path / ".strobengine" / "reports"
         assert reports_dir.exists() and reports_dir.is_dir()
 
-        report_files = list(reports_dir.glob("report_*.json"))
+        report_files = [
+            f for f in reports_dir.glob("*.json") if f.name != "latest.json"
+        ]
         assert len(report_files) >= 1
 
         # Validate JSON schema & contents
@@ -55,7 +57,7 @@ class TestPersistenceE2E:
         await engine.run_async()
 
         assert custom_dir.exists()
-        report_files = list(custom_dir.glob("report_*.json"))
+        report_files = [f for f in custom_dir.glob("*.json") if f.name != "latest.json"]
         assert len(report_files) >= 1
 
         # Confirm default directory was NOT created
@@ -81,3 +83,40 @@ class TestPersistenceE2E:
 
         default_dir = tmp_path / ".strobengine"
         assert not default_dir.exists()
+
+    async def test_saved_report_path_property(
+        self, mock_server: str, tmp_path, monkeypatch
+    ):
+        """engine.saved_report_path returns the correct path after run."""
+        monkeypatch.chdir(tmp_path)
+
+        engine = StrobEngine(
+            url=mock_server,
+            concurrency=2,
+            duration=1,
+            options=RequestOptions(no_progress=True),
+        )
+        await engine.run_async()
+
+        assert engine.saved_report_path is not None
+        assert engine.saved_report_path.endswith(".json")
+        assert "latest.json" not in engine.saved_report_path
+
+    async def test_saved_report_path_none_when_no_save(
+        self, mock_server: str, tmp_path, monkeypatch
+    ):
+        """engine.saved_report_path is None when no_save=True."""
+        monkeypatch.chdir(tmp_path)
+
+        engine = StrobEngine(
+            url=mock_server,
+            concurrency=2,
+            duration=1,
+            options=RequestOptions(
+                no_progress=True,
+                no_save=True,
+            ),
+        )
+        await engine.run_async()
+
+        assert engine.saved_report_path is None

@@ -87,6 +87,7 @@ class StrobEngine:
         self._url = url
         self._options = options if options is not None else RequestOptions()
         self._profile = profile
+        self._saved_report_path: str | None = None
 
         if profile is None:
             if concurrency <= 0:
@@ -237,7 +238,20 @@ class StrobEngine:
             )
         else:
             summary = run_load_test(self.config)
-        return self._enrich_summary(summary)
+        enriched = self._enrich_summary(summary)
+        # Persist artifact (single owner, always with enriched metadata)
+        if not opts.no_save:
+            from strobengine.reporter import save_report
+
+            self._saved_report_path = save_report(
+                enriched,
+                self.config or opts,
+                output_dir=opts.output_dir,
+                no_save=opts.no_save,
+            )
+        else:
+            self._saved_report_path = None
+        return enriched
 
     async def run_async(self) -> TestSummary:
         return await asyncio.to_thread(self.run)
@@ -249,3 +263,8 @@ class StrobEngine:
         as a fallback for stress/spike profile-based tests.
         """
         return self.config or self._options
+
+    @property
+    def saved_report_path(self) -> str | None:
+        """Return path to the last saved report artifact, or None."""
+        return self._saved_report_path

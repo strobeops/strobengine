@@ -393,19 +393,41 @@ def save_report(
     output_dir: str | None = None,
     no_save: bool = False,
 ) -> str | None:
-    """Persist ReportArtifact to disk. Returns filepath or None."""
+    """Persist ReportArtifact to disk atomically. Returns filepath or None."""
     if no_save:
         return None
 
     import json
+    import os
+    import tempfile
     from pathlib import Path
 
     dirpath = Path(output_dir or DEFAULT_REPORT_DIR)
     dirpath.mkdir(parents=True, exist_ok=True)
+
     filename = f"{summary.timestamp}_{_slugify_url(summary.url)}.json"
     filepath = dirpath / filename
     artifact = build_artifact_dict(summary, config)
-    filepath.write_text(json.dumps(artifact, indent=2))
+
+    # Atomic write: temp file + os.replace
+    tmp_fd, tmp_path = tempfile.mkstemp(dir=str(dirpath), suffix=".tmp")
+    try:
+        with os.fdopen(tmp_fd, "w") as f:
+            json.dump(artifact, f, indent=2)
+        os.replace(tmp_path, filepath)
+    except BaseException:
+        if os.path.exists(tmp_path):
+            os.unlink(tmp_path)
+        raise
+
+    # Update latest.json pointer atomically
+    latest_path = dirpath / "latest.json"
+    latest_tmp = dirpath / ".tmp_latest.json"
+    latest_payload = {"latest_report": filename}
+    with open(latest_tmp, "w") as f:
+        json.dump(latest_payload, f, indent=2)
+    os.replace(latest_tmp, latest_path)
+
     return str(filepath)
 
 
