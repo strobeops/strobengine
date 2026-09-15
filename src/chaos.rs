@@ -23,7 +23,9 @@ impl ChaosFault {
 
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
 pub struct ChaosMetrics {
+    #[serde(rename = "injected_total")]
     pub total_injected: u64,
+    #[serde(rename = "by_type")]
     pub faults_by_type: HashMap<String, u64>,
 }
 
