@@ -140,6 +140,7 @@ mod tests {
             quic: None,
             sse: None,
             chaos: None,
+            latency_histogram: Some(std::collections::HashMap::new()),
         }
     }
 

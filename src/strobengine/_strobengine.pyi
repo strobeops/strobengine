@@ -182,5 +182,8 @@ def run_load_profiles(
     form: list[tuple[str, str]] | None = None,
     headers: list[tuple[str, str]] | None = None,
 ) -> TestSummary: ...
+def build_report_artifact_dict(
+    summary: TestSummary, config: TestConfig
+) -> dict[str, Any]: ...
 
 HISTOGRAM_BUCKET_ORDER: list[str]

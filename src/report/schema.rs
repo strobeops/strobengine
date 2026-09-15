@@ -20,8 +20,10 @@ pub struct ReportArtifact {
     pub quic: Option<QuicMetrics>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sse: Option<SseMetrics>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "chaos_faults", skip_serializing_if = "Option::is_none")]
     pub chaos: Option<ChaosMetrics>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub latency_histogram: Option<HashMap<String, u64>>,
 }
 
 /// Test run metadata including configuration and system information.
@@ -166,6 +168,7 @@ impl ReportArtifact {
             } else {
                 None
             },
+            latency_histogram: Some(summary.latency_histogram.clone()),
         }
     }
 }
@@ -225,6 +228,7 @@ mod tests {
             quic: None,
             sse: None,
             chaos: None,
+            latency_histogram: Some(std::collections::HashMap::new()),
         }
     }
 
@@ -279,6 +283,10 @@ mod tests {
         // Latency fields
         assert!(json["latency_percentiles"]["p50_us"].is_f64());
         assert!(json["latency_percentiles"]["p99_us"].is_f64());
+
+        // Latency histogram
+        assert!(json.get("latency_histogram").is_some());
+        assert!(json["latency_histogram"].is_object());
     }
 
     #[test]
@@ -444,5 +452,7 @@ mod tests {
         assert_eq!(artifact.metadata.cli_options.method, "GET");
         assert_eq!(artifact.metadata.cli_options.concurrency, 10);
         assert!(!artifact.metadata.cli_options.chaos);
+        assert!(artifact.latency_histogram.is_some());
+        assert!(artifact.latency_histogram.unwrap().is_empty());
     }
 }

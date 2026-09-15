@@ -596,12 +596,30 @@ fn run_load_profiles(
     })
 }
 
+#[pyfunction]
+fn build_report_artifact_dict(
+    py: Python<'_>,
+    summary: &metrics::TestSummary,
+    config: &config::TestConfig,
+) -> PyResult<pyo3::Py<pyo3::types::PyDict>> {
+    let artifact = report::schema::ReportArtifact::from_summary_and_config(summary, config);
+    let json_str = serde_json::to_string(&artifact)
+        .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(e.to_string()))?;
+    let json_mod = py.import("json")?;
+    let obj = json_mod.call_method1("loads", (&json_str,))?;
+    let dict = obj.cast_into::<pyo3::types::PyDict>().map_err(|_| {
+        PyErr::new::<pyo3::exceptions::PyTypeError, _>("Expected a dict from json.loads")
+    })?;
+    Ok(dict.unbind())
+}
+
 /// A Python module implemented in Rust.
 #[pymodule]
 fn _strobengine(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(init_logging, m)?)?;
     m.add_function(wrap_pyfunction!(run_load_test, m)?)?;
     m.add_function(wrap_pyfunction!(run_load_profiles, m)?)?;
+    m.add_function(wrap_pyfunction!(build_report_artifact_dict, m)?)?;
     m.add_class::<config::TestConfig>()?;
     m.add_class::<config::LoadProfile>()?;
     m.add_class::<config::WsMode>()?;
