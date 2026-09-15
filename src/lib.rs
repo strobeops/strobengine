@@ -403,18 +403,8 @@ async fn execute_test(
         ));
     }
 
-    // Await the concurrently running background aggregator task
-    let (
-        latencies,
-        e2e_latencies,
-        connection_latencies,
-        status_codes,
-        total_bytes,
-        quic_metrics,
-        sse_metrics,
-        chaos_injected_total,
-        chaos_faults_by_type,
-    ) = aggregator
+    // Await background aggregator task and extract collected metrics
+    let aggregated = aggregator
         .await
         .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
 
@@ -422,17 +412,17 @@ async fn execute_test(
         url,
         total_requests: total,
         total_errors: errors,
-        latencies,
-        total_bytes,
+        latencies: aggregated.latencies,
+        total_bytes: aggregated.total_bytes,
         duration_secs: elapsed,
         workers,
-        status_codes,
-        e2e_latencies,
-        connection_latencies,
-        quic_metrics,
-        sse_metrics,
-        chaos_injected_total,
-        chaos_faults_by_type,
+        status_codes: aggregated.status_codes,
+        e2e_latencies: aggregated.e2e_latencies,
+        connection_latencies: aggregated.connection_latencies,
+        quic_metrics: aggregated.quic_metrics,
+        sse_metrics: aggregated.sse_metrics,
+        chaos_injected_total: aggregated.chaos_injected_total,
+        chaos_faults_by_type: aggregated.chaos_faults_by_type,
     }))
 }
 

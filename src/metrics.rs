@@ -9,6 +9,20 @@ use tokio::sync::mpsc;
 /// Conversion factor from microseconds to milliseconds (1 ms = 1,000 us).
 pub const MICROS_PER_MILLI: f64 = 1_000.0;
 
+/// Intermediate aggregated values collected from the metrics channel.
+#[derive(Debug, Default)]
+pub struct AggregatedMetrics {
+    pub latencies: Vec<u128>,
+    pub e2e_latencies: Vec<u128>,
+    pub connection_latencies: Vec<u128>,
+    pub status_codes: HashMap<u16, u64>,
+    pub total_bytes: u64,
+    pub quic_metrics: Option<QuicMetrics>,
+    pub sse_metrics: Option<SseMetrics>,
+    pub chaos_injected_total: u64,
+    pub chaos_faults_by_type: HashMap<String, u64>,
+}
+
 /// Get current wall-clock time in nanoseconds since UNIX epoch.
 pub fn wallclock_ns() -> u128 {
     SystemTime::now()
@@ -316,39 +330,21 @@ pub struct SummaryInput {
 
 /// Finalize metric aggregation from a receiver channel.
 /// Returns aggregated metrics as a tuple for the caller to construct SummaryInput.
-pub async fn finalize_metrics(
-    mut rx: mpsc::Receiver<RequestMetric>,
-) -> (
-    Vec<u128>,         // latencies
-    Vec<u128>,         // e2e_latencies
-    Vec<u128>,         // connection_latencies
-    HashMap<u16, u64>, // status_codes
-    u64,               // total_bytes
-    Option<QuicMetrics>,
-    Option<SseMetrics>,
-    u64,                  // chaos_injected_total
-    HashMap<String, u64>, // chaos_faults_by_type
-) {
-    let mut latencies = Vec::new();
-    let mut e2e_latencies = Vec::new();
-    let mut connection_latencies = Vec::new();
+pub async fn finalize_metrics(mut rx: mpsc::Receiver<RequestMetric>) -> AggregatedMetrics {
+    let mut metrics = AggregatedMetrics::default();
     let mut quic_stats = QuicMetrics::default();
     let mut sse_stats = SseMetrics::default();
     let mut has_quic = false;
     let mut quic_handshakes = Vec::new();
     let mut sse_first_events = Vec::new();
-    let mut status_codes = HashMap::new();
-    let mut total_bytes = 0u64;
-    let mut chaos_injected_total = 0u64;
-    let mut chaos_faults_by_type = HashMap::new();
 
     while let Some(metric) = rx.recv().await {
-        latencies.push(metric.latency_micros);
+        metrics.latencies.push(metric.latency_micros);
         if let Some(e2e) = metric.connection.e2e_latency_us {
-            e2e_latencies.push(e2e);
+            metrics.e2e_latencies.push(e2e);
         }
         if let Some(conn) = metric.connection.connection_latency_us {
-            connection_latencies.push(conn);
+            metrics.connection_latencies.push(conn);
         }
         // QUIC aggregation
         if metric.quic_handshake_us.is_some()
@@ -375,13 +371,14 @@ pub async fn finalize_metrics(
         }
         // Chaos aggregation
         if let Some(ref fault) = metric.chaos_fault {
-            chaos_injected_total += 1;
-            *chaos_faults_by_type
+            metrics.chaos_injected_total += 1;
+            *metrics
+                .chaos_faults_by_type
                 .entry(fault.name().to_string())
                 .or_insert(0) += 1;
         }
-        *status_codes.entry(metric.status_code).or_insert(0) += 1;
-        total_bytes += metric.bytes_received;
+        *metrics.status_codes.entry(metric.status_code).or_insert(0) += 1;
+        metrics.total_bytes += metric.bytes_received;
     }
 
     // Compute QUIC avg handshake (convert us to ms)
@@ -396,24 +393,14 @@ pub async fn finalize_metrics(
         sse_stats.avg_ttfb_ms = Some((sum as f64 / sse_first_events.len() as f64) / 1000.0);
     }
 
-    let quic_opt = if has_quic { Some(quic_stats) } else { None };
-    let sse_opt = if sse_stats.total_events_received > 0 || !sse_first_events.is_empty() {
+    metrics.quic_metrics = if has_quic { Some(quic_stats) } else { None };
+    metrics.sse_metrics = if sse_stats.total_events_received > 0 || !sse_first_events.is_empty() {
         Some(sse_stats)
     } else {
         None
     };
 
-    (
-        latencies,
-        e2e_latencies,
-        connection_latencies,
-        status_codes,
-        total_bytes,
-        quic_opt,
-        sse_opt,
-        chaos_injected_total,
-        chaos_faults_by_type,
-    )
+    metrics
 }
 
 pub fn calculate_summary(input: SummaryInput) -> TestSummary {
