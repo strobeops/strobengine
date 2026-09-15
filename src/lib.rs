@@ -240,96 +240,8 @@ async fn execute_test(
     // --- Metrics Aggregator Setup ---
     let (tx, rx) = tokio::sync::mpsc::channel::<RequestMetric>(METRIC_CHANNEL_BUFFER);
 
-    let aggregator = tokio::spawn(async move {
-        let mut latencies = Vec::new();
-        let mut e2e_latencies = Vec::new();
-        let mut connection_latencies = Vec::new();
-        let mut quic_stats = metrics::QuicMetrics::default();
-        let mut sse_stats = metrics::SseMetrics::default();
-        let mut has_quic = false;
-        let mut quic_handshakes = Vec::new();
-        let mut sse_first_events = Vec::new();
-        let mut status_codes: std::collections::HashMap<u16, u64> =
-            std::collections::HashMap::new();
-        let mut total_bytes: u64 = 0;
-        let mut chaos_injected_total: u64 = 0;
-        let mut chaos_faults_by_type: std::collections::HashMap<String, u64> =
-            std::collections::HashMap::new();
-        let mut rx = rx;
-        while let Some(metric) = rx.recv().await {
-            latencies.push(metric.latency_micros);
-            if let Some(e2e) = metric.connection.e2e_latency_us {
-                e2e_latencies.push(e2e);
-            }
-            if let Some(conn) = metric.connection.connection_latency_us {
-                connection_latencies.push(conn);
-            }
-            // QUIC aggregation
-            if metric.quic_handshake_us.is_some()
-                || metric.quic_0rtt_used
-                || metric.quic_retransmits.is_some()
-            {
-                has_quic = true;
-                if metric.quic_0rtt_used {
-                    quic_stats.zero_rtt_accepted_count += 1;
-                }
-                if let Some(retrans) = metric.quic_retransmits {
-                    quic_stats.retransmissions += retrans;
-                }
-                if let Some(handshake) = metric.quic_handshake_us {
-                    quic_handshakes.push(handshake);
-                }
-            }
-            // SSE aggregation
-            if let Some(events) = metric.sse_events_received {
-                sse_stats.total_events_received += events;
-            }
-            if let Some(first) = metric.sse_first_event_us {
-                sse_first_events.push(first);
-            }
-            // Chaos aggregation
-            if let Some(ref fault) = metric.chaos_fault {
-                chaos_injected_total += 1;
-                *chaos_faults_by_type
-                    .entry(fault.name().to_string())
-                    .or_insert(0) += 1;
-            }
-            *status_codes.entry(metric.status_code).or_insert(0) += 1;
-            total_bytes += metric.bytes_received;
-        }
-
-        // Compute QUIC avg handshake (convert us to ms)
-        if !quic_handshakes.is_empty() {
-            let sum: u64 = quic_handshakes.iter().sum();
-            quic_stats.avg_handshake_ms =
-                Some((sum as f64 / quic_handshakes.len() as f64) / 1000.0);
-        }
-
-        // Compute SSE avg TTFB (convert us to ms)
-        if !sse_first_events.is_empty() {
-            let sum: u64 = sse_first_events.iter().sum();
-            sse_stats.avg_ttfb_ms = Some((sum as f64 / sse_first_events.len() as f64) / 1000.0);
-        }
-
-        let quic_opt = if has_quic { Some(quic_stats) } else { None };
-        let sse_opt = if sse_stats.total_events_received > 0 || !sse_first_events.is_empty() {
-            Some(sse_stats)
-        } else {
-            None
-        };
-
-        (
-            latencies,
-            e2e_latencies,
-            status_codes,
-            total_bytes,
-            connection_latencies,
-            quic_opt,
-            sse_opt,
-            chaos_injected_total,
-            chaos_faults_by_type,
-        )
-    });
+    // Spawn metric collection concurrently in the background
+    let aggregator = tokio::spawn(metrics::finalize_metrics(rx));
 
     // Spawn progress render task (only on TTY when enabled)
     let use_progress = !no_progress && std::io::stderr().is_terminal();
@@ -374,7 +286,7 @@ async fn execute_test(
                 ));
             }
 
-            // NOTE: Drop outer `tx` so only worker clones hold channel senders
+            // Drop outer tx so only active worker clones hold senders
             drop(tx);
 
             tracing::debug!(workers = concurrency, "worker tasks spawned");
@@ -395,7 +307,7 @@ async fn execute_test(
             let cancel_clone = cancel_token.clone();
             let tx_supervisor = tx.clone();
 
-            // NOTE: Drop outer `tx` so supervisor/workers hold remaining channel senders
+            // Drop outer tx so supervisor/children control sender lifetime
             drop(tx);
 
             let supervisor = tokio::spawn(async move {
@@ -478,21 +390,6 @@ async fn execute_test(
         tracing::debug!(error = %e, "render task panicked");
     }
 
-    // Receive latency results (channel closes automatically as all tx references dropped)
-    let (
-        latencies,
-        e2e_latencies,
-        status_codes,
-        total_bytes,
-        connection_latencies,
-        quic_metrics,
-        sse_metrics,
-        chaos_injected_total,
-        chaos_faults_by_type,
-    ) = aggregator
-        .await
-        .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
-
     let total = counters.total_requests.load(Ordering::Relaxed);
     let errors = counters.errors.load(Ordering::Relaxed);
     let elapsed = test_start.elapsed().as_secs_f64();
@@ -506,21 +403,26 @@ async fn execute_test(
         ));
     }
 
+    // Await background aggregator task and extract collected metrics
+    let aggregated = aggregator
+        .await
+        .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
+
     Ok(metrics::calculate_summary(metrics::SummaryInput {
         url,
         total_requests: total,
         total_errors: errors,
-        latencies,
-        total_bytes,
+        latencies: aggregated.latencies,
+        total_bytes: aggregated.total_bytes,
         duration_secs: elapsed,
         workers,
-        status_codes,
-        e2e_latencies,
-        connection_latencies,
-        quic_metrics,
-        sse_metrics,
-        chaos_injected_total,
-        chaos_faults_by_type,
+        status_codes: aggregated.status_codes,
+        e2e_latencies: aggregated.e2e_latencies,
+        connection_latencies: aggregated.connection_latencies,
+        quic_metrics: aggregated.quic_metrics,
+        sse_metrics: aggregated.sse_metrics,
+        chaos_injected_total: aggregated.chaos_injected_total,
+        chaos_faults_by_type: aggregated.chaos_faults_by_type,
     }))
 }
 
