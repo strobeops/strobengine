@@ -308,11 +308,26 @@ def _get_system_info() -> dict:
     }
 
 
-# NOTE: If modifying this structure, update `ReportArtifact` in `src/report/schema.rs`
-# This dict mirrors the Rust ReportArtifact schema. Adding a new field requires
-# updating both Python (here) and Rust (schema.rs:ReportArtifact::from_summary_and_config).
 def build_artifact_dict(summary: TestSummary, config: object) -> dict:
-    """Build a ReportArtifact dict matching the Rust schema in report/schema.rs."""
+    """Build a ReportArtifact dict matching the Rust schema in report/schema.rs.
+
+    When config is a Rust TestConfig, delegates to Rust for guaranteed 1:1 parity.
+    Falls back to manual construction for Python RequestOptions (profile tests).
+    """
+    from strobengine._strobengine import (
+        TestConfig as RustTestConfig,
+        build_report_artifact_dict,
+    )
+
+    if isinstance(config, RustTestConfig):
+        return build_report_artifact_dict(summary, config)
+
+    # Fallback: config is a Python RequestOptions (profile tests without TestConfig)
+    return _build_artifact_dict_fallback(summary, config)
+
+
+def _build_artifact_dict_fallback(summary: TestSummary, config: object) -> dict:
+    """Manual construction for RequestOptions when TestConfig is unavailable."""
     successful = summary.total_requests - summary.total_errors
     rps = (
         summary.total_requests / summary.duration_secs
@@ -320,7 +335,7 @@ def build_artifact_dict(summary: TestSummary, config: object) -> dict:
         else 0.0
     )
 
-    # Extract CLI options from config (TestConfig PyO3 object)
+    # Extract CLI options from config
     cli_options = {
         "method": getattr(config, "method", "GET"),
         "concurrency": getattr(config, "concurrency", 0),

@@ -183,6 +183,48 @@ class TestArtifactSchemaConsistency:
         assert "std_dev_us" in lp
 
 
+class TestRustDictParity:
+    """Verify fallback path produces correct schema.
+
+    Note: build_report_artifact_dict requires a real TestSummary (Rust #[pyclass]),
+    which cannot be constructed from Python. Rust parity is verified by the E2E
+    persistence tests that exercise the full Rust path with real objects.
+
+    These tests verify the fallback path (Mock/RequestOptions config) produces
+    the correct schema structure.
+    """
+
+    def test_fallback_produces_correct_keys(self):
+        artifact = build_artifact_dict(_make_summary(), _make_config())
+        required_keys = {
+            "metadata",
+            "summary",
+            "latency_percentiles",
+            "latency_histogram",
+            "error_breakdown",
+            "avg_connection_latency_us",
+            "quic",
+            "sse",
+            "chaos_faults",
+        }
+        assert required_keys.issubset(artifact.keys())
+
+    def test_fallback_chaos_faults_structure(self):
+        summary = _make_summary(
+            chaos_injected_total=5,
+            chaos_faults_by_type={"ConnectionDrop": 3, "LatencySpike": 2},
+        )
+        artifact = build_artifact_dict(summary, _make_config())
+        assert artifact["chaos_faults"]["injected_total"] == 5
+        assert artifact["chaos_faults"]["by_type"]["ConnectionDrop"] == 3
+        assert artifact["chaos_faults"]["by_type"]["LatencySpike"] == 2
+
+    def test_fallback_includes_latency_histogram(self):
+        artifact = build_artifact_dict(_make_summary(), _make_config())
+        assert "latency_histogram" in artifact
+        assert isinstance(artifact["latency_histogram"], dict)
+
+
 class TestMarkdownReportFile:
     """Tests for save_markdown_report file output."""
 
