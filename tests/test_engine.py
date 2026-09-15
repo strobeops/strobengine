@@ -68,21 +68,26 @@ class TestStrobEngineInit:
 
 
 class TestStrobEngineRun:
+    @patch("strobengine.reporter.save_report")
     @patch("strobengine.engine.run_load_test")
-    def test_run_returns_summary(self, mock_run):
+    def test_run_returns_summary(self, mock_run, mock_save):
         mock_run.return_value = _make_summary()
+        mock_save.return_value = "/fake/path.json"
 
         engine = StrobEngine(url="http://example.com")
         result = engine.run()
 
         mock_run.assert_called_once_with(engine.config)
+        mock_save.assert_called_once()
         # Verify enrichment was applied (clone creates independent copy)
         assert result.raw_command is not None
         assert "http://example.com" in result.raw_command
 
+    @patch("strobengine.reporter.save_report")
     @patch("strobengine.engine.run_load_test")
-    def test_run_with_custom_params(self, mock_run):
+    def test_run_with_custom_params(self, mock_run, mock_save):
         mock_run.return_value = _make_summary()
+        mock_save.return_value = "/fake/path.json"
 
         engine = StrobEngine(url="http://example.com", concurrency=25)
         engine.run()
@@ -93,9 +98,11 @@ class TestStrobEngineRun:
 
 
 class TestStrobEngineRunAsync:
+    @patch("strobengine.reporter.save_report")
     @patch("strobengine.engine.run_load_test")
-    async def test_run_async_returns_summary(self, mock_run):
+    async def test_run_async_returns_summary(self, mock_run, mock_save):
         mock_run.return_value = _make_summary()
+        mock_save.return_value = "/fake/path.json"
 
         engine = StrobEngine(url="http://example.com")
         result = await engine.run_async()
@@ -194,9 +201,11 @@ class TestSpikeTestFactory:
 
 
 class TestProfileRun:
+    @patch("strobengine.reporter.save_report")
     @patch("strobengine.engine.run_load_profiles")
-    def test_stress_test_run_calls_profiles(self, mock_run):
+    def test_stress_test_run_calls_profiles(self, mock_run, mock_save):
         mock_run.return_value = _make_summary()
+        mock_save.return_value = "/fake/path.json"
 
         engine = StrobEngine.stress_test(url="http://example.com")
         result = engine.run()
@@ -204,9 +213,11 @@ class TestProfileRun:
         mock_run.assert_called_once()
         assert result is not None
 
+    @patch("strobengine.reporter.save_report")
     @patch("strobengine.engine.run_load_profiles")
-    def test_spike_test_run_calls_profiles(self, mock_run):
+    def test_spike_test_run_calls_profiles(self, mock_run, mock_save):
         mock_run.return_value = _make_summary()
+        mock_save.return_value = "/fake/path.json"
 
         engine = StrobEngine.spike_test(url="http://example.com")
         result = engine.run()
