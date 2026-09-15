@@ -210,15 +210,10 @@ def _output_results(
     duration_secs: int,
     config: object | None,
     exports: ExportOptions,
+    saved_report_path: str | None = None,
 ) -> None:
     print_summary(summary, json_output=exports.json_output)
-    if config is not None:
-        from strobengine.reporter import save_report
-
-        filepath = save_report(
-            summary, config, output_dir=exports.output_dir, no_save=exports.no_save
-        )
-        _report_saved(filepath, exports)
+    _report_saved(saved_report_path, exports)
 
     # Compute comparison (runs for both --html and terminal display)
     comparison = None
@@ -328,7 +323,14 @@ def _run_load_test(
         export_csv=None,
         json_output=json_output,
     )
-    _output_results(summary, url, duration, engine.get_config(), exports)
+    _output_results(
+        summary,
+        url,
+        duration,
+        engine.get_config(),
+        exports,
+        saved_report_path=engine.saved_report_path,
+    )
 
 
 # NOTE: CLI Option Duplication
