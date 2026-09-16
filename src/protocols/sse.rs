@@ -32,6 +32,14 @@ pub struct SseSession {
     pub max_events: Option<u64>,
 }
 
+#[async_trait::async_trait]
+impl super::WorkerSession for SseSession {
+    async fn shutdown(&mut self) {}
+    fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
+        self
+    }
+}
+
 impl SseSession {
     fn new(max_events: Option<u64>) -> Self {
         Self {
@@ -322,7 +330,7 @@ impl ProtocolEngine for SseEngine {
     }
 
     /// Persistent mode: return a session for subsequent lazy-connect reads.
-    async fn create_worker_context(&self) -> Option<Box<dyn std::any::Any + Send>> {
+    async fn create_worker_context(&self) -> Option<Box<dyn super::WorkerSession>> {
         Some(Box::new(SseSession::new(self.max_events)))
     }
 
@@ -330,9 +338,9 @@ impl ProtocolEngine for SseEngine {
     async fn execute_iteration_with_context(
         &self,
         target_url: &str,
-        ctx: &mut (dyn std::any::Any + Send),
+        ctx: &mut dyn super::WorkerSession,
     ) -> RequestMetric {
-        let session = match ctx.downcast_mut::<SseSession>() {
+        let session = match ctx.as_any_mut().downcast_mut::<SseSession>() {
             Some(s) => s,
             None => return RequestMetric::error(0),
         };

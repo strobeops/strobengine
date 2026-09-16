@@ -184,6 +184,32 @@ impl PersistentWsSession {
     }
 }
 
+#[async_trait::async_trait]
+impl super::WorkerSession for PersistentWsSession {
+    async fn shutdown(&mut self) {
+        self.close().await;
+    }
+    fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
+        self
+    }
+}
+
+#[async_trait::async_trait]
+impl super::WorkerSession for PublisherSession {
+    async fn shutdown(&mut self) {}
+    fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
+        self
+    }
+}
+
+#[async_trait::async_trait]
+impl super::WorkerSession for SubscriberSession {
+    async fn shutdown(&mut self) {}
+    fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
+        self
+    }
+}
+
 pub struct WebSocketEngine {
     headers: Vec<(String, String)>,
     ws_mode: WsMode,
@@ -612,7 +638,7 @@ impl ProtocolEngine for WebSocketEngine {
         }
     }
 
-    async fn create_worker_context(&self) -> Option<Box<dyn std::any::Any + Send>> {
+    async fn create_worker_context(&self) -> Option<Box<dyn super::WorkerSession>> {
         let timeout = self.effective_timeout();
 
         if self.is_publisher() {
@@ -644,22 +670,22 @@ impl ProtocolEngine for WebSocketEngine {
     async fn execute_iteration_with_context(
         &self,
         target_url: &str,
-        ctx: &mut (dyn std::any::Any + Send),
+        ctx: &mut dyn super::WorkerSession,
     ) -> RequestMetric {
         // Publisher dispatch
-        if let Some(session) = ctx.downcast_mut::<PublisherSession>() {
+        if let Some(session) = ctx.as_any_mut().downcast_mut::<PublisherSession>() {
             return self.execute_publisher_iteration(target_url, session).await;
         }
 
         // Subscriber dispatch
-        if let Some(session) = ctx.downcast_mut::<SubscriberSession>() {
+        if let Some(session) = ctx.as_any_mut().downcast_mut::<SubscriberSession>() {
             return self.execute_subscriber_iteration(target_url, session).await;
         }
 
         // Persistent session dispatch (existing logic)
         let req_start = Instant::now();
 
-        let session = match ctx.downcast_mut::<PersistentWsSession>() {
+        let session = match ctx.as_any_mut().downcast_mut::<PersistentWsSession>() {
             Some(s) => s,
             None => return RequestMetric::error(req_start.elapsed().as_micros()),
         };
