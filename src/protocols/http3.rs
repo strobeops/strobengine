@@ -21,6 +21,14 @@ pub struct Http3Session {
     pub prev_lost_packets: u64,
 }
 
+#[async_trait::async_trait]
+impl super::WorkerSession for Http3Session {
+    async fn shutdown(&mut self) {}
+    fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
+        self
+    }
+}
+
 pub struct Http3Engine {
     endpoint: OnceCell<Endpoint>,
     server_name: String,
@@ -389,7 +397,7 @@ impl ProtocolEngine for Http3Engine {
         }
     }
 
-    async fn create_worker_context(&self) -> Option<Box<dyn std::any::Any + Send>> {
+    async fn create_worker_context(&self) -> Option<Box<dyn super::WorkerSession>> {
         let connecting = self.connect_quic_connecting().await.ok()?;
         let (connection, zero_rtt_accepted, _) = self.connect_with_0rtt(connecting).await.ok()?;
         let send_request = self.setup_h3(connection.clone()).await.ok()?;
@@ -405,11 +413,11 @@ impl ProtocolEngine for Http3Engine {
     async fn execute_iteration_with_context(
         &self,
         _target_url: &str,
-        ctx: &mut (dyn std::any::Any + Send),
+        ctx: &mut dyn super::WorkerSession,
     ) -> RequestMetric {
         let req_start = Instant::now();
 
-        let session = match ctx.downcast_mut::<Http3Session>() {
+        let session = match ctx.as_any_mut().downcast_mut::<Http3Session>() {
             Some(s) => s,
             None => return RequestMetric::error(req_start.elapsed().as_micros()),
         };

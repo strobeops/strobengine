@@ -205,15 +205,13 @@ fn spawn_worker(
             let _ = tx.send(metric).await;
         }
 
-        // Clean up persistent session if any (with timeout)
-        if let Some(mut ctx) = worker_ctx
-            && let Some(session) =
-                ctx.downcast_mut::<crate::protocols::websocket::PersistentWsSession>()
-            && tokio::time::timeout(timeout_dur, session.close())
+        // Clean up session via polymorphic shutdown (with timeout)
+        if let Some(mut session) = worker_ctx
+            && tokio::time::timeout(timeout_dur, session.shutdown())
                 .await
                 .is_err()
         {
-            tracing::warn!(?timeout_dur, "worker session close timed out");
+            tracing::warn!(?timeout_dur, "worker session shutdown timed out");
         }
     })
 }

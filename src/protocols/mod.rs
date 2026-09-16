@@ -70,7 +70,7 @@ pub trait ProtocolEngine: Send + Sync {
 
     /// Create worker-local context (session) for persistent connections.
     /// Returns None for stateless protocols (HTTP, gRPC).
-    async fn create_worker_context(&self) -> Option<Box<dyn std::any::Any + Send>> {
+    async fn create_worker_context(&self) -> Option<Box<dyn WorkerSession>> {
         None
     }
 
@@ -79,10 +79,21 @@ pub trait ProtocolEngine: Send + Sync {
     async fn execute_iteration_with_context(
         &self,
         target_url: &str,
-        _ctx: &mut (dyn std::any::Any + Send),
+        _ctx: &mut dyn WorkerSession,
     ) -> RequestMetric {
         self.execute_iteration(target_url).await
     }
+}
+
+/// A typed worker session with explicit async teardown.
+/// Replaces `Box<dyn Any>` context to eliminate orchestrator downcasting.
+#[async_trait]
+pub trait WorkerSession: Send + 'static {
+    /// Protocol-specific async teardown (e.g., sending close frames, draining streams).
+    async fn shutdown(&mut self);
+
+    /// Downcast support for engine-internal dispatch.
+    fn as_any_mut(&mut self) -> &mut dyn std::any::Any;
 }
 
 /// Detect the appropriate protocol engine from the URL scheme and config.
