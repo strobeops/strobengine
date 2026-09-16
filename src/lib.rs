@@ -146,13 +146,26 @@ fn spawn_worker(
     tx: tokio::sync::mpsc::Sender<RequestMetric>,
     token: CancellationToken,
     duration: Duration,
+    timeout_secs: u64,
 ) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
         let _guard = WorkerGuard(Arc::clone(&counters));
         counters.active_workers.fetch_add(1, Ordering::Relaxed);
 
-        // Create worker-local context for persistent connections
-        let mut worker_ctx = engine.create_worker_context().await;
+        let timeout_dur = Duration::from_secs(if timeout_secs > 0 { timeout_secs } else { 5 });
+
+        // Create worker-local context for persistent connections (with timeout)
+        let mut worker_ctx =
+            match tokio::time::timeout(timeout_dur, engine.create_worker_context()).await {
+                Ok(ctx) => ctx,
+                Err(_) => {
+                    tracing::warn!(
+                        ?timeout_dur,
+                        "worker context creation timed out, falling back to stateless mode"
+                    );
+                    None
+                }
+            };
 
         let start = Instant::now();
         while start.elapsed() < duration && !token.is_cancelled() {
@@ -192,12 +205,15 @@ fn spawn_worker(
             let _ = tx.send(metric).await;
         }
 
-        // Clean up persistent session if any
+        // Clean up persistent session if any (with timeout)
         if let Some(mut ctx) = worker_ctx
             && let Some(session) =
                 ctx.downcast_mut::<crate::protocols::websocket::PersistentWsSession>()
+            && tokio::time::timeout(timeout_dur, session.close())
+                .await
+                .is_err()
         {
-            session.close().await;
+            tracing::warn!(?timeout_dur, "worker session close timed out");
         }
     })
 }
@@ -207,6 +223,7 @@ async fn execute_test(
     url: String,
     no_progress: bool,
     strategy: ConcurrencyStrategy,
+    timeout_secs: u64,
 ) -> PyResult<metrics::TestSummary> {
     tracing::debug!("protocol engine initialized");
 
@@ -283,6 +300,7 @@ async fn execute_test(
                     tx.clone(),
                     cancel_token.clone(),
                     duration,
+                    timeout_secs,
                 ));
             }
 
@@ -306,6 +324,7 @@ async fn execute_test(
             let url_clone = url.clone();
             let cancel_clone = cancel_token.clone();
             let tx_supervisor = tx.clone();
+            let timeout_clone = timeout_secs;
 
             // Drop outer tx so supervisor/children control sender lifetime
             drop(tx);
@@ -336,6 +355,7 @@ async fn execute_test(
                             tx_supervisor.clone(),
                             child_token.clone(),
                             remaining,
+                            timeout_clone,
                         );
 
                         child_tokens.push(child_token);
@@ -488,7 +508,13 @@ fn run_load_test(py: Python<'_>, config: TestConfig) -> PyResult<metrics::TestSu
             .build()
             .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
 
-        let summary = rt.block_on(execute_test(engine, url, no_progress, strategy))?;
+        let summary = rt.block_on(execute_test(
+            engine,
+            url,
+            no_progress,
+            strategy,
+            config.timeout_secs,
+        ))?;
 
         Ok(summary)
     })
@@ -581,7 +607,13 @@ fn run_load_profiles(
             .build()
             .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
 
-        rt.block_on(execute_test(engine, url, no_progress, strategy))
+        rt.block_on(execute_test(
+            engine,
+            url,
+            no_progress,
+            strategy,
+            timeout_secs,
+        ))
     })
 }
 
