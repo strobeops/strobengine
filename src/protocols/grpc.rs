@@ -146,18 +146,26 @@ impl GrpcEngine {
                 (bytes, Some(schema))
             } else {
                 // Decode payload: try hex (0x prefix) first, then base64
-                let payload = grpc_payload
-                    .as_deref()
-                    .map(|s| {
+                let payload = match grpc_payload.as_deref() {
+                    Some(s) => {
                         if let Some(hex_str) = s.strip_prefix("0x") {
-                            hex::decode(hex_str).unwrap_or_default()
+                            hex::decode(hex_str).map_err(|e| {
+                                crate::protocols::grpc_parser::ProtoError::EncodeError(format!(
+                                    "invalid hex payload '{hex_str}': {e}"
+                                ))
+                            })?
                         } else {
                             base64::engine::general_purpose::STANDARD
                                 .decode(s)
-                                .unwrap_or_default()
+                                .map_err(|e| {
+                                    crate::protocols::grpc_parser::ProtoError::EncodeError(format!(
+                                        "invalid base64 payload: {e}"
+                                    ))
+                                })?
                         }
-                    })
-                    .unwrap_or_default();
+                    }
+                    None => Vec::new(),
+                };
                 (payload, None)
             };
 
@@ -393,7 +401,7 @@ mod tests {
 
     #[test]
     fn test_empty_payload_on_invalid_base64() {
-        let engine = GrpcEngine::new(
+        let result = GrpcEngine::new(
             "grpc://127.0.0.1:50051",
             vec![],
             ChaosEngine::default(),
@@ -403,9 +411,15 @@ mod tests {
             None,
             None,
             false,
-        )
-        .unwrap();
-        assert!(engine.payload.is_empty());
+        );
+        let err_msg = match result {
+            Ok(_) => panic!("expected error for invalid base64 payload"),
+            Err(e) => e.to_string(),
+        };
+        assert!(
+            err_msg.contains("invalid base64 payload"),
+            "unexpected error: {err_msg}"
+        );
     }
 
     #[test]
