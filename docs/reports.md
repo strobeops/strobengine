@@ -12,12 +12,12 @@ to disk by default.
 | Property | Value |
 |----------|-------|
 | Default directory | `./.strobengine/reports/` |
-| Filename pattern | `report_YYYYMMDD_HHMMSS_<host>.json` |
+| Filename pattern | `{timestamp}_{slug}.json` (e.g., `2026-08-28T10_00_00+00_00_localhost_8080.json`) |
 | Atomic writes | Yes — tmp file + rename prevents corruption |
 | `latest.json` pointer | Yes — tracks most recent report |
 
-Reports are written by both the Rust engine (`run_load_test`) and
-the Python reporter (`save_report`).
+Reports are written by the Python reporter (`save_report`) inside
+`StrobEngine.run()` with atomic writes and `latest.json` pointer management.
 
 ## Configuration Flags
 
