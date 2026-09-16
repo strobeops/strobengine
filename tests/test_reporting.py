@@ -43,6 +43,7 @@ def _make_summary(**kwargs):
         "std_dev_latency_ms": 0.5,
         "p99_99_latency_ms": 9.5,
         "latency_histogram": {"<1ms": 10, "1-5ms": 50, "5-10ms": 40},
+        "to_dict": lambda: {"quic": None, "sse": None},
     }
     defaults.update(kwargs)
     for k, v in defaults.items():
@@ -182,6 +183,29 @@ class TestArtifactSchemaConsistency:
         assert "mean_us" in lp
         assert "std_dev_us" in lp
 
+    def test_empty_status_codes(self):
+        artifact = build_artifact_dict(_make_summary(status_codes={}), _make_config())
+        assert artifact["error_breakdown"] == {}
+
+    def test_optional_quic_metrics_absent_when_none(self):
+        artifact = build_artifact_dict(_make_summary(), _make_config())
+        assert artifact["quic"] is None
+
+    def test_optional_sse_metrics_absent_when_none(self):
+        artifact = build_artifact_dict(_make_summary(), _make_config())
+        assert artifact["sse"] is None
+
+    def test_zero_duration_no_division_error(self):
+        artifact = build_artifact_dict(_make_summary(duration_secs=0), _make_config())
+        assert artifact["summary"]["rps"] == 0.0
+
+    def test_latencies_converted_to_microseconds(self):
+        summary = _make_summary(average_latency_ms=1.5, p95_latency_ms=3.0)
+        artifact = build_artifact_dict(summary, _make_config())
+        lp = artifact["latency_percentiles"]
+        assert lp["mean_us"] == 1500.0
+        assert lp["p95_us"] == 3000.0
+
 
 class TestRustDictParity:
     """Verify fallback path produces correct schema.
@@ -223,6 +247,17 @@ class TestRustDictParity:
         artifact = build_artifact_dict(_make_summary(), _make_config())
         assert "latency_histogram" in artifact
         assert isinstance(artifact["latency_histogram"], dict)
+
+    def test_fallback_zero_requests_no_crash(self):
+        summary = _make_summary(
+            total_requests=0,
+            total_errors=0,
+            status_codes={},
+            latency_histogram={},
+        )
+        artifact = build_artifact_dict(summary, _make_config())
+        assert artifact["summary"]["rps"] == 0.0
+        assert artifact["error_breakdown"] == {}
 
 
 class TestMarkdownReportFile:
