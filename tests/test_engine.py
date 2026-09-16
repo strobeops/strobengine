@@ -144,7 +144,10 @@ class TestStressTestFactory:
         )
         assert engine._url == "http://example.com"
         assert engine._profile is not None
-        assert engine.config is None
+        assert engine.config is not None
+        assert engine.config.url == "http://example.com"
+        assert engine.config.concurrency == 200  # max_concurrency
+        assert engine.config.duration_secs == 90  # ramp + hold
 
     def test_stress_test_invalid_start(self):
         with pytest.raises(
@@ -185,7 +188,10 @@ class TestSpikeTestFactory:
         )
         assert engine._url == "http://example.com"
         assert engine._profile is not None
-        assert engine.config is None
+        assert engine.config is not None
+        assert engine.config.url == "http://example.com"
+        assert engine.config.concurrency == 500  # peak_concurrency
+        assert engine.config.duration_secs == 20  # pre + spike + post
 
     def test_spike_test_invalid_baseline(self):
         with pytest.raises(ValueError, match="baseline must be greater than 0"):

@@ -53,6 +53,8 @@ _REQUEST_FIELDS = frozenset(
         "no_progress",
         "ws_mode",
         "ws_payload",
+        "ws_persistent",
+        "ws_keepalive_secs",
         "ws_role",
         "ws_publish_interval_ms",
         "ws_subscribers",
@@ -274,6 +276,8 @@ def _build_request_options(**kwargs: object) -> RequestOptions:
         no_progress=kwargs["no_progress"],
         ws_mode=WsModeEnum(ws_mode_raw) if ws_mode_raw else WsModeEnum.handshake,
         ws_payload=kwargs.get("ws_payload"),
+        ws_persistent=kwargs.get("ws_persistent", False),
+        ws_keepalive_secs=kwargs.get("ws_keepalive_secs"),
         ws_role=ws_role_raw.value if hasattr(ws_role_raw, "value") else ws_role_raw,
         ws_publish_interval_ms=kwargs.get("ws_publish_interval_ms"),
         ws_subscribers=kwargs.get("ws_subscribers"),
@@ -409,6 +413,19 @@ def load(
     ws_payload: Annotated[
         str | None,
         typer.Option("--ws-payload", help="WebSocket payload for stream mode"),
+    ] = None,
+    ws_persistent: Annotated[
+        bool,
+        typer.Option(
+            "--ws-persistent/--no-ws-persistent",
+            help="Use persistent WebSocket connections",
+        ),
+    ] = False,
+    ws_keepalive_secs: Annotated[
+        int | None,
+        typer.Option(
+            "--ws-keepalive-secs", help="WebSocket keepalive interval in seconds"
+        ),
     ] = None,
     ws_role: Annotated[
         WsRole | None,
@@ -591,6 +608,19 @@ def stress(
     ws_payload: Annotated[
         str | None,
         typer.Option("--ws-payload", help="WebSocket payload for stream mode"),
+    ] = None,
+    ws_persistent: Annotated[
+        bool,
+        typer.Option(
+            "--ws-persistent/--no-ws-persistent",
+            help="Use persistent WebSocket connections",
+        ),
+    ] = False,
+    ws_keepalive_secs: Annotated[
+        int | None,
+        typer.Option(
+            "--ws-keepalive-secs", help="WebSocket keepalive interval in seconds"
+        ),
     ] = None,
     ws_role: Annotated[
         WsRole | None,
@@ -781,6 +811,19 @@ def spike(
     ws_payload: Annotated[
         str | None,
         typer.Option("--ws-payload", help="WebSocket payload for stream mode"),
+    ] = None,
+    ws_persistent: Annotated[
+        bool,
+        typer.Option(
+            "--ws-persistent/--no-ws-persistent",
+            help="Use persistent WebSocket connections",
+        ),
+    ] = False,
+    ws_keepalive_secs: Annotated[
+        int | None,
+        typer.Option(
+            "--ws-keepalive-secs", help="WebSocket keepalive interval in seconds"
+        ),
     ] = None,
     ws_role: Annotated[
         WsRole | None,
