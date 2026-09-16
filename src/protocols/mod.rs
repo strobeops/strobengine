@@ -14,6 +14,39 @@ use crate::chaos::ChaosEngine;
 use crate::config::TestConfig;
 use crate::metrics::RequestMetric;
 
+/// Errors that can occur during protocol engine construction.
+#[derive(Debug)]
+pub enum SetupError {
+    /// gRPC engine construction failed (proto compilation, endpoint, payload encoding, etc.)
+    Grpc(crate::protocols::grpc_parser::ProtoError),
+    /// HTTP/3 engine construction failed (URL parse, QUIC setup, etc.)
+    Http3(String),
+}
+
+impl std::fmt::Display for SetupError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Grpc(e) => write!(f, "gRPC setup failed: {e}"),
+            Self::Http3(e) => write!(f, "HTTP/3 setup failed: {e}"),
+        }
+    }
+}
+
+impl std::error::Error for SetupError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Grpc(e) => Some(e),
+            _ => None,
+        }
+    }
+}
+
+impl From<crate::protocols::grpc_parser::ProtoError> for SetupError {
+    fn from(err: crate::protocols::grpc_parser::ProtoError) -> Self {
+        Self::Grpc(err)
+    }
+}
+
 /// Returns whether the provided URL scheme matches a non-HTTP protocol engine.
 pub fn is_protocol_url(url: &str) -> bool {
     url.starts_with("ws://")
@@ -53,11 +86,15 @@ pub trait ProtocolEngine: Send + Sync {
 }
 
 /// Detect the appropriate protocol engine from the URL scheme and config.
+///
+/// Returns `Err(SetupError)` if the engine cannot be constructed (e.g., bad
+/// proto path, invalid QUIC scheme, malformed payload). Callers must propagate
+/// the error rather than silently falling back to a degraded engine.
 pub fn detect_protocol(
     url: &str,
     config: &TestConfig,
     chaos: ChaosEngine,
-) -> Arc<dyn ProtocolEngine> {
+) -> Result<Arc<dyn ProtocolEngine>, SetupError> {
     if url.starts_with("ws://") || url.starts_with("wss://") {
         let engine = websocket::WebSocketEngine::new(
             config.headers.clone().unwrap_or_default(),
@@ -70,9 +107,9 @@ pub fn detect_protocol(
             config.ws_max_messages,
         )
         .with_role(config.ws_role.clone(), config.ws_publish_interval_ms);
-        Arc::new(engine)
+        Ok(Arc::new(engine))
     } else if url.starts_with("grpc://") || url.starts_with("grpcs://") {
-        match grpc::GrpcEngine::new(
+        let engine = grpc::GrpcEngine::new(
             url,
             config.headers.clone().unwrap_or_default(),
             chaos,
@@ -82,15 +119,10 @@ pub fn detect_protocol(
             config.grpc_deadline_ms,
             config.proto_path.clone(),
             config.grpc_use_reflection,
-        ) {
-            Ok(engine) => Arc::new(engine),
-            Err(e) => {
-                tracing::warn!(error = %e, "failed to create gRPC engine, falling back to HTTP");
-                Arc::new(http::HttpEngine::new())
-            }
-        }
+        )?;
+        Ok(Arc::new(engine))
     } else if url.starts_with("http3://") || url.starts_with("h3://") {
-        match http3::Http3Engine::new(
+        let engine = http3::Http3Engine::new(
             url,
             config.headers.clone().unwrap_or_default(),
             config.method.clone(),
@@ -98,27 +130,133 @@ pub fn detect_protocol(
             chaos,
             config.quic_max_idle_timeout_ms,
             config.quic_zero_rtt,
-        ) {
-            Ok(engine) => Arc::new(engine),
-            Err(e) => {
-                tracing::warn!(error = %e, "failed to create HTTP/3 engine, falling back to HTTP/1.1");
-                Arc::new(http::HttpEngine::new())
-            }
-        }
+        )
+        .map_err(SetupError::Http3)?;
+        Ok(Arc::new(engine))
     } else if url.starts_with("sse://") || url.starts_with("sses://") {
         let engine = sse::SseEngine::new(
             config.headers.clone().unwrap_or_default(),
             chaos,
             config.sse_max_events,
         );
-        Arc::new(engine)
+        Ok(Arc::new(engine))
     } else if config.sse_enabled {
-        Arc::new(sse::SseEngine::new(
+        Ok(Arc::new(sse::SseEngine::new(
             config.headers.clone().unwrap_or_default(),
             chaos,
             config.sse_max_events,
-        ))
+        )))
     } else {
-        Arc::new(http::HttpEngine::new())
+        Ok(Arc::new(http::HttpEngine::new()))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn grpc_config(proto_path: Option<String>, payload: Option<String>) -> TestConfig {
+        let mut config =
+            TestConfig::for_protocol_detection("grpc://127.0.0.1:50051".into(), 1, 10, 10);
+        config.grpc_service = Some("pkg.Svc".into());
+        config.grpc_method = Some("Method".into());
+        config.grpc_payload = payload;
+        config.proto_path = proto_path;
+        config
+    }
+
+    fn http3_config() -> TestConfig {
+        TestConfig::for_protocol_detection("http3://".into(), 1, 10, 10)
+    }
+
+    fn ws_config() -> TestConfig {
+        TestConfig::for_protocol_detection("ws://127.0.0.1:8080".into(), 1, 10, 10)
+    }
+
+    fn sse_config() -> TestConfig {
+        TestConfig::for_protocol_detection("sse://127.0.0.1:8080".into(), 1, 10, 10)
+    }
+
+    #[test]
+    fn test_grpc_bad_proto_path_returns_err() {
+        let config = grpc_config(Some("/nonexistent/path.proto".into()), Some("{}".into()));
+        let result = detect_protocol("grpc://127.0.0.1:50051", &config, ChaosEngine::default());
+        let err_msg = match result {
+            Ok(_) => panic!("expected error, got Ok"),
+            Err(e) => e.to_string(),
+        };
+        assert!(
+            err_msg.contains("gRPC setup failed"),
+            "unexpected error: {err_msg}"
+        );
+    }
+
+    #[test]
+    fn test_grpc_bad_hex_payload_returns_err() {
+        let config = grpc_config(None, Some("0xZZZZ".into()));
+        let result = detect_protocol("grpc://127.0.0.1:50051", &config, ChaosEngine::default());
+        let err_msg = match result {
+            Ok(_) => panic!("expected error, got Ok"),
+            Err(e) => e.to_string(),
+        };
+        assert!(
+            err_msg.contains("gRPC setup failed"),
+            "unexpected error: {err_msg}"
+        );
+    }
+
+    #[test]
+    fn test_grpc_bad_base64_payload_returns_err() {
+        let config = grpc_config(None, Some("not-valid-base64!!!".into()));
+        let result = detect_protocol("grpc://127.0.0.1:50051", &config, ChaosEngine::default());
+        let err_msg = match result {
+            Ok(_) => panic!("expected error, got Ok"),
+            Err(e) => e.to_string(),
+        };
+        assert!(
+            err_msg.contains("gRPC setup failed"),
+            "unexpected error: {err_msg}"
+        );
+    }
+
+    #[test]
+    fn test_http3_bad_url_returns_err() {
+        let config = http3_config();
+        let result = detect_protocol("http3://", &config, ChaosEngine::default());
+        let err_msg = match result {
+            Ok(_) => panic!("expected error, got Ok"),
+            Err(e) => e.to_string(),
+        };
+        assert!(
+            err_msg.contains("HTTP/3 setup failed"),
+            "unexpected error: {err_msg}"
+        );
+    }
+
+    #[test]
+    fn test_valid_http_returns_ok() {
+        let config = TestConfig::for_protocol_detection("http://127.0.0.1:8080".into(), 1, 10, 10);
+        assert!(
+            detect_protocol("http://127.0.0.1:8080", &config, ChaosEngine::default()).is_ok(),
+            "expected Ok for valid HTTP"
+        );
+    }
+
+    #[test]
+    fn test_valid_ws_returns_ok() {
+        let config = ws_config();
+        assert!(
+            detect_protocol("ws://127.0.0.1:8080", &config, ChaosEngine::default()).is_ok(),
+            "expected Ok for valid WebSocket"
+        );
+    }
+
+    #[test]
+    fn test_valid_sse_returns_ok() {
+        let config = sse_config();
+        assert!(
+            detect_protocol("sse://127.0.0.1:8080", &config, ChaosEngine::default()).is_ok(),
+            "expected Ok for valid SSE"
+        );
     }
 }

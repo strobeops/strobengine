@@ -437,6 +437,7 @@ fn run_load_test(py: Python<'_>, config: TestConfig) -> PyResult<metrics::TestSu
         let engine: Arc<dyn ProtocolEngine> =
             if protocols::is_protocol_url(&url) || config.sse_enabled {
                 protocols::detect_protocol(&url, &config, chaos)
+                    .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?
             } else {
                 let method = parse_method(&config.method)?;
                 let body = parse_body(config.body.as_deref());
@@ -560,6 +561,7 @@ fn run_load_profiles(
                 timeout_secs,
             );
             protocols::detect_protocol(&url, &ws_config, chaos_engine)
+                .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?
         } else {
             let client = build_client(profile.max_concurrency(), timeout_secs, header_map)
                 .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
