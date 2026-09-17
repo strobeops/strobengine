@@ -100,10 +100,10 @@ This document outlines the planned trajectory and upcoming feature epics for **s
   - [x] Add p99.99 percentile
   - [x] Add latency histogram buckets for distribution visualization
 
-- [ ] **Client System Resource Monitoring** `[v0.7.0]`
-  - [ ] Track engine CPU %, memory (RSS), thread count during test
-  - [ ] Sample at configurable interval (e.g., every 1s)
-  - [ ] Include in JSON report artifact and HTML visualization
+- [x] **Client System Resource Monitoring** `[v0.7.0]`
+  - [x] Track engine CPU %, memory (RSS), thread count during test
+  - [x] Sample at configurable interval via `--sys-sample-interval` (default 1000ms, 0 to disable)
+  - [x] Include in JSON report artifact (`system_metrics` field) and HTML visualization (dual-axis Chart.js line chart)
 
 - [ ] **Connection Pool Metrics** `[v0.7.0]`
   - [ ] Track socket creation rate vs reuse rate
