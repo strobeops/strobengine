@@ -101,6 +101,21 @@ class TestConfig:
         sys_sample_interval: int = 1000,
     ) -> None: ...
 
+class SystemMetrics:
+    peak_cpu_percent: float
+    avg_cpu_percent: float
+    peak_memory_rss_bytes: int
+    avg_memory_rss_bytes: int
+    peak_thread_count: int
+    time_series: list[ResourceSample]
+
+class ResourceSample:
+    timestamp_us: int
+    cpu_usage_percent: float
+    memory_rss_bytes: int
+    thread_count: int
+    open_fds: int | None
+
 class QuicMetrics:
     @property
     def zero_rtt_accepted_count(self) -> int: ...
@@ -167,6 +182,8 @@ class TestSummary:
     def p99_99_latency_ms(self) -> float: ...
     @property
     def latency_histogram(self) -> dict[str, int]: ...
+    @property
+    def system_metrics(self) -> SystemMetrics | None: ...
     def to_dict(self) -> dict[str, Any]: ...
     def to_json(self, indent: int | None = None) -> str: ...
 

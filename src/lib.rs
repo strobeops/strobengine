@@ -645,6 +645,8 @@ fn _strobengine(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<config::LoadProfile>()?;
     m.add_class::<config::WsMode>()?;
     m.add_class::<metrics::TestSummary>()?;
+    m.add_class::<metrics::system::SystemMetrics>()?;
+    m.add_class::<metrics::system::ResourceSample>()?;
     m.add("HISTOGRAM_BUCKET_ORDER", metrics::HISTOGRAM_BUCKET_ORDER)?;
     Ok(())
 }
