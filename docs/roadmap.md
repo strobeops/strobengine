@@ -33,7 +33,7 @@ This document outlines the planned trajectory and upcoming feature epics for **s
 
 - [x] Interactive CLI progress indicators (live RPS, active virtual users, latency feed). `[v0.2.0]`
 - [ ] ~~Real-time telemetry dashboard / TUI integration.~~ *(Postponed: Python scripting is primary runner; CLI is for quick drafts only)*
-- [ ] ~~Improved streaming metrics collection to minimize memory overhead during long runs.~~ *(Deferred until $O(1)$ memory metrics are required for multi-hour runs)*
+- [ ] ~~Improved streaming metrics collection to minimize memory overhead during long runs.~~ *(Completed: replaced unbounded Vec<u128> with hdrhistogram::Histogram<u64> for O(1) memory)*
 
 ---
 

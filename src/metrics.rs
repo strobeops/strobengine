@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, AtomicUsize};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use hdrhistogram::Histogram;
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
 use tokio::sync::mpsc;
@@ -9,18 +10,51 @@ use tokio::sync::mpsc;
 /// Conversion factor from microseconds to milliseconds (1 ms = 1,000 us).
 pub const MICROS_PER_MILLI: f64 = 1_000.0;
 
+/// Highest trackable value for HDR histograms (1 hour in microseconds).
+const HISTOGRAM_HIGHEST_TRACKABLE: u64 = 3_600_000_000;
+/// Significant figures for HDR histogram precision.
+const HISTOGRAM_SIGNIFICANT_FIGURES: u8 = 3;
+
 /// Intermediate aggregated values collected from the metrics channel.
-#[derive(Debug, Default)]
+/// Uses fixed-memory HDR Histograms instead of unbounded Vec<u128>.
 pub struct AggregatedMetrics {
-    pub latencies: Vec<u128>,
-    pub e2e_latencies: Vec<u128>,
-    pub connection_latencies: Vec<u128>,
+    pub latency_histogram: Histogram<u64>,
+    pub e2e_latency_histogram: Histogram<u64>,
+    pub connection_latency_histogram: Histogram<u64>,
     pub status_codes: HashMap<u16, u64>,
     pub total_bytes: u64,
     pub quic_metrics: Option<QuicMetrics>,
     pub sse_metrics: Option<SseMetrics>,
     pub chaos_injected_total: u64,
     pub chaos_faults_by_type: HashMap<String, u64>,
+}
+
+impl Default for AggregatedMetrics {
+    fn default() -> Self {
+        Self {
+            latency_histogram: Histogram::new_with_max(
+                HISTOGRAM_HIGHEST_TRACKABLE,
+                HISTOGRAM_SIGNIFICANT_FIGURES,
+            )
+            .unwrap(),
+            e2e_latency_histogram: Histogram::new_with_max(
+                HISTOGRAM_HIGHEST_TRACKABLE,
+                HISTOGRAM_SIGNIFICANT_FIGURES,
+            )
+            .unwrap(),
+            connection_latency_histogram: Histogram::new_with_max(
+                HISTOGRAM_HIGHEST_TRACKABLE,
+                HISTOGRAM_SIGNIFICANT_FIGURES,
+            )
+            .unwrap(),
+            status_codes: HashMap::new(),
+            total_bytes: 0,
+            quic_metrics: None,
+            sse_metrics: None,
+            chaos_injected_total: 0,
+            chaos_faults_by_type: HashMap::new(),
+        }
+    }
 }
 
 /// Get current wall-clock time in nanoseconds since UNIX epoch.
@@ -231,24 +265,6 @@ impl TestSummary {
     }
 }
 
-/// Calculate standard deviation of latencies in microseconds.
-/// Returns 0.0 if fewer than 2 values.
-fn calculate_std_dev_us(latencies: &[u128]) -> f64 {
-    if latencies.len() < 2 {
-        return 0.0;
-    }
-    let mean = latencies.iter().sum::<u128>() as f64 / latencies.len() as f64;
-    let variance = latencies
-        .iter()
-        .map(|&x| {
-            let diff = x as f64 - mean;
-            diff * diff
-        })
-        .sum::<f64>()
-        / latencies.len() as f64;
-    variance.sqrt()
-}
-
 /// Canonical bucket order for latency histograms.
 pub const HISTOGRAM_BUCKET_ORDER: &[&str] = &[
     "<1ms",
@@ -263,25 +279,14 @@ pub const HISTOGRAM_BUCKET_ORDER: &[&str] = &[
     ">1000ms",
 ];
 
-/// Compute latency histogram from sorted latencies (in microseconds).
-fn calculate_histogram(latencies: &[u128]) -> HashMap<String, u64> {
+/// Convert an HDR histogram into the 10-bucket display format.
+fn calculate_histogram_from_hdr(hist: &Histogram<u64>) -> HashMap<String, u64> {
     let mut buckets: HashMap<String, u64> = HashMap::new();
-
-    // Initialize exact bucket keys matching the output schema
-    buckets.insert("<1ms".to_string(), 0);
-    buckets.insert("1-5ms".to_string(), 0);
-    buckets.insert("5-10ms".to_string(), 0);
-    buckets.insert("10-25ms".to_string(), 0);
-    buckets.insert("25-50ms".to_string(), 0);
-    buckets.insert("50-100ms".to_string(), 0);
-    buckets.insert("100-250ms".to_string(), 0);
-    buckets.insert("250-500ms".to_string(), 0);
-    buckets.insert("500-1000ms".to_string(), 0);
-    buckets.insert(">1000ms".to_string(), 0);
-
-    // Classify latencies into buckets
-    for &lat in latencies {
-        let ms = lat as f64 / MICROS_PER_MILLI;
+    for key in HISTOGRAM_BUCKET_ORDER {
+        buckets.insert(key.to_string(), 0);
+    }
+    for v in hist.iter_recorded() {
+        let ms = v.value_iterated_to() as f64 / MICROS_PER_MILLI;
         let bucket_key = if ms < 1.0 {
             "<1ms"
         } else if ms < 5.0 {
@@ -303,10 +308,8 @@ fn calculate_histogram(latencies: &[u128]) -> HashMap<String, u64> {
         } else {
             ">1000ms"
         };
-
-        *buckets.get_mut(bucket_key).unwrap() += 1;
+        *buckets.entry(bucket_key.to_string()).or_insert(0) += v.count_at_value();
     }
-
     buckets
 }
 
@@ -315,13 +318,13 @@ pub struct SummaryInput {
     pub url: String,
     pub total_requests: u64,
     pub total_errors: u64,
-    pub latencies: Vec<u128>,
+    pub latency_histogram: Histogram<u64>,
     pub total_bytes: u64,
     pub duration_secs: f64,
     pub workers: usize,
     pub status_codes: HashMap<u16, u64>,
-    pub e2e_latencies: Vec<u128>,
-    pub connection_latencies: Vec<u128>,
+    pub e2e_latency_histogram: Histogram<u64>,
+    pub connection_latency_histogram: Histogram<u64>,
     pub quic_metrics: Option<QuicMetrics>,
     pub sse_metrics: Option<SseMetrics>,
     pub chaos_injected_total: u64,
@@ -329,23 +332,31 @@ pub struct SummaryInput {
 }
 
 /// Finalize metric aggregation from a receiver channel.
-/// Returns aggregated metrics as a tuple for the caller to construct SummaryInput.
+/// Returns aggregated metrics using fixed-memory HDR Histograms.
 pub async fn finalize_metrics(mut rx: mpsc::Receiver<RequestMetric>) -> AggregatedMetrics {
     let mut metrics = AggregatedMetrics::default();
     let mut quic_stats = QuicMetrics::default();
     let mut sse_stats = SseMetrics::default();
     let mut has_quic = false;
-    let mut quic_handshakes = Vec::new();
-    let mut sse_first_events = Vec::new();
+    let mut quic_handshake_sum_us: u64 = 0;
+    let mut quic_handshake_count: u64 = 0;
+    let mut sse_first_event_sum_us: u64 = 0;
+    let mut sse_first_event_count: u64 = 0;
 
     while let Some(metric) = rx.recv().await {
-        metrics.latencies.push(metric.latency_micros);
+        // Record latencies into fixed-memory histograms (safe u128->u64 clamping)
+        let lat = u64::try_from(metric.latency_micros).unwrap_or(u64::MAX);
+        metrics.latency_histogram.saturating_record(lat);
+
         if let Some(e2e) = metric.connection.e2e_latency_us {
-            metrics.e2e_latencies.push(e2e);
+            let v = u64::try_from(e2e).unwrap_or(u64::MAX);
+            metrics.e2e_latency_histogram.saturating_record(v);
         }
         if let Some(conn) = metric.connection.connection_latency_us {
-            metrics.connection_latencies.push(conn);
+            let v = u64::try_from(conn).unwrap_or(u64::MAX);
+            metrics.connection_latency_histogram.saturating_record(v);
         }
+
         // QUIC aggregation
         if metric.quic_handshake_us.is_some()
             || metric.quic_0rtt_used
@@ -359,16 +370,20 @@ pub async fn finalize_metrics(mut rx: mpsc::Receiver<RequestMetric>) -> Aggregat
                 quic_stats.retransmissions += retrans;
             }
             if let Some(handshake) = metric.quic_handshake_us {
-                quic_handshakes.push(handshake);
+                quic_handshake_sum_us += handshake;
+                quic_handshake_count += 1;
             }
         }
+
         // SSE aggregation
         if let Some(events) = metric.sse_events_received {
             sse_stats.total_events_received += events;
         }
         if let Some(first) = metric.sse_first_event_us {
-            sse_first_events.push(first);
+            sse_first_event_sum_us += first;
+            sse_first_event_count += 1;
         }
+
         // Chaos aggregation
         if let Some(ref fault) = metric.chaos_fault {
             metrics.chaos_injected_total += 1;
@@ -381,20 +396,20 @@ pub async fn finalize_metrics(mut rx: mpsc::Receiver<RequestMetric>) -> Aggregat
         metrics.total_bytes += metric.bytes_received;
     }
 
-    // Compute QUIC avg handshake (convert us to ms)
-    if !quic_handshakes.is_empty() {
-        let sum: u64 = quic_handshakes.iter().sum();
-        quic_stats.avg_handshake_ms = Some((sum as f64 / quic_handshakes.len() as f64) / 1000.0);
+    // Compute QUIC avg handshake via O(1) running counters
+    if quic_handshake_count > 0 {
+        quic_stats.avg_handshake_ms =
+            Some((quic_handshake_sum_us as f64 / quic_handshake_count as f64) / 1000.0);
     }
 
-    // Compute SSE avg TTFB (convert us to ms)
-    if !sse_first_events.is_empty() {
-        let sum: u64 = sse_first_events.iter().sum();
-        sse_stats.avg_ttfb_ms = Some((sum as f64 / sse_first_events.len() as f64) / 1000.0);
+    // Compute SSE avg TTFB via O(1) running counters
+    if sse_first_event_count > 0 {
+        sse_stats.avg_ttfb_ms =
+            Some((sse_first_event_sum_us as f64 / sse_first_event_count as f64) / 1000.0);
     }
 
     metrics.quic_metrics = if has_quic { Some(quic_stats) } else { None };
-    metrics.sse_metrics = if sse_stats.total_events_received > 0 || !sse_first_events.is_empty() {
+    metrics.sse_metrics = if sse_stats.total_events_received > 0 || sse_first_event_count > 0 {
         Some(sse_stats)
     } else {
         None
@@ -404,21 +419,19 @@ pub async fn finalize_metrics(mut rx: mpsc::Receiver<RequestMetric>) -> Aggregat
 }
 
 pub fn calculate_summary(input: SummaryInput) -> TestSummary {
-    let avg_e2e_latency_us = if input.e2e_latencies.is_empty() {
+    let avg_e2e_latency_us = if input.e2e_latency_histogram.is_empty() {
         0.0
     } else {
-        let sum: u128 = input.e2e_latencies.iter().sum();
-        sum as f64 / input.e2e_latencies.len() as f64
+        input.e2e_latency_histogram.mean()
     };
 
-    let avg_connection_latency_us = if input.connection_latencies.is_empty() {
+    let avg_connection_latency_us = if input.connection_latency_histogram.is_empty() {
         0.0
     } else {
-        let sum: u128 = input.connection_latencies.iter().sum();
-        sum as f64 / input.connection_latencies.len() as f64
+        input.connection_latency_histogram.mean()
     };
 
-    if input.latencies.is_empty() {
+    if input.latency_histogram.is_empty() {
         return TestSummary {
             url: input.url,
             total_requests: input.total_requests as usize,
@@ -448,39 +461,31 @@ pub fn calculate_summary(input: SummaryInput) -> TestSummary {
         };
     }
 
-    let mut latencies = input.latencies;
-    latencies.sort_unstable();
+    let average_latency_ms = input.latency_histogram.mean() / MICROS_PER_MILLI;
+    let min_latency_ms = input.latency_histogram.min() as f64 / MICROS_PER_MILLI;
+    let max_latency_ms = input.latency_histogram.max() as f64 / MICROS_PER_MILLI;
 
-    let len = latencies.len();
-    let sum: u128 = latencies.iter().sum();
-    let average_latency_ms = sum as f64 / len as f64 / MICROS_PER_MILLI;
+    let p50_latency_ms = input.latency_histogram.value_at_quantile(0.50) as f64 / MICROS_PER_MILLI;
+    let p90_latency_ms = input.latency_histogram.value_at_quantile(0.90) as f64 / MICROS_PER_MILLI;
+    let p95_latency_ms = input.latency_histogram.value_at_quantile(0.95) as f64 / MICROS_PER_MILLI;
+    let p99_latency_ms = input.latency_histogram.value_at_quantile(0.99) as f64 / MICROS_PER_MILLI;
+    let p99_99_latency_ms =
+        input.latency_histogram.value_at_quantile(0.9999) as f64 / MICROS_PER_MILLI;
 
-    let min_latency_ms = latencies[0] as f64 / MICROS_PER_MILLI;
-    let max_latency_ms = latencies[len - 1] as f64 / MICROS_PER_MILLI;
+    let std_dev_latency_ms = input.latency_histogram.stdev() / MICROS_PER_MILLI;
 
-    let p50_idx = (len * 50 / 100).min(len - 1);
-    let p90_idx = (len * 90 / 100).min(len - 1);
-    let p95_idx = (len * 95 / 100).min(len - 1);
-    let p99_idx = (len * 99 / 100).min(len - 1);
-    let p99_99_idx = (len * 9999 / 10000).min(len - 1);
-
-    // Compute standard deviation
-    let std_dev_us = calculate_std_dev_us(&latencies);
-    let std_dev_latency_ms = std_dev_us / MICROS_PER_MILLI;
-
-    // Compute histogram
-    let latency_histogram = calculate_histogram(&latencies);
+    let latency_histogram = calculate_histogram_from_hdr(&input.latency_histogram);
 
     TestSummary {
         url: input.url,
         total_requests: input.total_requests as usize,
         total_errors: input.total_errors as usize,
         average_latency_ms,
-        p95_latency_ms: latencies[p95_idx] as f64 / MICROS_PER_MILLI,
-        p99_latency_ms: latencies[p99_idx] as f64 / MICROS_PER_MILLI,
+        p95_latency_ms,
+        p99_latency_ms,
         min_latency_ms,
-        p50_latency_ms: latencies[p50_idx] as f64 / MICROS_PER_MILLI,
-        p90_latency_ms: latencies[p90_idx] as f64 / MICROS_PER_MILLI,
+        p50_latency_ms,
+        p90_latency_ms,
         max_latency_ms,
         total_bytes_received: input.total_bytes,
         duration_secs: input.duration_secs,
@@ -495,7 +500,7 @@ pub fn calculate_summary(input: SummaryInput) -> TestSummary {
         chaos_injected_total: input.chaos_injected_total,
         chaos_faults_by_type: input.chaos_faults_by_type,
         std_dev_latency_ms,
-        p99_99_latency_ms: latencies[p99_99_idx] as f64 / MICROS_PER_MILLI,
+        p99_99_latency_ms,
         latency_histogram,
     }
 }
@@ -504,19 +509,30 @@ pub fn calculate_summary(input: SummaryInput) -> TestSummary {
 mod tests {
     use super::*;
 
+    /// Helper to create a histogram pre-loaded with values.
+    fn create_test_histogram(values: &[u64]) -> Histogram<u64> {
+        let mut h =
+            Histogram::new_with_max(HISTOGRAM_HIGHEST_TRACKABLE, HISTOGRAM_SIGNIFICANT_FIGURES)
+                .unwrap();
+        for &v in values {
+            h.saturating_record(v);
+        }
+        h
+    }
+
     #[test]
     fn empty_latencies_returns_zeros() {
         let s = calculate_summary(SummaryInput {
             url: "http://example.com".into(),
             total_requests: 10,
             total_errors: 3,
-            latencies: vec![],
+            latency_histogram: create_test_histogram(&[]),
             total_bytes: 0,
             duration_secs: 1.0,
             workers: 4,
             status_codes: HashMap::new(),
-            e2e_latencies: vec![],
-            connection_latencies: vec![],
+            e2e_latency_histogram: create_test_histogram(&[]),
+            connection_latency_histogram: create_test_histogram(&[]),
             quic_metrics: None,
             sse_metrics: None,
             chaos_injected_total: 0,
@@ -540,26 +556,27 @@ mod tests {
             url: "http://example.com".into(),
             total_requests: 1,
             total_errors: 0,
-            latencies: vec![5000],
+            latency_histogram: create_test_histogram(&[5000]),
             total_bytes: 1024,
             duration_secs: 2.0,
             workers: 2,
             status_codes: HashMap::new(),
-            e2e_latencies: vec![],
-            connection_latencies: vec![],
+            e2e_latency_histogram: create_test_histogram(&[]),
+            connection_latency_histogram: create_test_histogram(&[]),
             quic_metrics: None,
             sse_metrics: None,
             chaos_injected_total: 0,
             chaos_faults_by_type: HashMap::new(),
         });
         assert_eq!(s.total_requests, 1);
-        assert_eq!(s.average_latency_ms, 5.0);
-        assert_eq!(s.min_latency_ms, 5.0);
-        assert_eq!(s.p50_latency_ms, 5.0);
-        assert_eq!(s.p90_latency_ms, 5.0);
-        assert_eq!(s.p95_latency_ms, 5.0);
-        assert_eq!(s.p99_latency_ms, 5.0);
-        assert_eq!(s.max_latency_ms, 5.0);
+        // HDR quantization may shift values by up to 0.1% of range
+        assert!((s.average_latency_ms - 5.0).abs() < 0.01);
+        assert!((s.min_latency_ms - 5.0).abs() < 0.01);
+        assert!((s.p50_latency_ms - 5.0).abs() < 0.01);
+        assert!((s.p90_latency_ms - 5.0).abs() < 0.01);
+        assert!((s.p95_latency_ms - 5.0).abs() < 0.01);
+        assert!((s.p99_latency_ms - 5.0).abs() < 0.01);
+        assert!((s.max_latency_ms - 5.0).abs() < 0.01);
         assert_eq!(s.total_bytes_received, 1024);
         assert_eq!(s.workers, 2);
     }
@@ -570,51 +587,51 @@ mod tests {
             url: "http://example.com".into(),
             total_requests: 2,
             total_errors: 0,
-            latencies: vec![1000, 2000],
+            latency_histogram: create_test_histogram(&[1000, 2000]),
             total_bytes: 0,
             duration_secs: 1.0,
             workers: 1,
             status_codes: HashMap::new(),
-            e2e_latencies: vec![],
-            connection_latencies: vec![],
+            e2e_latency_histogram: create_test_histogram(&[]),
+            connection_latency_histogram: create_test_histogram(&[]),
             quic_metrics: None,
             sse_metrics: None,
             chaos_injected_total: 0,
             chaos_faults_by_type: HashMap::new(),
         });
-        assert_eq!(s.average_latency_ms, 1.5);
-        assert_eq!(s.min_latency_ms, 1.0);
-        assert_eq!(s.p95_latency_ms, 2.0);
-        assert_eq!(s.p99_latency_ms, 2.0);
-        assert_eq!(s.max_latency_ms, 2.0);
+        assert!((s.average_latency_ms - 1.5).abs() < 0.01);
+        assert!((s.min_latency_ms - 1.0).abs() < 0.01);
+        assert!((s.p95_latency_ms - 2.0).abs() < 0.01);
+        assert!((s.p99_latency_ms - 2.0).abs() < 0.01);
+        assert!((s.max_latency_ms - 2.0).abs() < 0.01);
     }
 
     #[test]
     fn uniform_hundred_values() {
-        let latencies: Vec<u128> = (1..=100).collect();
+        let latencies: Vec<u64> = (1..=100).collect();
         let s = calculate_summary(SummaryInput {
             url: "http://example.com".into(),
             total_requests: 100,
             total_errors: 0,
-            latencies,
+            latency_histogram: create_test_histogram(&latencies),
             total_bytes: 0,
             duration_secs: 1.0,
             workers: 1,
             status_codes: HashMap::new(),
-            e2e_latencies: vec![],
-            connection_latencies: vec![],
+            e2e_latency_histogram: create_test_histogram(&[]),
+            connection_latency_histogram: create_test_histogram(&[]),
             quic_metrics: None,
             sse_metrics: None,
             chaos_injected_total: 0,
             chaos_faults_by_type: HashMap::new(),
         });
-        assert!((s.average_latency_ms - 0.0505).abs() < 1e-6);
-        assert_eq!(s.min_latency_ms, 0.001);
-        assert!((s.p50_latency_ms - 0.051).abs() < 1e-6);
-        assert!((s.p90_latency_ms - 0.091).abs() < 1e-6);
-        assert!((s.p95_latency_ms - 0.096).abs() < 1e-6);
-        assert!((s.p99_latency_ms - 0.1).abs() < 1e-6);
-        assert_eq!(s.max_latency_ms, 0.1);
+        assert!((s.average_latency_ms - 0.0505).abs() < 0.001);
+        assert!((s.min_latency_ms - 0.001).abs() < 0.001);
+        assert!((s.p50_latency_ms - 0.051).abs() < 0.001);
+        assert!((s.p90_latency_ms - 0.091).abs() < 0.01);
+        assert!((s.p95_latency_ms - 0.096).abs() < 0.01);
+        assert!((s.p99_latency_ms - 0.1).abs() < 0.01);
+        assert!((s.max_latency_ms - 0.1).abs() < 0.01);
     }
 
     #[test]
@@ -623,13 +640,13 @@ mod tests {
             url: "http://example.com".into(),
             total_requests: 5,
             total_errors: 5,
-            latencies: vec![100, 200, 300],
+            latency_histogram: create_test_histogram(&[100, 200, 300]),
             total_bytes: 0,
             duration_secs: 1.0,
             workers: 1,
             status_codes: HashMap::new(),
-            e2e_latencies: vec![],
-            connection_latencies: vec![],
+            e2e_latency_histogram: create_test_histogram(&[]),
+            connection_latency_histogram: create_test_histogram(&[]),
             quic_metrics: None,
             sse_metrics: None,
             chaos_injected_total: 0,
@@ -645,43 +662,43 @@ mod tests {
             url: "http://example.com".into(),
             total_requests: 1,
             total_errors: 0,
-            latencies: vec![12345],
+            latency_histogram: create_test_histogram(&[12345]),
             total_bytes: 0,
             duration_secs: 1.0,
             workers: 1,
             status_codes: HashMap::new(),
-            e2e_latencies: vec![],
-            connection_latencies: vec![],
+            e2e_latency_histogram: create_test_histogram(&[]),
+            connection_latency_histogram: create_test_histogram(&[]),
             quic_metrics: None,
             sse_metrics: None,
             chaos_injected_total: 0,
             chaos_faults_by_type: HashMap::new(),
         });
-        assert!((s.average_latency_ms - 12.345).abs() < 1e-6);
+        assert!((s.average_latency_ms - 12.345).abs() < 0.01);
     }
 
     #[test]
-    fn unsorted_latencies_are_sorted() {
+    fn unsorted_latencies_are_handled() {
         let s = calculate_summary(SummaryInput {
             url: "http://example.com".into(),
             total_requests: 3,
             total_errors: 0,
-            latencies: vec![3000, 1000, 2000],
+            latency_histogram: create_test_histogram(&[3000, 1000, 2000]),
             total_bytes: 0,
             duration_secs: 1.0,
             workers: 1,
             status_codes: HashMap::new(),
-            e2e_latencies: vec![],
-            connection_latencies: vec![],
+            e2e_latency_histogram: create_test_histogram(&[]),
+            connection_latency_histogram: create_test_histogram(&[]),
             quic_metrics: None,
             sse_metrics: None,
             chaos_injected_total: 0,
             chaos_faults_by_type: HashMap::new(),
         });
-        assert_eq!(s.p95_latency_ms, 3.0);
-        assert_eq!(s.p99_latency_ms, 3.0);
-        assert_eq!(s.min_latency_ms, 1.0);
-        assert_eq!(s.max_latency_ms, 3.0);
+        assert!((s.p95_latency_ms - 3.0).abs() < 0.01);
+        assert!((s.p99_latency_ms - 3.0).abs() < 0.01);
+        assert!((s.min_latency_ms - 1.0).abs() < 0.01);
+        assert!((s.max_latency_ms - 3.0).abs() < 0.01);
     }
 
     #[test]
@@ -693,13 +710,13 @@ mod tests {
             url: "http://example.com".into(),
             total_requests: 13,
             total_errors: 3,
-            latencies: vec![100],
+            latency_histogram: create_test_histogram(&[100]),
             total_bytes: 0,
             duration_secs: 1.0,
             workers: 1,
             status_codes: codes,
-            e2e_latencies: vec![],
-            connection_latencies: vec![],
+            e2e_latency_histogram: create_test_histogram(&[]),
+            connection_latency_histogram: create_test_histogram(&[]),
             quic_metrics: None,
             sse_metrics: None,
             chaos_injected_total: 0,
@@ -715,13 +732,13 @@ mod tests {
             url: "http://example.com".into(),
             total_requests: 5,
             total_errors: 0,
-            latencies: vec![1000, 2000, 3000, 4000, 5000],
+            latency_histogram: create_test_histogram(&[1000, 2000, 3000, 4000, 5000]),
             total_bytes: 5120,
             duration_secs: 5.0,
             workers: 2,
             status_codes: HashMap::new(),
-            e2e_latencies: vec![],
-            connection_latencies: vec![100, 200, 300, 400, 500],
+            e2e_latency_histogram: create_test_histogram(&[]),
+            connection_latency_histogram: create_test_histogram(&[100, 200, 300, 400, 500]),
             quic_metrics: Some(QuicMetrics {
                 zero_rtt_accepted_count: 3,
                 retransmissions: 10,
@@ -735,7 +752,7 @@ mod tests {
             chaos_faults_by_type: HashMap::new(),
         });
 
-        assert!((s.avg_connection_latency_us - 300.0).abs() < 1e-6);
+        assert!((s.avg_connection_latency_us - 300.0).abs() < 1.0);
 
         let quic = s.quic.as_ref().unwrap();
         assert_eq!(quic.zero_rtt_accepted_count, 3);
@@ -753,13 +770,13 @@ mod tests {
             url: "http://example.com".into(),
             total_requests: 1,
             total_errors: 0,
-            latencies: vec![1000],
+            latency_histogram: create_test_histogram(&[1000]),
             total_bytes: 0,
             duration_secs: 1.0,
             workers: 1,
             status_codes: HashMap::new(),
-            e2e_latencies: vec![],
-            connection_latencies: vec![],
+            e2e_latency_histogram: create_test_histogram(&[]),
+            connection_latency_histogram: create_test_histogram(&[]),
             quic_metrics: None,
             sse_metrics: None,
             chaos_injected_total: 0,
@@ -771,67 +788,114 @@ mod tests {
     }
 
     #[test]
-    fn test_std_dev_single_value() {
-        let latencies = vec![5000];
-        assert_eq!(calculate_std_dev_us(&latencies), 0.0);
-    }
-
-    #[test]
-    fn test_std_dev_empty() {
-        let latencies: Vec<u128> = vec![];
-        assert_eq!(calculate_std_dev_us(&latencies), 0.0);
-    }
-
-    #[test]
-    fn test_std_dev_calculation() {
-        // Known values: [1000, 2000, 3000, 4000, 5000] us
-        // Mean = 3000, StdDev = sqrt(2000000) ≈ 1414.21 us
-        let latencies = vec![1000, 2000, 3000, 4000, 5000];
-        let std_dev = calculate_std_dev_us(&latencies);
-        assert!((std_dev - 1414.21).abs() < 1.0);
-    }
-
-    #[test]
     fn test_p99_99_percentile() {
-        let latencies: Vec<u128> = (1..=10000).collect();
+        let latencies: Vec<u64> = (1..=10000).collect();
         let s = calculate_summary(SummaryInput {
             url: "http://example.com".into(),
             total_requests: 10000,
             total_errors: 0,
-            latencies,
+            latency_histogram: create_test_histogram(&latencies),
             total_bytes: 0,
             duration_secs: 1.0,
             workers: 1,
             status_codes: HashMap::new(),
-            e2e_latencies: vec![],
-            connection_latencies: vec![],
+            e2e_latency_histogram: create_test_histogram(&[]),
+            connection_latency_histogram: create_test_histogram(&[]),
             quic_metrics: None,
             sse_metrics: None,
             chaos_injected_total: 0,
             chaos_faults_by_type: HashMap::new(),
         });
-        // p99.99 should be very close to max
         assert!(s.p99_99_latency_ms >= s.p99_latency_ms);
         assert!(s.p99_99_latency_ms <= s.max_latency_ms);
     }
 
     #[test]
     fn test_histogram_bucket_distribution() {
-        let latencies = vec![500, 1500, 7500, 15000, 75000];
-        let hist = calculate_histogram(&latencies);
-        assert_eq!(hist["<1ms"], 1); // 500us = 0.5ms
-        assert_eq!(hist["1-5ms"], 1); // 1500us = 1.5ms
-        assert_eq!(hist["5-10ms"], 1); // 7500us = 7.5ms
-        assert_eq!(hist["10-25ms"], 1); // 15000us = 15ms
-        assert_eq!(hist["50-100ms"], 1); // 75000us = 75ms
+        let hist = create_test_histogram(&[500, 1500, 7500, 15000, 75000]);
+        let buckets = calculate_histogram_from_hdr(&hist);
+        assert_eq!(buckets["<1ms"], 1);
+        assert_eq!(buckets["1-5ms"], 1);
+        assert_eq!(buckets["5-10ms"], 1);
+        assert_eq!(buckets["10-25ms"], 1);
+        assert_eq!(buckets["50-100ms"], 1);
     }
 
     #[test]
     fn test_histogram_all_empty() {
-        let latencies: Vec<u128> = vec![];
-        let hist = calculate_histogram(&latencies);
-        assert_eq!(hist["<1ms"], 0);
-        assert_eq!(hist[">1000ms"], 0);
-        assert_eq!(hist.len(), 10);
+        let hist = create_test_histogram(&[]);
+        let buckets = calculate_histogram_from_hdr(&hist);
+        assert_eq!(buckets["<1ms"], 0);
+        assert_eq!(buckets[">1000ms"], 0);
+        assert_eq!(buckets.len(), 10);
+    }
+
+    #[test]
+    fn test_histogram_empty_returns_zeroed_summary() {
+        let hist = create_test_histogram(&[]);
+        let s = calculate_summary(SummaryInput {
+            url: "http://test".into(),
+            total_requests: 0,
+            total_errors: 0,
+            latency_histogram: hist,
+            total_bytes: 0,
+            duration_secs: 1.0,
+            workers: 1,
+            status_codes: HashMap::new(),
+            e2e_latency_histogram: create_test_histogram(&[]),
+            connection_latency_histogram: create_test_histogram(&[]),
+            quic_metrics: None,
+            sse_metrics: None,
+            chaos_injected_total: 0,
+            chaos_faults_by_type: HashMap::new(),
+        });
+        assert_eq!(s.total_requests, 0);
+        assert_eq!(s.p50_latency_ms, 0.0);
+    }
+
+    #[test]
+    fn test_std_dev_single_value() {
+        let hist = create_test_histogram(&[5000]);
+        let s = calculate_summary(SummaryInput {
+            url: "http://example.com".into(),
+            total_requests: 1,
+            total_errors: 0,
+            latency_histogram: hist,
+            total_bytes: 0,
+            duration_secs: 1.0,
+            workers: 1,
+            status_codes: HashMap::new(),
+            e2e_latency_histogram: create_test_histogram(&[]),
+            connection_latency_histogram: create_test_histogram(&[]),
+            quic_metrics: None,
+            sse_metrics: None,
+            chaos_injected_total: 0,
+            chaos_faults_by_type: HashMap::new(),
+        });
+        assert_eq!(s.std_dev_latency_ms, 0.0);
+    }
+
+    #[test]
+    fn test_std_dev_calculation() {
+        // Known values: [1000, 2000, 3000, 4000, 5000] us
+        // StdDev = sqrt(2000000) ≈ 1414.21 us
+        let hist = create_test_histogram(&[1000, 2000, 3000, 4000, 5000]);
+        let s = calculate_summary(SummaryInput {
+            url: "http://example.com".into(),
+            total_requests: 5,
+            total_errors: 0,
+            latency_histogram: hist,
+            total_bytes: 0,
+            duration_secs: 1.0,
+            workers: 1,
+            status_codes: HashMap::new(),
+            e2e_latency_histogram: create_test_histogram(&[]),
+            connection_latency_histogram: create_test_histogram(&[]),
+            quic_metrics: None,
+            sse_metrics: None,
+            chaos_injected_total: 0,
+            chaos_faults_by_type: HashMap::new(),
+        });
+        assert!((s.std_dev_latency_ms * MICROS_PER_MILLI - 1414.21).abs() < 15.0);
     }
 }
