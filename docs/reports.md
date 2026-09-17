@@ -47,6 +47,7 @@ These flags appear on all three subcommands (`load`, `stress`, `spike`):
 | `quic` | `zero_rtt_accepted_count`, `retransmissions`, `avg_handshake_ms` *(HTTP/3 only)* |
 | `sse` | `total_events_received`, `avg_ttfb_ms` *(SSE only)* |
 | `chaos_faults` | `injected_total`, `by_type` *(chaos-enabled runs only)* |
+| `system_metrics` | `summary` (peak/avg CPU, memory MB, threads), `samples` (time series) *(when `--sys-sample-interval > 0`)* |
 
 All latency values are stored in **microseconds**.
 
@@ -74,6 +75,19 @@ All latency values are stored in **microseconds**.
       "LatencySpike": 4,
       "CorruptedPayload": 3
     }
+  },
+  "system_metrics": {
+    "summary": {
+      "peak_cpu_percent": 45.2,
+      "avg_cpu_percent": 18.1,
+      "peak_memory_mb": 64.5,
+      "avg_memory_mb": 52.3,
+      "peak_threads": 32
+    },
+    "samples": [
+      { "elapsed_sec": 1.0, "cpu_percent": 12.4, "memory_mb": 42.1, "threads": 16 },
+      { "elapsed_sec": 2.0, "cpu_percent": 24.8, "memory_mb": 51.0, "threads": 28 }
+    ]
   }
 }
 ```
@@ -99,6 +113,7 @@ strobengine load http://localhost:8080/api -c 10 -d 30 --html report.html
 - **Dark theme** — slate/navy color palette
 - **Bar chart**: Latency percentiles (P50, P90, P95, P99) in milliseconds
 - **Doughnut chart**: Status code distribution (2xx, 4xx, 5xx, Other)
+- **Line chart**: Client resource footprint (CPU % + Memory RSS, dual-axis) when `--sys-sample-interval > 0`
 - **Metadata grid**: Target URL, method, concurrency, duration, RPS, error rate
 
 ### Python API

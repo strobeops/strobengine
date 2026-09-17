@@ -52,6 +52,8 @@ def render_html_report(summary, config, comparison=None) -> str:
         key=lambda x: int(x[0]) if x[0].isdigit() else 0,
     )
 
+    system_metrics = artifact.get("system_metrics")
+
     return _HTML_TEMPLATE.render(
         metadata=artifact["metadata"],
         summary=artifact["summary"],
@@ -59,6 +61,7 @@ def render_html_report(summary, config, comparison=None) -> str:
         status_groups=status_groups,
         status_codes=status_codes,
         comparison=comparison,
+        system_metrics=system_metrics,
         chart_js_code=_CHART_JS_SOURCE,
     )
 

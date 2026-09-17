@@ -175,6 +175,17 @@ def _print_rich(
         for fault_type, count in summary.chaos_faults_by_type.items():
             table.add_row(f"  {fault_type}", _format_number(count))
 
+    # Client resource footprint (if resource monitor was enabled)
+    sm = getattr(summary, "system_metrics", None)
+    if sm is not None and isinstance(sm, SystemMetrics):
+        mb = sm.peak_memory_rss_bytes / (1024 * 1024)
+        table.add_row(
+            "Client Footprint",
+            f"Peak CPU: {sm.peak_cpu_percent:.1f}% | "
+            f"Peak RSS: {mb:.1f} MB | "
+            f"Peak Threads: {sm.peak_thread_count}",
+        )
+
     console.print()
     console.print(table)
     console.print()
@@ -254,6 +265,15 @@ def _print_plain(
         )
         for fault_type, count in summary.chaos_faults_by_type.items():
             lines.append(f"    {fault_type}: {_format_number(count)}")
+
+    # Client resource footprint (if resource monitor was enabled)
+    sm = getattr(summary, "system_metrics", None)
+    if sm is not None and isinstance(sm, SystemMetrics):
+        mb = sm.peak_memory_rss_bytes / (1024 * 1024)
+        lines.append(
+            f"  Client Footprint:{sm.peak_cpu_percent:.1f}% CPU | "
+            f"{mb:.1f} MB RSS | {sm.peak_thread_count} threads"
+        )
 
     lines.append(sep)
 
