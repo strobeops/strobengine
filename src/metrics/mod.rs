@@ -229,7 +229,7 @@ pub struct TestSummary {
     #[pyo3(get)]
     pub latency_histogram: HashMap<String, u64>,
     #[pyo3(get)]
-    pub resource_samples: Vec<system::ResourceSample>,
+    pub system_metrics: Option<system::SystemMetrics>,
 }
 
 #[pymethods]
@@ -436,6 +436,12 @@ pub fn calculate_summary(input: SummaryInput) -> TestSummary {
         input.connection_latency_histogram.mean()
     };
 
+    let system_metrics = if input.resource_samples.is_empty() {
+        None
+    } else {
+        Some(system::SystemMetrics::from_samples(&input.resource_samples))
+    };
+
     if input.latency_histogram.is_empty() {
         return TestSummary {
             url: input.url,
@@ -463,7 +469,7 @@ pub fn calculate_summary(input: SummaryInput) -> TestSummary {
             std_dev_latency_ms: 0.0,
             p99_99_latency_ms: 0.0,
             latency_histogram: HashMap::new(),
-            resource_samples: input.resource_samples,
+            system_metrics: system_metrics.clone(),
         };
     }
 
@@ -508,7 +514,7 @@ pub fn calculate_summary(input: SummaryInput) -> TestSummary {
         std_dev_latency_ms,
         p99_99_latency_ms,
         latency_histogram,
-        resource_samples: input.resource_samples,
+        system_metrics,
     }
 }
 

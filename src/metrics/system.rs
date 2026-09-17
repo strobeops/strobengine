@@ -22,6 +22,64 @@ pub struct ResourceSample {
     pub open_fds: Option<usize>,
 }
 
+/// Aggregated system resource metrics computed from a series of samples.
+#[pyclass(skip_from_py_object)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct SystemMetrics {
+    #[pyo3(get)]
+    pub peak_cpu_percent: f32,
+    #[pyo3(get)]
+    pub avg_cpu_percent: f32,
+    #[pyo3(get)]
+    pub peak_memory_rss_bytes: u64,
+    #[pyo3(get)]
+    pub avg_memory_rss_bytes: u64,
+    #[pyo3(get)]
+    pub peak_thread_count: usize,
+    #[pyo3(get)]
+    pub time_series: Vec<ResourceSample>,
+}
+
+impl SystemMetrics {
+    pub fn from_samples(samples: &[ResourceSample]) -> Self {
+        if samples.is_empty() {
+            return Self::default();
+        }
+
+        // Filter out non-finite CPU values to avoid NaN propagation
+        let valid_cpu: Vec<f32> = samples
+            .iter()
+            .map(|s| s.cpu_usage_percent)
+            .filter(|c| c.is_finite())
+            .collect();
+
+        let peak_cpu = valid_cpu.iter().copied().fold(0.0f32, f32::max);
+        let avg_cpu = if valid_cpu.is_empty() {
+            0.0
+        } else {
+            valid_cpu.iter().sum::<f32>() / valid_cpu.len() as f32
+        };
+
+        let peak_memory = samples
+            .iter()
+            .map(|s| s.memory_rss_bytes)
+            .max()
+            .unwrap_or(0);
+        let avg_memory =
+            samples.iter().map(|s| s.memory_rss_bytes).sum::<u64>() / samples.len() as u64;
+        let peak_threads = samples.iter().map(|s| s.thread_count).max().unwrap_or(0);
+
+        Self {
+            peak_cpu_percent: peak_cpu,
+            avg_cpu_percent: avg_cpu,
+            peak_memory_rss_bytes: peak_memory,
+            avg_memory_rss_bytes: avg_memory,
+            peak_thread_count: peak_threads,
+            time_series: samples.to_vec(),
+        }
+    }
+}
+
 /// Handle to a running resource monitor task.
 #[allow(dead_code)]
 pub struct SamplerHandle {
@@ -140,5 +198,63 @@ mod tests {
     #[test]
     fn disabled_returns_none() {
         assert!(start(0).is_none());
+    }
+
+    #[test]
+    fn system_metrics_from_samples() {
+        let samples = vec![
+            ResourceSample {
+                timestamp_us: 1000,
+                cpu_usage_percent: 10.0,
+                memory_rss_bytes: 1000,
+                thread_count: 4,
+                open_fds: Some(10),
+            },
+            ResourceSample {
+                timestamp_us: 2000,
+                cpu_usage_percent: 30.0,
+                memory_rss_bytes: 2000,
+                thread_count: 8,
+                open_fds: Some(12),
+            },
+        ];
+        let metrics = SystemMetrics::from_samples(&samples);
+        assert!((metrics.peak_cpu_percent - 30.0).abs() < 0.01);
+        assert!((metrics.avg_cpu_percent - 20.0).abs() < 0.01);
+        assert_eq!(metrics.peak_memory_rss_bytes, 2000);
+        assert_eq!(metrics.avg_memory_rss_bytes, 1500);
+        assert_eq!(metrics.peak_thread_count, 8);
+        assert_eq!(metrics.time_series.len(), 2);
+    }
+
+    #[test]
+    fn system_metrics_empty() {
+        let metrics = SystemMetrics::from_samples(&[]);
+        assert_eq!(metrics.peak_cpu_percent, 0.0);
+        assert!(metrics.time_series.is_empty());
+    }
+
+    #[test]
+    fn system_metrics_nan_cpu_filtered() {
+        let samples = vec![
+            ResourceSample {
+                timestamp_us: 1000,
+                cpu_usage_percent: f32::NAN,
+                memory_rss_bytes: 1000,
+                thread_count: 4,
+                open_fds: None,
+            },
+            ResourceSample {
+                timestamp_us: 2000,
+                cpu_usage_percent: 20.0,
+                memory_rss_bytes: 2000,
+                thread_count: 8,
+                open_fds: None,
+            },
+        ];
+        let metrics = SystemMetrics::from_samples(&samples);
+        assert!((metrics.peak_cpu_percent - 20.0).abs() < 0.01);
+        assert!((metrics.avg_cpu_percent - 20.0).abs() < 0.01);
+        assert_eq!(metrics.time_series.len(), 2);
     }
 }
