@@ -519,82 +519,59 @@ fn run_load_test(py: Python<'_>, config: TestConfig) -> PyResult<metrics::TestSu
 }
 
 #[pyfunction]
-#[pyo3(signature = (
-    url,
-    timeout_secs,
-    profile,
-    chaos=false,
-    chaos_rate=crate::chaos::DEFAULT_CHAOS_RATE,
-    no_progress=false,
-    method="GET",
-    body=None,
-    form=None,
-    headers=None,
-))]
-#[allow(clippy::too_many_arguments)]
 fn run_load_profiles(
     py: Python<'_>,
-    url: String,
-    timeout_secs: u64,
+    config: TestConfig,
     profile: LoadProfile,
-    chaos: bool,
-    chaos_rate: f32,
-    no_progress: bool,
-    method: &str,
-    body: Option<String>,
-    form: Option<Vec<(String, String)>>,
-    headers: Option<Vec<(String, String)>>,
 ) -> PyResult<metrics::TestSummary> {
     py.detach(move || {
-        let chaos_engine = ChaosEngine::new(chaos, chaos_rate);
-
-        let method = parse_method(method)?;
-        let raw_body = parse_body(body.as_deref());
-        let raw_form = parse_form(form.as_deref());
-        let mut header_map = parse_headers(headers.as_deref())?;
-
-        // Resolve payload and auto-inject Content-Type
-        let is_form = raw_form.is_some();
-        let final_body = if raw_form.is_some() {
-            if raw_body.is_some() {
-                return Err(pyo3::exceptions::PyValueError::new_err(
-                    "Cannot specify both --body and --form simultaneously",
-                ));
-            }
-            raw_form
-        } else {
-            raw_body
-        };
-
-        if final_body.is_some() && !header_map.contains_key(CONTENT_TYPE) {
-            let ct = if is_form {
-                "application/x-www-form-urlencoded"
-            } else {
-                "application/json"
-            };
-            header_map.insert(CONTENT_TYPE, HeaderValue::from_static(ct));
-        }
+        let url = config.url.clone();
+        let chaos = ChaosEngine::new(config.chaos, config.chaos_rate);
+        let no_progress = config.no_progress;
 
         // Build protocol engine based on URL scheme
-        let engine: Arc<dyn ProtocolEngine> = if protocols::is_protocol_url(&url) {
-            // Build a minimal TestConfig for protocol detection
-            let ws_config = TestConfig::for_protocol_detection(
-                url.clone(),
-                profile.max_concurrency(),
-                profile.total_duration(),
-                timeout_secs,
-            );
-            protocols::detect_protocol(&url, &ws_config, chaos_engine)
+        let engine: Arc<dyn ProtocolEngine> = if protocols::is_protocol_url(&url)
+            || config.sse_enabled
+        {
+            protocols::detect_protocol(&url, &config, chaos)
                 .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?
         } else {
-            let client = build_client(profile.max_concurrency(), timeout_secs, header_map)
+            let method = parse_method(&config.method)?;
+            let body = parse_body(config.body.as_deref());
+            let form = parse_form(config.form.as_deref());
+            let header_map = parse_headers(config.headers.as_deref())?;
+
+            // Resolve payload and auto-inject Content-Type
+            let is_form = form.is_some();
+            let final_body = if form.is_some() {
+                if body.is_some() {
+                    return Err(pyo3::exceptions::PyValueError::new_err(
+                        "Cannot specify both --body and --form simultaneously",
+                    ));
+                }
+                form
+            } else {
+                body
+            };
+
+            let mut header_map = header_map;
+            if final_body.is_some() && !header_map.contains_key(CONTENT_TYPE) {
+                let ct = if is_form {
+                    "application/x-www-form-urlencoded"
+                } else {
+                    "application/json"
+                };
+                header_map.insert(CONTENT_TYPE, HeaderValue::from_static(ct));
+            }
+
+            let client = build_client(profile.max_concurrency(), config.timeout_secs, header_map)
                 .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
             Arc::new(
                 protocols::http::HttpEngine::new()
                     .with_client(client)
                     .with_method(method)
                     .with_body(final_body)
-                    .with_chaos(chaos_engine),
+                    .with_chaos(chaos),
             )
         };
 
@@ -610,7 +587,7 @@ fn run_load_profiles(
             url,
             no_progress,
             strategy,
-            timeout_secs,
+            config.timeout_secs,
         ))
     })
 }

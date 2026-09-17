@@ -3,57 +3,6 @@ use std::time::Duration;
 use crate::chaos::DEFAULT_CHAOS_RATE;
 use pyo3::prelude::*;
 
-/// WebSocket protocol options (internal, not exposed to Python).
-#[derive(Debug, Clone, Default)]
-#[allow(dead_code)]
-pub(crate) struct WsOptions {
-    pub mode: WsMode,
-    pub payload: Option<String>,
-    pub persistent: bool,
-    pub keepalive_secs: Option<u64>,
-    pub max_messages: Option<u64>,
-    pub role: Option<String>,
-    pub publish_interval_ms: Option<u64>,
-    pub subscribers: Option<usize>,
-}
-
-/// gRPC protocol options (internal, not exposed to Python).
-#[derive(Debug, Clone, Default)]
-#[allow(dead_code)]
-pub(crate) struct GrpcOptions {
-    pub service: Option<String>,
-    pub method: Option<String>,
-    pub payload: Option<String>,
-    pub deadline_ms: Option<u64>,
-    pub proto_path: Option<String>,
-    pub use_reflection: bool,
-}
-
-/// HTTP/3 + QUIC options (internal, not exposed to Python).
-#[derive(Debug, Clone, Default)]
-#[allow(dead_code)]
-pub(crate) struct Http3Options {
-    pub enabled: bool,
-    pub zero_rtt: bool,
-    pub max_idle_timeout_ms: Option<u64>,
-}
-
-/// SSE streaming options (internal, not exposed to Python).
-#[derive(Debug, Clone, Default)]
-#[allow(dead_code)]
-pub(crate) struct SseOptions {
-    pub enabled: bool,
-    pub max_events: Option<u64>,
-}
-
-/// Report output options (internal, not exposed to Python).
-#[derive(Debug, Clone, Default)]
-#[allow(dead_code)]
-pub(crate) struct OutputOptions {
-    pub output_dir: Option<String>,
-    pub no_save: bool,
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 #[pyclass(from_py_object)]
 pub enum WsMode {
@@ -260,48 +209,270 @@ impl TestConfig {
 }
 
 impl TestConfig {
+    /// Create a builder for programmatic construction (tests, internal factories).
+    pub fn builder(url: String) -> TestConfigBuilder {
+        TestConfigBuilder::new(url)
+    }
+
     /// Minimal config for protocol detection (used by `run_load_profiles`).
-    /// Replaces the 32-line positional call with a concise factory.
     pub fn for_protocol_detection(
         url: String,
         concurrency: usize,
         duration_secs: u64,
         timeout_secs: u64,
     ) -> Self {
-        Self::new(
+        Self::builder(url)
+            .concurrency(concurrency)
+            .duration_secs(duration_secs)
+            .timeout_secs(timeout_secs)
+            .build()
+    }
+}
+
+/// Builder for `TestConfig` with sane defaults. Used for Rust-internal
+/// construction (tests, `for_protocol_detection`) — not exposed to Python.
+pub struct TestConfigBuilder {
+    url: String,
+    concurrency: usize,
+    duration_secs: u64,
+    timeout_secs: u64,
+    chaos: bool,
+    chaos_rate: f32,
+    no_progress: bool,
+    method: String,
+    body: Option<String>,
+    form: Option<Vec<(String, String)>>,
+    headers: Option<Vec<(String, String)>>,
+    ws_mode: WsMode,
+    ws_payload: Option<String>,
+    ws_persistent: bool,
+    ws_keepalive_secs: Option<u64>,
+    ws_max_messages: Option<u64>,
+    ws_role: Option<String>,
+    ws_publish_interval_ms: Option<u64>,
+    ws_subscribers: Option<usize>,
+    grpc_service: Option<String>,
+    grpc_method: Option<String>,
+    grpc_payload: Option<String>,
+    grpc_deadline_ms: Option<u64>,
+    proto_path: Option<String>,
+    grpc_use_reflection: bool,
+    http3_enabled: bool,
+    quic_zero_rtt: bool,
+    quic_max_idle_timeout_ms: Option<u64>,
+    sse_enabled: bool,
+    sse_max_events: Option<u64>,
+    output_dir: Option<String>,
+    no_save: bool,
+}
+
+impl Default for TestConfigBuilder {
+    fn default() -> Self {
+        Self {
+            url: String::new(),
+            concurrency: 10,
+            duration_secs: 10,
+            timeout_secs: 10,
+            chaos: false,
+            chaos_rate: DEFAULT_CHAOS_RATE,
+            no_progress: false,
+            method: "GET".to_string(),
+            body: None,
+            form: None,
+            headers: None,
+            ws_mode: WsMode::Handshake,
+            ws_payload: None,
+            ws_persistent: false,
+            ws_keepalive_secs: None,
+            ws_max_messages: None,
+            ws_role: None,
+            ws_publish_interval_ms: None,
+            ws_subscribers: None,
+            grpc_service: None,
+            grpc_method: None,
+            grpc_payload: None,
+            grpc_deadline_ms: None,
+            proto_path: None,
+            grpc_use_reflection: false,
+            http3_enabled: false,
+            quic_zero_rtt: false,
+            quic_max_idle_timeout_ms: None,
+            sse_enabled: false,
+            sse_max_events: None,
+            output_dir: None,
+            no_save: false,
+        }
+    }
+}
+
+impl TestConfigBuilder {
+    pub fn new(url: String) -> Self {
+        Self {
             url,
-            concurrency,
-            duration_secs,
-            timeout_secs,
-            false,
-            DEFAULT_CHAOS_RATE,
-            false,
-            "GET",
-            None,
-            None,
-            None,
-            WsMode::Handshake,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            false,
-            false,
-            None,
-            None,
-            None,
-            None,
-            None,
-            false,
-            false,
-            None,
-            false,
-            None,
-            None,
-            false,
-        )
+            ..Default::default()
+        }
+    }
+
+    pub fn concurrency(mut self, v: usize) -> Self {
+        self.concurrency = v;
+        self
+    }
+    pub fn duration_secs(mut self, v: u64) -> Self {
+        self.duration_secs = v;
+        self
+    }
+    pub fn timeout_secs(mut self, v: u64) -> Self {
+        self.timeout_secs = v;
+        self
+    }
+    pub fn chaos(mut self, v: bool) -> Self {
+        self.chaos = v;
+        self
+    }
+    pub fn chaos_rate(mut self, v: f32) -> Self {
+        self.chaos_rate = v;
+        self
+    }
+    pub fn no_progress(mut self, v: bool) -> Self {
+        self.no_progress = v;
+        self
+    }
+    pub fn method(mut self, v: &str) -> Self {
+        self.method = v.to_string();
+        self
+    }
+    pub fn body(mut self, v: Option<String>) -> Self {
+        self.body = v;
+        self
+    }
+    pub fn form(mut self, v: Option<Vec<(String, String)>>) -> Self {
+        self.form = v;
+        self
+    }
+    pub fn headers(mut self, v: Option<Vec<(String, String)>>) -> Self {
+        self.headers = v;
+        self
+    }
+    pub fn ws_mode(mut self, v: WsMode) -> Self {
+        self.ws_mode = v;
+        self
+    }
+    pub fn ws_payload(mut self, v: Option<String>) -> Self {
+        self.ws_payload = v;
+        self
+    }
+    pub fn ws_persistent(mut self, v: bool) -> Self {
+        self.ws_persistent = v;
+        self
+    }
+    pub fn ws_keepalive_secs(mut self, v: Option<u64>) -> Self {
+        self.ws_keepalive_secs = v;
+        self
+    }
+    pub fn ws_max_messages(mut self, v: Option<u64>) -> Self {
+        self.ws_max_messages = v;
+        self
+    }
+    pub fn ws_role(mut self, v: Option<String>) -> Self {
+        self.ws_role = v;
+        self
+    }
+    pub fn ws_publish_interval_ms(mut self, v: Option<u64>) -> Self {
+        self.ws_publish_interval_ms = v;
+        self
+    }
+    pub fn ws_subscribers(mut self, v: Option<usize>) -> Self {
+        self.ws_subscribers = v;
+        self
+    }
+    pub fn grpc_service(mut self, v: Option<String>) -> Self {
+        self.grpc_service = v;
+        self
+    }
+    pub fn grpc_method(mut self, v: Option<String>) -> Self {
+        self.grpc_method = v;
+        self
+    }
+    pub fn grpc_payload(mut self, v: Option<String>) -> Self {
+        self.grpc_payload = v;
+        self
+    }
+    pub fn grpc_deadline_ms(mut self, v: Option<u64>) -> Self {
+        self.grpc_deadline_ms = v;
+        self
+    }
+    pub fn proto_path(mut self, v: Option<String>) -> Self {
+        self.proto_path = v;
+        self
+    }
+    pub fn grpc_use_reflection(mut self, v: bool) -> Self {
+        self.grpc_use_reflection = v;
+        self
+    }
+    pub fn http3_enabled(mut self, v: bool) -> Self {
+        self.http3_enabled = v;
+        self
+    }
+    pub fn quic_zero_rtt(mut self, v: bool) -> Self {
+        self.quic_zero_rtt = v;
+        self
+    }
+    pub fn quic_max_idle_timeout_ms(mut self, v: Option<u64>) -> Self {
+        self.quic_max_idle_timeout_ms = v;
+        self
+    }
+    pub fn sse_enabled(mut self, v: bool) -> Self {
+        self.sse_enabled = v;
+        self
+    }
+    pub fn sse_max_events(mut self, v: Option<u64>) -> Self {
+        self.sse_max_events = v;
+        self
+    }
+    pub fn output_dir(mut self, v: Option<String>) -> Self {
+        self.output_dir = v;
+        self
+    }
+    pub fn no_save(mut self, v: bool) -> Self {
+        self.no_save = v;
+        self
+    }
+
+    pub fn build(self) -> TestConfig {
+        TestConfig {
+            url: self.url,
+            concurrency: self.concurrency,
+            duration_secs: self.duration_secs,
+            timeout_secs: self.timeout_secs,
+            chaos: self.chaos,
+            chaos_rate: self.chaos_rate,
+            no_progress: self.no_progress,
+            method: self.method,
+            body: self.body,
+            form: self.form,
+            headers: self.headers,
+            ws_mode: self.ws_mode,
+            ws_payload: self.ws_payload,
+            grpc_service: self.grpc_service,
+            grpc_method: self.grpc_method,
+            grpc_payload: self.grpc_payload,
+            grpc_deadline_ms: self.grpc_deadline_ms,
+            proto_path: self.proto_path,
+            grpc_use_reflection: self.grpc_use_reflection,
+            ws_persistent: self.ws_persistent,
+            ws_keepalive_secs: self.ws_keepalive_secs,
+            ws_max_messages: self.ws_max_messages,
+            ws_role: self.ws_role,
+            ws_publish_interval_ms: self.ws_publish_interval_ms,
+            ws_subscribers: self.ws_subscribers,
+            http3_enabled: self.http3_enabled,
+            quic_zero_rtt: self.quic_zero_rtt,
+            quic_max_idle_timeout_ms: self.quic_max_idle_timeout_ms,
+            sse_enabled: self.sse_enabled,
+            sse_max_events: self.sse_max_events,
+            output_dir: self.output_dir,
+            no_save: self.no_save,
+        }
     }
 }
 
@@ -444,7 +615,64 @@ mod tests {
     use super::*;
 
     #[test]
-    fn new_with_defaults() {
+    fn builder_defaults() {
+        let c = TestConfig::builder("http://127.0.0.1:8080".into()).build();
+        assert_eq!(c.url, "http://127.0.0.1:8080");
+        assert_eq!(c.concurrency, 10);
+        assert_eq!(c.duration_secs, 10);
+        assert_eq!(c.timeout_secs, 10);
+        assert!(!c.chaos);
+        assert_eq!(c.chaos_rate, DEFAULT_CHAOS_RATE);
+        assert_eq!(c.method, "GET");
+        assert!(c.body.is_none());
+        assert!(c.headers.is_none());
+        assert_eq!(c.ws_mode, WsMode::Handshake);
+        assert!(!c.ws_persistent);
+        assert!(!c.http3_enabled);
+        assert!(!c.no_save);
+    }
+
+    #[test]
+    fn builder_custom_overrides() {
+        let c = TestConfig::builder("grpc://localhost:50051".into())
+            .concurrency(50)
+            .duration_secs(30)
+            .timeout_secs(5)
+            .chaos(true)
+            .chaos_rate(0.25)
+            .method("POST")
+            .ws_mode(WsMode::Stream)
+            .ws_persistent(true)
+            .ws_role(Some("publisher".into()))
+            .grpc_service(Some("pkg.Svc".into()))
+            .grpc_method(Some("Method".into()))
+            .build();
+        assert_eq!(c.url, "grpc://localhost:50051");
+        assert_eq!(c.concurrency, 50);
+        assert_eq!(c.duration_secs, 30);
+        assert_eq!(c.timeout_secs, 5);
+        assert!(c.chaos);
+        assert_eq!(c.chaos_rate, 0.25);
+        assert_eq!(c.method, "POST");
+        assert_eq!(c.ws_mode, WsMode::Stream);
+        assert!(c.ws_persistent);
+        assert_eq!(c.ws_role.as_deref(), Some("publisher"));
+        assert_eq!(c.grpc_service.as_deref(), Some("pkg.Svc"));
+        assert_eq!(c.grpc_method.as_deref(), Some("Method"));
+    }
+
+    #[test]
+    fn for_protocol_detection_uses_builder() {
+        let c = TestConfig::for_protocol_detection("grpc://localhost:50051".into(), 10, 30, 10);
+        assert_eq!(c.url, "grpc://localhost:50051");
+        assert_eq!(c.concurrency, 10);
+        assert_eq!(c.duration_secs, 30);
+        assert!(!c.ws_persistent);
+        assert!(!c.chaos);
+    }
+
+    #[test]
+    fn pyo3_new_with_defaults() {
         let c = TestConfig::new(
             "http://127.0.0.1:8080".into(),
             10,
@@ -481,22 +709,11 @@ mod tests {
         );
         assert_eq!(c.url, "http://127.0.0.1:8080");
         assert_eq!(c.concurrency, 10);
-        assert_eq!(c.duration_secs, 10);
-        assert_eq!(c.timeout_secs, 10);
-        assert!(!c.chaos);
-        assert_eq!(c.chaos_rate, 0.1);
-        assert_eq!(c.method, "GET");
-        assert!(c.body.is_none());
-        assert!(c.headers.is_none());
-        assert_eq!(c.ws_mode, WsMode::Handshake);
-        assert!(c.ws_payload.is_none());
-        assert!(c.grpc_service.is_none());
-        assert!(c.grpc_method.is_none());
         assert!(!c.ws_persistent);
     }
 
     #[test]
-    fn new_with_custom_values() {
+    fn pyo3_new_with_custom_values() {
         let headers = vec![("X-Custom".to_string(), "value".to_string())];
         let c = TestConfig::new(
             "http://127.0.0.1:8080".into(),
@@ -518,8 +735,8 @@ mod tests {
             Some(5000),
             None,
             false,
-            false,
-            None,
+            true,
+            Some(300),
             None,
             Some("publisher".into()),
             Some(100),
@@ -532,62 +749,12 @@ mod tests {
             None,
             false,
         );
-        assert_eq!(c.url, "http://127.0.0.1:8080");
         assert_eq!(c.concurrency, 50);
-        assert_eq!(c.duration_secs, 30);
-        assert_eq!(c.timeout_secs, 5);
         assert!(c.chaos);
-        assert_eq!(c.chaos_rate, 0.25);
-        assert_eq!(c.method, "POST");
-        assert!(c.body.is_some());
-        assert!(c.headers.is_some());
         assert_eq!(c.ws_mode, WsMode::PingPong);
+        assert!(c.ws_persistent);
+        assert_eq!(c.ws_keepalive_secs, Some(300));
         assert_eq!(c.ws_role.as_deref(), Some("publisher"));
-        assert_eq!(c.ws_publish_interval_ms, Some(100));
-        assert_eq!(c.ws_subscribers, Some(5));
-    }
-
-    #[test]
-    fn fields_are_gettable() {
-        let c = TestConfig::new(
-            "http://127.0.0.1:8080".into(),
-            1,
-            2,
-            3,
-            false,
-            0.1,
-            false,
-            "GET",
-            None,
-            None,
-            None,
-            WsMode::Handshake,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            false,
-            false,
-            None,
-            None,
-            None,
-            None,
-            None,
-            false,
-            false,
-            None,
-            false,
-            None,
-            None,
-            false,
-        );
-        assert_eq!(c.url, "http://127.0.0.1:8080");
-        assert_eq!(c.concurrency, 1);
-        assert_eq!(c.duration_secs, 2);
-        assert_eq!(c.timeout_secs, 3);
-        assert_eq!(c.chaos_rate, 0.1);
     }
 
     // LoadProfile tests

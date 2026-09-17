@@ -170,18 +170,7 @@ class TestSummary:
 
 def init_logging(level: str, log_file: str | None = None) -> None: ...
 def run_load_test(config: TestConfig) -> TestSummary: ...
-def run_load_profiles(
-    url: str,
-    timeout_secs: int,
-    profile: LoadProfile,
-    chaos: bool = False,
-    chaos_rate: float = 0.1,
-    no_progress: bool = False,
-    method: str = "GET",
-    body: str | None = None,
-    form: list[tuple[str, str]] | None = None,
-    headers: list[tuple[str, str]] | None = None,
-) -> TestSummary: ...
+def run_load_profiles(config: TestConfig, profile: LoadProfile) -> TestSummary: ...
 def build_report_artifact_dict(
     summary: TestSummary, config: TestConfig
 ) -> dict[str, Any]: ...

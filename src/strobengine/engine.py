@@ -46,6 +46,7 @@ class RequestOptions:
 
     timeout: int = DEFAULT_TIMEOUT_SECS
     chaos: bool = False
+    chaos_rate: float = 0.1
     no_progress: bool = False
     method: str = "GET"
     body: str | None = None
@@ -53,6 +54,8 @@ class RequestOptions:
     headers: list[tuple[str, str]] = field(default_factory=list)
     ws_mode: WsModeEnum = WsModeEnum.handshake
     ws_payload: str | None = None
+    ws_persistent: bool = False
+    ws_keepalive_secs: int | None = None
     ws_role: str | None = None
     ws_publish_interval_ms: int | None = None
     ws_subscribers: int | None = None
@@ -75,6 +78,45 @@ class RequestOptions:
             raise ValueError("timeout must be greater than 0")
 
 
+def _build_test_config(
+    url: str, opts: RequestOptions, concurrency: int, duration: int
+) -> TestConfig:
+    """Build a TestConfig from RequestOptions with the given concurrency and duration."""
+    return TestConfig(
+        url=url,
+        concurrency=concurrency,
+        duration_secs=duration,
+        timeout_secs=opts.timeout,
+        chaos=opts.chaos,
+        chaos_rate=opts.chaos_rate,
+        no_progress=opts.no_progress,
+        method=opts.method,
+        body=opts.body,
+        form=opts.form,
+        headers=opts.headers,
+        ws_mode=_WS_MODE_MAP.get(opts.ws_mode, WsMode.handshake()),
+        ws_payload=opts.ws_payload,
+        ws_persistent=opts.ws_persistent,
+        ws_keepalive_secs=opts.ws_keepalive_secs,
+        ws_role=opts.ws_role,
+        ws_publish_interval_ms=opts.ws_publish_interval_ms,
+        ws_subscribers=opts.ws_subscribers,
+        grpc_service=opts.grpc_service,
+        grpc_method=opts.grpc_method,
+        grpc_payload=opts.grpc_payload,
+        grpc_deadline_ms=opts.grpc_deadline_ms,
+        proto_path=opts.proto_path,
+        grpc_use_reflection=opts.grpc_use_reflection,
+        http3_enabled=opts.http3_enabled,
+        quic_zero_rtt=opts.quic_zero_rtt,
+        quic_max_idle_timeout_ms=opts.quic_max_idle_timeout_ms,
+        sse_enabled=opts.sse_enabled,
+        sse_max_events=opts.sse_max_events,
+        output_dir=opts.output_dir,
+        no_save=opts.no_save,
+    )
+
+
 class StrobEngine:
     def __init__(
         self,
@@ -94,40 +136,14 @@ class StrobEngine:
                 raise ValueError("Concurrency must be greater than 0")
             if duration <= 0:
                 raise ValueError("Duration must be greater than 0")
-
-            self.config = TestConfig(
-                url=url,
-                concurrency=concurrency,
-                duration_secs=duration,
-                timeout_secs=self._options.timeout,
-                chaos=self._options.chaos,
-                no_progress=self._options.no_progress,
-                method=self._options.method,
-                body=self._options.body,
-                form=self._options.form,
-                headers=self._options.headers,
-                ws_mode=_WS_MODE_MAP.get(self._options.ws_mode, WsMode.handshake()),
-                ws_payload=self._options.ws_payload,
-                ws_role=self._options.ws_role,
-                ws_publish_interval_ms=self._options.ws_publish_interval_ms,
-                ws_subscribers=self._options.ws_subscribers,
-                grpc_service=self._options.grpc_service,
-                grpc_method=self._options.grpc_method,
-                grpc_payload=self._options.grpc_payload,
-                grpc_deadline_ms=self._options.grpc_deadline_ms,
-                proto_path=self._options.proto_path,
-                grpc_use_reflection=self._options.grpc_use_reflection,
-                http3_enabled=self._options.http3_enabled,
-                quic_zero_rtt=self._options.quic_zero_rtt,
-                quic_max_idle_timeout_ms=self._options.quic_max_idle_timeout_ms,
-                sse_enabled=self._options.sse_enabled,
-                sse_max_events=self._options.sse_max_events,
-                output_dir=self._options.output_dir,
-                no_save=self._options.no_save,
-            )
-            self._profile = None
+            self.config = _build_test_config(url, self._options, concurrency, duration)
         else:
-            self.config = None
+            self.config = _build_test_config(
+                url,
+                self._options,
+                profile.max_concurrency(),
+                profile.total_duration(),
+            )
 
     @classmethod
     def load_test(
@@ -215,39 +231,27 @@ class StrobEngine:
     def _enrich_summary(self, summary: TestSummary) -> TestSummary:
         enriched = summary.clone()
         enriched.timestamp = datetime.now(UTC).isoformat()
-        if self.config is not None:
-            enriched.workers = self.config.concurrency
+        enriched.workers = self.config.concurrency
         enriched.raw_command = (
             f"strobengine.run(url='{summary.url}', workers={enriched.workers})"
         )
         return enriched
 
     def run(self) -> TestSummary:
-        opts = self._options
         if self._profile is not None:
-            summary = run_load_profiles(
-                self._url,
-                opts.timeout,
-                self._profile,
-                opts.chaos,
-                no_progress=opts.no_progress,
-                method=opts.method,
-                body=opts.body,
-                form=opts.form,
-                headers=opts.headers,
-            )
+            summary = run_load_profiles(self.config, self._profile)
         else:
             summary = run_load_test(self.config)
         enriched = self._enrich_summary(summary)
         # Persist artifact (single owner, always with enriched metadata)
-        if not opts.no_save:
+        if not self._options.no_save:
             from strobengine.reporter import save_report
 
             self._saved_report_path = save_report(
                 enriched,
-                self.config or opts,
-                output_dir=opts.output_dir,
-                no_save=opts.no_save,
+                self.config,
+                output_dir=self._options.output_dir,
+                no_save=self._options.no_save,
             )
         else:
             self._saved_report_path = None
@@ -257,12 +261,8 @@ class StrobEngine:
         return await asyncio.to_thread(self.run)
 
     def get_config(self):
-        """Return the active configuration (TestConfig or RequestOptions).
-
-        Returns TestConfig for constant load tests, or RequestOptions
-        as a fallback for stress/spike profile-based tests.
-        """
-        return self.config or self._options
+        """Return the active TestConfig."""
+        return self.config
 
     @property
     def saved_report_path(self) -> str | None:
