@@ -4,7 +4,7 @@ import os
 import shutil
 import sys
 
-from strobengine._strobengine import HISTOGRAM_BUCKET_ORDER, TestSummary
+from strobengine._strobengine import HISTOGRAM_BUCKET_ORDER, SystemMetrics, TestSummary
 
 _HAS_RICH = False
 try:
@@ -326,6 +326,31 @@ def build_artifact_dict(summary: TestSummary, config: object) -> dict:
     return _build_artifact_dict_fallback(summary, config)
 
 
+def _format_system_metrics(summary: TestSummary) -> dict | None:
+    """Extract system_metrics from summary into JSON-friendly format."""
+    sm = getattr(summary, "system_metrics", None)
+    if sm is None or not isinstance(sm, SystemMetrics):
+        return None
+    return {
+        "summary": {
+            "peak_cpu_percent": sm.peak_cpu_percent,
+            "avg_cpu_percent": sm.avg_cpu_percent,
+            "peak_memory_mb": round(sm.peak_memory_rss_bytes / (1024 * 1024), 1),
+            "avg_memory_mb": round(sm.avg_memory_rss_bytes / (1024 * 1024), 1),
+            "peak_threads": sm.peak_thread_count,
+        },
+        "samples": [
+            {
+                "elapsed_sec": round(s.timestamp_us / 1_000_000.0, 1),
+                "cpu_percent": s.cpu_usage_percent,
+                "memory_mb": round(s.memory_rss_bytes / (1024 * 1024), 1),
+                "threads": s.thread_count,
+            }
+            for s in sm.time_series
+        ],
+    }
+
+
 def _build_artifact_dict_fallback(summary: TestSummary, config: object) -> dict:
     """Manual construction for RequestOptions when TestConfig is unavailable."""
     successful = summary.total_requests - summary.total_errors
@@ -384,6 +409,7 @@ def _build_artifact_dict_fallback(summary: TestSummary, config: object) -> dict:
             "injected_total": getattr(summary, "chaos_injected_total", 0),
             "by_type": getattr(summary, "chaos_faults_by_type", {}),
         },
+        "system_metrics": _format_system_metrics(summary),
     }
 
 

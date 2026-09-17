@@ -24,6 +24,8 @@ pub struct ReportArtifact {
     pub chaos: Option<ChaosMetrics>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub latency_histogram: Option<HashMap<String, u64>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub system_metrics: Option<crate::metrics::system::SystemMetrics>,
 }
 
 /// Test run metadata including configuration and system information.
@@ -169,6 +171,7 @@ impl ReportArtifact {
                 None
             },
             latency_histogram: Some(summary.latency_histogram.clone()),
+            system_metrics: summary.system_metrics.clone(),
         }
     }
 }
@@ -229,6 +232,7 @@ mod tests {
             sse: None,
             chaos: None,
             latency_histogram: Some(std::collections::HashMap::new()),
+            system_metrics: None,
         }
     }
 
@@ -399,7 +403,7 @@ mod tests {
             std_dev_latency_ms: 0.0,
             p99_99_latency_ms: 0.0,
             latency_histogram: std::collections::HashMap::new(),
-            resource_samples: Vec::new(),
+            system_metrics: None,
         };
 
         let config = TestConfig::new(
