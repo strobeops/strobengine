@@ -399,6 +399,7 @@ mod tests {
             std_dev_latency_ms: 0.0,
             p99_99_latency_ms: 0.0,
             latency_histogram: std::collections::HashMap::new(),
+            resource_samples: Vec::new(),
         };
 
         let config = TestConfig::new(
@@ -434,6 +435,7 @@ mod tests {
             None,
             None,
             false,
+            1000u64,
         );
 
         let artifact = ReportArtifact::from_summary_and_config(&summary, &config);

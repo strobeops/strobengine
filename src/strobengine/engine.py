@@ -72,6 +72,7 @@ class RequestOptions:
     sse_max_events: int | None = None
     output_dir: str | None = None
     no_save: bool = False
+    sys_sample_interval: int = 1000
 
     def __post_init__(self) -> None:
         if self.timeout <= 0:
@@ -114,6 +115,7 @@ def _build_test_config(
         sse_max_events=opts.sse_max_events,
         output_dir=opts.output_dir,
         no_save=opts.no_save,
+        sys_sample_interval=opts.sys_sample_interval,
     )
 
 

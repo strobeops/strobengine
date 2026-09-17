@@ -97,6 +97,8 @@ pub struct TestConfig {
     pub output_dir: Option<String>,
     #[pyo3(get, set)]
     pub no_save: bool,
+    #[pyo3(get, set)]
+    pub sys_sample_interval: u64,
 }
 
 #[pymethods]
@@ -135,6 +137,7 @@ impl TestConfig {
         sse_max_events=None,
         output_dir=None,
         no_save=false,
+        sys_sample_interval=1000u64,
     ))]
     #[allow(clippy::too_many_arguments)]
     pub fn new(
@@ -170,6 +173,7 @@ impl TestConfig {
         sse_max_events: Option<u64>,
         output_dir: Option<String>,
         no_save: bool,
+        sys_sample_interval: u64,
     ) -> Self {
         Self {
             url,
@@ -204,6 +208,7 @@ impl TestConfig {
             sse_max_events,
             output_dir,
             no_save,
+            sys_sample_interval,
         }
     }
 }
@@ -264,6 +269,7 @@ pub struct TestConfigBuilder {
     sse_max_events: Option<u64>,
     output_dir: Option<String>,
     no_save: bool,
+    sys_sample_interval: u64,
 }
 
 impl Default for TestConfigBuilder {
@@ -301,6 +307,7 @@ impl Default for TestConfigBuilder {
             sse_max_events: None,
             output_dir: None,
             no_save: false,
+            sys_sample_interval: 1000,
         }
     }
 }
@@ -437,6 +444,10 @@ impl TestConfigBuilder {
         self.no_save = v;
         self
     }
+    pub fn sys_sample_interval(mut self, v: u64) -> Self {
+        self.sys_sample_interval = v;
+        self
+    }
 
     pub fn build(self) -> TestConfig {
         TestConfig {
@@ -472,6 +483,7 @@ impl TestConfigBuilder {
             sse_max_events: self.sse_max_events,
             output_dir: self.output_dir,
             no_save: self.no_save,
+            sys_sample_interval: self.sys_sample_interval,
         }
     }
 }
@@ -706,6 +718,7 @@ mod tests {
             None,
             None,
             false,
+            1000u64,
         );
         assert_eq!(c.url, "http://127.0.0.1:8080");
         assert_eq!(c.concurrency, 10);
@@ -748,6 +761,7 @@ mod tests {
             None,
             None,
             false,
+            1000u64,
         );
         assert_eq!(c.concurrency, 50);
         assert!(c.chaos);
