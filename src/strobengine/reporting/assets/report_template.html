@@ -68,6 +68,18 @@
     </div>
   </div>
 
+{% if system_metrics and system_metrics.samples %}
+  <div class="card" style="margin-bottom: 1.5rem;">
+    <h2>Client Resource Footprint</h2>
+    <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 1rem; margin-bottom: 1rem;">
+      <div class="meta-row"><span class="meta-label">Peak CPU</span><span class="meta-value">{{ "%.1f" | format(system_metrics.summary.peak_cpu_percent) }}%</span></div>
+      <div class="meta-row"><span class="meta-label">Peak Memory</span><span class="meta-value">{{ "%.1f" | format(system_metrics.summary.peak_memory_mb) }} MB</span></div>
+      <div class="meta-row"><span class="meta-label">Peak Threads</span><span class="meta-value">{{ system_metrics.summary.peak_threads }}</span></div>
+    </div>
+    <canvas id="resourceChart"></canvas>
+  </div>
+{% endif %}
+
   <div class="card">
     <h2>Status Codes</h2>
     <table class="status-table">
@@ -162,6 +174,57 @@
       plugins: { legend: { position: 'bottom', labels: { color: '#94a3b8' } } }
     }
   });
+{% if system_metrics and system_metrics.samples %}
+  var ctxRes = document.getElementById('resourceChart');
+  if (ctxRes) {
+    new Chart(ctxRes.getContext('2d'), {
+      type: 'line',
+      data: {
+        labels: [{% for s in system_metrics.samples %}'{{ "%.1f" | format(s.elapsed_sec) }}s'{% if not loop.last %},{% endif %}{% endfor %}],
+        datasets: [
+          {
+            label: 'CPU (%)',
+            data: [{% for s in system_metrics.samples %}{{ s.cpu_percent }}{% if not loop.last %},{% endif %}{% endfor %}],
+            borderColor: '#3b82f6',
+            backgroundColor: 'rgba(59,130,246,0.1)',
+            yAxisID: 'yCpu',
+            tension: 0.2,
+            fill: true
+          },
+          {
+            label: 'Memory (MB)',
+            data: [{% for s in system_metrics.samples %}{{ s.memory_mb }}{% if not loop.last %},{% endif %}{% endfor %}],
+            borderColor: '#10b981',
+            backgroundColor: 'rgba(16,185,129,0.1)',
+            yAxisID: 'yMem',
+            tension: 0.2,
+            fill: true
+          }
+        ]
+      },
+      options: {
+        responsive: true,
+        interaction: { mode: 'index', intersect: false },
+        plugins: { legend: { labels: { color: '#94a3b8' } } },
+        scales: {
+          x: { grid: { color: '#334155' }, ticks: { color: '#94a3b8' } },
+          yCpu: {
+            type: 'linear', position: 'left',
+            title: { display: true, text: 'CPU %', color: '#3b82f6' },
+            grid: { color: '#334155' }, ticks: { color: '#94a3b8' },
+            suggestedMin: 0
+          },
+          yMem: {
+            type: 'linear', position: 'right',
+            title: { display: true, text: 'Memory (MB)', color: '#10b981' },
+            grid: { drawOnChartArea: false }, ticks: { color: '#94a3b8' },
+            suggestedMin: 0
+          }
+        }
+      }
+    });
+  }
+{% endif %}
 })();
 </script>
 </body>
