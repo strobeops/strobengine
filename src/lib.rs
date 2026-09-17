@@ -222,6 +222,7 @@ async fn execute_test(
     no_progress: bool,
     strategy: ConcurrencyStrategy,
     timeout_secs: u64,
+    sys_sample_interval: u64,
 ) -> PyResult<metrics::TestSummary> {
     tracing::debug!("protocol engine initialized");
 
@@ -257,6 +258,13 @@ async fn execute_test(
 
     // Spawn metric collection concurrently in the background
     let aggregator = tokio::spawn(metrics::finalize_metrics(rx));
+
+    // Spawn resource monitor (if enabled)
+    let (resource_handle, mut resource_rx) =
+        match crate::metrics::system::start(sys_sample_interval) {
+            Some((h, rx)) => (Some(h), Some(rx)),
+            None => (None, None),
+        };
 
     // Spawn progress render task (only on TTY when enabled)
     let use_progress = !no_progress && std::io::stderr().is_terminal();
@@ -426,6 +434,20 @@ async fn execute_test(
         .await
         .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
 
+    // Shut down resource monitor and collect final samples
+    let resource_samples = if let Some(handle) = resource_handle {
+        handle.cancel.cancel();
+        let mut samples = Vec::new();
+        if let Some(ref mut rx) = resource_rx {
+            while let Some(s) = rx.recv().await {
+                samples.push(s);
+            }
+        }
+        samples
+    } else {
+        Vec::new()
+    };
+
     Ok(metrics::calculate_summary(metrics::SummaryInput {
         url,
         total_requests: total,
@@ -441,6 +463,7 @@ async fn execute_test(
         sse_metrics: aggregated.sse_metrics,
         chaos_injected_total: aggregated.chaos_injected_total,
         chaos_faults_by_type: aggregated.chaos_faults_by_type,
+        resource_samples,
     }))
 }
 
@@ -512,6 +535,7 @@ fn run_load_test(py: Python<'_>, config: TestConfig) -> PyResult<metrics::TestSu
             no_progress,
             strategy,
             config.timeout_secs,
+            config.sys_sample_interval,
         ))?;
 
         Ok(summary)
@@ -588,6 +612,7 @@ fn run_load_profiles(
             no_progress,
             strategy,
             config.timeout_secs,
+            config.sys_sample_interval,
         ))
     })
 }

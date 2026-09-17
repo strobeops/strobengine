@@ -228,6 +228,8 @@ pub struct TestSummary {
     pub p99_99_latency_ms: f64,
     #[pyo3(get)]
     pub latency_histogram: HashMap<String, u64>,
+    #[pyo3(get)]
+    pub resource_samples: Vec<system::ResourceSample>,
 }
 
 #[pymethods]
@@ -331,6 +333,7 @@ pub struct SummaryInput {
     pub sse_metrics: Option<SseMetrics>,
     pub chaos_injected_total: u64,
     pub chaos_faults_by_type: HashMap<String, u64>,
+    pub resource_samples: Vec<system::ResourceSample>,
 }
 
 /// Finalize metric aggregation from a receiver channel.
@@ -460,6 +463,7 @@ pub fn calculate_summary(input: SummaryInput) -> TestSummary {
             std_dev_latency_ms: 0.0,
             p99_99_latency_ms: 0.0,
             latency_histogram: HashMap::new(),
+            resource_samples: input.resource_samples,
         };
     }
 
@@ -504,6 +508,7 @@ pub fn calculate_summary(input: SummaryInput) -> TestSummary {
         std_dev_latency_ms,
         p99_99_latency_ms,
         latency_histogram,
+        resource_samples: input.resource_samples,
     }
 }
 
@@ -539,6 +544,7 @@ mod tests {
             sse_metrics: None,
             chaos_injected_total: 0,
             chaos_faults_by_type: HashMap::new(),
+            resource_samples: Vec::new(),
         });
         assert_eq!(s.url, "http://example.com");
         assert_eq!(s.total_requests, 10);
@@ -569,6 +575,7 @@ mod tests {
             sse_metrics: None,
             chaos_injected_total: 0,
             chaos_faults_by_type: HashMap::new(),
+            resource_samples: Vec::new(),
         });
         assert_eq!(s.total_requests, 1);
         // HDR quantization may shift values by up to 0.1% of range
@@ -600,6 +607,7 @@ mod tests {
             sse_metrics: None,
             chaos_injected_total: 0,
             chaos_faults_by_type: HashMap::new(),
+            resource_samples: Vec::new(),
         });
         assert!((s.average_latency_ms - 1.5).abs() < 0.01);
         assert!((s.min_latency_ms - 1.0).abs() < 0.01);
@@ -626,6 +634,7 @@ mod tests {
             sse_metrics: None,
             chaos_injected_total: 0,
             chaos_faults_by_type: HashMap::new(),
+            resource_samples: Vec::new(),
         });
         assert!((s.average_latency_ms - 0.0505).abs() < 0.001);
         assert!((s.min_latency_ms - 0.001).abs() < 0.001);
@@ -653,6 +662,7 @@ mod tests {
             sse_metrics: None,
             chaos_injected_total: 0,
             chaos_faults_by_type: HashMap::new(),
+            resource_samples: Vec::new(),
         });
         assert_eq!(s.total_requests, 5);
         assert_eq!(s.total_errors, 5);
@@ -675,6 +685,7 @@ mod tests {
             sse_metrics: None,
             chaos_injected_total: 0,
             chaos_faults_by_type: HashMap::new(),
+            resource_samples: Vec::new(),
         });
         assert!((s.average_latency_ms - 12.345).abs() < 0.01);
     }
@@ -696,6 +707,7 @@ mod tests {
             sse_metrics: None,
             chaos_injected_total: 0,
             chaos_faults_by_type: HashMap::new(),
+            resource_samples: Vec::new(),
         });
         assert!((s.p95_latency_ms - 3.0).abs() < 0.01);
         assert!((s.p99_latency_ms - 3.0).abs() < 0.01);
@@ -723,6 +735,7 @@ mod tests {
             sse_metrics: None,
             chaos_injected_total: 0,
             chaos_faults_by_type: HashMap::new(),
+            resource_samples: Vec::new(),
         });
         assert_eq!(s.status_codes.get(&200), Some(&10));
         assert_eq!(s.status_codes.get(&500), Some(&3));
@@ -752,6 +765,7 @@ mod tests {
             }),
             chaos_injected_total: 0,
             chaos_faults_by_type: HashMap::new(),
+            resource_samples: Vec::new(),
         });
 
         assert!((s.avg_connection_latency_us - 300.0).abs() < 1.0);
@@ -783,6 +797,7 @@ mod tests {
             sse_metrics: None,
             chaos_injected_total: 0,
             chaos_faults_by_type: HashMap::new(),
+            resource_samples: Vec::new(),
         });
         assert!(s.quic.is_none());
         assert!(s.sse.is_none());
@@ -807,6 +822,7 @@ mod tests {
             sse_metrics: None,
             chaos_injected_total: 0,
             chaos_faults_by_type: HashMap::new(),
+            resource_samples: Vec::new(),
         });
         assert!(s.p99_99_latency_ms >= s.p99_latency_ms);
         assert!(s.p99_99_latency_ms <= s.max_latency_ms);
@@ -850,6 +866,7 @@ mod tests {
             sse_metrics: None,
             chaos_injected_total: 0,
             chaos_faults_by_type: HashMap::new(),
+            resource_samples: Vec::new(),
         });
         assert_eq!(s.total_requests, 0);
         assert_eq!(s.p50_latency_ms, 0.0);
@@ -873,6 +890,7 @@ mod tests {
             sse_metrics: None,
             chaos_injected_total: 0,
             chaos_faults_by_type: HashMap::new(),
+            resource_samples: Vec::new(),
         });
         assert_eq!(s.std_dev_latency_ms, 0.0);
     }
@@ -897,6 +915,7 @@ mod tests {
             sse_metrics: None,
             chaos_injected_total: 0,
             chaos_faults_by_type: HashMap::new(),
+            resource_samples: Vec::new(),
         });
         assert!((s.std_dev_latency_ms * MICROS_PER_MILLI - 1414.21).abs() < 15.0);
     }

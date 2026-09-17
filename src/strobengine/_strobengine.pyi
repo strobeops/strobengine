@@ -63,6 +63,7 @@ class TestConfig:
     sse_max_events: int | None
     output_dir: str | None
     no_save: bool
+    sys_sample_interval: int
     def __init__(
         self,
         url: str,
@@ -97,6 +98,7 @@ class TestConfig:
         sse_max_events: int | None = None,
         output_dir: str | None = None,
         no_save: bool = False,
+        sys_sample_interval: int = 1000,
     ) -> None: ...
 
 class QuicMetrics:

@@ -71,6 +71,7 @@ _REQUEST_FIELDS = frozenset(
         "sse_max_events",
         "output_dir",
         "no_save",
+        "sys_sample_interval",
     }
 )
 
@@ -294,6 +295,7 @@ def _build_request_options(**kwargs: object) -> RequestOptions:
         sse_max_events=kwargs.get("sse_max_events"),
         output_dir=kwargs.get("output_dir"),
         no_save=kwargs.get("no_save", False),
+        sys_sample_interval=kwargs.get("sys_sample_interval", 1000),
     )
 
 
@@ -501,6 +503,14 @@ def load(
     no_save: Annotated[
         bool, typer.Option("--no-save", help="Disable report persistence")
     ] = False,
+    sys_sample_interval: Annotated[
+        int,
+        typer.Option(
+            "--sys-sample-interval",
+            min=0,
+            help="Resource monitor sample interval in ms (0 to disable)",
+        ),
+    ] = 1000,
     html_output: Annotated[
         str | None,
         typer.Option("--html", help="Generate standalone HTML report"),
@@ -696,6 +706,14 @@ def stress(
     no_save: Annotated[
         bool, typer.Option("--no-save", help="Disable report persistence")
     ] = False,
+    sys_sample_interval: Annotated[
+        int,
+        typer.Option(
+            "--sys-sample-interval",
+            min=0,
+            help="Resource monitor sample interval in ms (0 to disable)",
+        ),
+    ] = 1000,
     html_output: Annotated[
         str | None,
         typer.Option("--html", help="Generate standalone HTML report"),
@@ -899,6 +917,14 @@ def spike(
     no_save: Annotated[
         bool, typer.Option("--no-save", help="Disable report persistence")
     ] = False,
+    sys_sample_interval: Annotated[
+        int,
+        typer.Option(
+            "--sys-sample-interval",
+            min=0,
+            help="Resource monitor sample interval in ms (0 to disable)",
+        ),
+    ] = 1000,
     html_output: Annotated[
         str | None,
         typer.Option("--html", help="Generate standalone HTML report"),
