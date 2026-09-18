@@ -105,9 +105,9 @@ This document outlines the planned trajectory and upcoming feature epics for **s
   - [x] Sample at configurable interval via `--sys-sample-interval` (default 1000ms, 0 to disable)
   - [x] Include in JSON report artifact (`system_metrics` field) and HTML visualization (dual-axis Chart.js line chart)
 
-- [ ] **Connection Pool Metrics** `[v0.7.0]`
-  - [ ] Track socket creation rate vs reuse rate
-  - [ ] Report DNS resolution duration (if instrumentable)
+- [x] **Connection Pool Metrics** `[v0.7.0]`
+  - [x] Track socket creation rate vs reuse rate
+  - [x] Report DNS resolution duration (if instrumentable)
 
 - [ ] **Protocol-Specific Deep Metrics** `[v0.8.0]`
   - [ ] WebSocket: unsolicited pings/pongs, backpressure depth

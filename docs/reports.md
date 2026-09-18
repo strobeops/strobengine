@@ -48,6 +48,7 @@ These flags appear on all three subcommands (`load`, `stress`, `spike`):
 | `sse` | `total_events_received`, `avg_ttfb_ms` *(SSE only)* |
 | `chaos_faults` | `injected_total`, `by_type` *(chaos-enabled runs only)* |
 | `system_metrics` | `summary` (peak/avg CPU, memory MB, threads), `samples` (time series) *(when `--sys-sample-interval > 0`)* |
+| `connection_pool` | `socket_creation_rate`, `socket_reuse_rate`, `dns_lookup_ms` *(when requests > 0)* |
 
 All latency values are stored in **microseconds**.
 
@@ -88,6 +89,11 @@ All latency values are stored in **microseconds**.
       { "elapsed_sec": 1.0, "cpu_percent": 12.4, "memory_mb": 42.1, "threads": 16 },
       { "elapsed_sec": 2.0, "cpu_percent": 24.8, "memory_mb": 51.0, "threads": 28 }
     ]
+  },
+  "connection_pool": {
+    "socket_creation_rate": 0.25,
+    "socket_reuse_rate": 0.75,
+    "dns_lookup_ms": 1.5
   }
 }
 ```
