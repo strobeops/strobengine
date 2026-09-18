@@ -471,57 +471,63 @@ async fn execute_test(
     }))
 }
 
+/// Build the appropriate protocol engine from config and chaos settings.
+/// `pool_size` controls the HTTP client connection pool size.
+fn build_engine(
+    config: &TestConfig,
+    chaos: ChaosEngine,
+    pool_size: usize,
+) -> PyResult<Arc<dyn ProtocolEngine>> {
+    let url = config.url.clone();
+    if protocols::is_protocol_url(&url) || config.sse_enabled {
+        protocols::detect_protocol(&url, config, chaos)
+            .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))
+    } else {
+        let method = parse_method(&config.method)?;
+        let body = parse_body(config.body.as_deref());
+        let form = parse_form(config.form.as_deref());
+        let header_map = parse_headers(config.headers.as_deref())?;
+
+        let is_form = form.is_some();
+        let final_body = if form.is_some() {
+            if body.is_some() {
+                return Err(pyo3::exceptions::PyValueError::new_err(
+                    "Cannot specify both --body and --form simultaneously",
+                ));
+            }
+            form
+        } else {
+            body
+        };
+
+        let mut header_map = header_map;
+        if final_body.is_some() && !header_map.contains_key(CONTENT_TYPE) {
+            let ct = if is_form {
+                "application/x-www-form-urlencoded"
+            } else {
+                "application/json"
+            };
+            header_map.insert(CONTENT_TYPE, HeaderValue::from_static(ct));
+        }
+
+        let client = build_client(pool_size, config.timeout_secs, header_map)
+            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
+        Ok(Arc::new(
+            protocols::http::HttpEngine::new()
+                .with_client(client)
+                .with_method(method)
+                .with_body(final_body)
+                .with_chaos(chaos),
+        ))
+    }
+}
+
 #[pyfunction]
 fn run_load_test(py: Python<'_>, config: TestConfig) -> PyResult<metrics::TestSummary> {
     py.detach(move || {
         let url = config.url.clone();
         let chaos = ChaosEngine::new(config.chaos, config.chaos_rate);
-        let no_progress = config.no_progress;
-
-        // Build protocol engine based on URL scheme
-        let engine: Arc<dyn ProtocolEngine> =
-            if protocols::is_protocol_url(&url) || config.sse_enabled {
-                protocols::detect_protocol(&url, &config, chaos)
-                    .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?
-            } else {
-                let method = parse_method(&config.method)?;
-                let body = parse_body(config.body.as_deref());
-                let form = parse_form(config.form.as_deref());
-                let header_map = parse_headers(config.headers.as_deref())?;
-
-                // Resolve payload and auto-inject Content-Type
-                let is_form = form.is_some();
-                let final_body = if form.is_some() {
-                    if body.is_some() {
-                        return Err(pyo3::exceptions::PyValueError::new_err(
-                            "Cannot specify both --body and --form simultaneously",
-                        ));
-                    }
-                    form
-                } else {
-                    body
-                };
-
-                let mut header_map = header_map;
-                if final_body.is_some() && !header_map.contains_key(CONTENT_TYPE) {
-                    let ct = if is_form {
-                        "application/x-www-form-urlencoded"
-                    } else {
-                        "application/json"
-                    };
-                    header_map.insert(CONTENT_TYPE, HeaderValue::from_static(ct));
-                }
-
-                let client = build_client(config.concurrency, config.timeout_secs, header_map)
-                    .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
-                Arc::new(
-                    protocols::http::HttpEngine::new()
-                        .with_client(client)
-                        .with_method(method)
-                        .with_body(final_body)
-                        .with_chaos(chaos),
-                )
-            };
+        let engine = build_engine(&config, chaos, config.concurrency)?;
 
         let strategy = ConcurrencyStrategy::Constant {
             concurrency: config.concurrency,
@@ -533,16 +539,14 @@ fn run_load_test(py: Python<'_>, config: TestConfig) -> PyResult<metrics::TestSu
             .build()
             .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
 
-        let summary = rt.block_on(execute_test(
+        rt.block_on(execute_test(
             engine,
             url,
-            no_progress,
+            config.no_progress,
             strategy,
             config.timeout_secs,
             config.sys_sample_interval,
-        ))?;
-
-        Ok(summary)
+        ))
     })
 }
 
@@ -555,53 +559,7 @@ fn run_load_profiles(
     py.detach(move || {
         let url = config.url.clone();
         let chaos = ChaosEngine::new(config.chaos, config.chaos_rate);
-        let no_progress = config.no_progress;
-
-        // Build protocol engine based on URL scheme
-        let engine: Arc<dyn ProtocolEngine> = if protocols::is_protocol_url(&url)
-            || config.sse_enabled
-        {
-            protocols::detect_protocol(&url, &config, chaos)
-                .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?
-        } else {
-            let method = parse_method(&config.method)?;
-            let body = parse_body(config.body.as_deref());
-            let form = parse_form(config.form.as_deref());
-            let header_map = parse_headers(config.headers.as_deref())?;
-
-            // Resolve payload and auto-inject Content-Type
-            let is_form = form.is_some();
-            let final_body = if form.is_some() {
-                if body.is_some() {
-                    return Err(pyo3::exceptions::PyValueError::new_err(
-                        "Cannot specify both --body and --form simultaneously",
-                    ));
-                }
-                form
-            } else {
-                body
-            };
-
-            let mut header_map = header_map;
-            if final_body.is_some() && !header_map.contains_key(CONTENT_TYPE) {
-                let ct = if is_form {
-                    "application/x-www-form-urlencoded"
-                } else {
-                    "application/json"
-                };
-                header_map.insert(CONTENT_TYPE, HeaderValue::from_static(ct));
-            }
-
-            let client = build_client(profile.max_concurrency(), config.timeout_secs, header_map)
-                .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
-            Arc::new(
-                protocols::http::HttpEngine::new()
-                    .with_client(client)
-                    .with_method(method)
-                    .with_body(final_body)
-                    .with_chaos(chaos),
-            )
-        };
+        let engine = build_engine(&config, chaos, profile.max_concurrency())?;
 
         let strategy = ConcurrencyStrategy::Dynamic { profile };
 
@@ -613,7 +571,7 @@ fn run_load_profiles(
         rt.block_on(execute_test(
             engine,
             url,
-            no_progress,
+            config.no_progress,
             strategy,
             config.timeout_secs,
             config.sys_sample_interval,
