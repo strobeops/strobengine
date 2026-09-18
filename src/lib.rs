@@ -464,6 +464,10 @@ async fn execute_test(
         chaos_injected_total: aggregated.chaos_injected_total,
         chaos_faults_by_type: aggregated.chaos_faults_by_type,
         resource_samples,
+        total_sockets_created: aggregated.total_sockets_created,
+        total_connections_reused: aggregated.total_connections_reused,
+        dns_resolution_sum_us: aggregated.dns_resolution_sum_us,
+        dns_resolution_count: aggregated.dns_resolution_count,
     }))
 }
 
