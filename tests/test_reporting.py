@@ -259,6 +259,24 @@ class TestRustDictParity:
         assert artifact["summary"]["rps"] == 0.0
         assert artifact["error_breakdown"] == {}
 
+    def test_connection_pool_report_serialization(self):
+        summary = _make_summary(
+            total_requests=100,
+            connection_reuse_ratio=0.75,
+            avg_dns_resolution_ms=1.5,
+        )
+        artifact = build_artifact_dict(summary, _make_config())
+        assert "connection_pool" in artifact
+        cp = artifact["connection_pool"]
+        assert cp["socket_creation_rate"] == 0.25
+        assert cp["socket_reuse_rate"] == 0.75
+        assert cp["dns_lookup_ms"] == 1.5
+
+    def test_connection_pool_zero_requests(self):
+        summary = _make_summary(total_requests=0)
+        artifact = build_artifact_dict(summary, _make_config())
+        assert artifact.get("connection_pool") is None
+
 
 class TestMarkdownReportFile:
     """Tests for save_markdown_report file output."""

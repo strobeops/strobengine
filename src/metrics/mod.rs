@@ -1029,4 +1029,162 @@ mod tests {
         });
         assert!((s.std_dev_latency_ms * MICROS_PER_MILLI - 1414.21).abs() < 15.0);
     }
+
+    #[test]
+    fn connection_reuse_all_new() {
+        let s = calculate_summary(SummaryInput {
+            url: "http://example.com".into(),
+            total_requests: 10,
+            total_errors: 0,
+            latency_histogram: create_test_histogram(&[1000]),
+            total_bytes: 0,
+            duration_secs: 1.0,
+            workers: 1,
+            status_codes: HashMap::new(),
+            e2e_latency_histogram: create_test_histogram(&[]),
+            connection_latency_histogram: create_test_histogram(&[]),
+            quic_metrics: None,
+            sse_metrics: None,
+            chaos_injected_total: 0,
+            chaos_faults_by_type: HashMap::new(),
+            resource_samples: Vec::new(),
+            total_sockets_created: 10,
+            total_connections_reused: 0,
+            dns_resolution_sum_us: 0,
+            dns_resolution_count: 0,
+        });
+        assert!((s.connection_reuse_ratio - 0.0).abs() < f64::EPSILON);
+        assert_eq!(s.avg_dns_resolution_ms, 0.0);
+    }
+
+    #[test]
+    fn connection_reuse_all_reused() {
+        let s = calculate_summary(SummaryInput {
+            url: "http://example.com".into(),
+            total_requests: 10,
+            total_errors: 0,
+            latency_histogram: create_test_histogram(&[1000]),
+            total_bytes: 0,
+            duration_secs: 1.0,
+            workers: 1,
+            status_codes: HashMap::new(),
+            e2e_latency_histogram: create_test_histogram(&[]),
+            connection_latency_histogram: create_test_histogram(&[]),
+            quic_metrics: None,
+            sse_metrics: None,
+            chaos_injected_total: 0,
+            chaos_faults_by_type: HashMap::new(),
+            resource_samples: Vec::new(),
+            total_sockets_created: 0,
+            total_connections_reused: 10,
+            dns_resolution_sum_us: 0,
+            dns_resolution_count: 0,
+        });
+        assert!((s.connection_reuse_ratio - 1.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn connection_reuse_mixed() {
+        let s = calculate_summary(SummaryInput {
+            url: "http://example.com".into(),
+            total_requests: 10,
+            total_errors: 0,
+            latency_histogram: create_test_histogram(&[1000]),
+            total_bytes: 0,
+            duration_secs: 1.0,
+            workers: 1,
+            status_codes: HashMap::new(),
+            e2e_latency_histogram: create_test_histogram(&[]),
+            connection_latency_histogram: create_test_histogram(&[]),
+            quic_metrics: None,
+            sse_metrics: None,
+            chaos_injected_total: 0,
+            chaos_faults_by_type: HashMap::new(),
+            resource_samples: Vec::new(),
+            total_sockets_created: 5,
+            total_connections_reused: 5,
+            dns_resolution_sum_us: 0,
+            dns_resolution_count: 0,
+        });
+        assert!((s.connection_reuse_ratio - 0.5).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn connection_reuse_zero_requests() {
+        let s = calculate_summary(SummaryInput {
+            url: "http://example.com".into(),
+            total_requests: 0,
+            total_errors: 0,
+            latency_histogram: create_test_histogram(&[]),
+            total_bytes: 0,
+            duration_secs: 1.0,
+            workers: 1,
+            status_codes: HashMap::new(),
+            e2e_latency_histogram: create_test_histogram(&[]),
+            connection_latency_histogram: create_test_histogram(&[]),
+            quic_metrics: None,
+            sse_metrics: None,
+            chaos_injected_total: 0,
+            chaos_faults_by_type: HashMap::new(),
+            resource_samples: Vec::new(),
+            total_sockets_created: 0,
+            total_connections_reused: 0,
+            dns_resolution_sum_us: 0,
+            dns_resolution_count: 0,
+        });
+        assert_eq!(s.connection_reuse_ratio, 0.0);
+        assert_eq!(s.avg_dns_resolution_ms, 0.0);
+    }
+
+    #[test]
+    fn dns_resolution_average() {
+        let s = calculate_summary(SummaryInput {
+            url: "http://example.com".into(),
+            total_requests: 3,
+            total_errors: 0,
+            latency_histogram: create_test_histogram(&[1000, 2000, 3000]),
+            total_bytes: 0,
+            duration_secs: 1.0,
+            workers: 1,
+            status_codes: HashMap::new(),
+            e2e_latency_histogram: create_test_histogram(&[]),
+            connection_latency_histogram: create_test_histogram(&[]),
+            quic_metrics: None,
+            sse_metrics: None,
+            chaos_injected_total: 0,
+            chaos_faults_by_type: HashMap::new(),
+            resource_samples: Vec::new(),
+            total_sockets_created: 3,
+            total_connections_reused: 0,
+            dns_resolution_sum_us: 6000,
+            dns_resolution_count: 3,
+        });
+        assert!((s.avg_dns_resolution_ms - 2.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn dns_resolution_no_data() {
+        let s = calculate_summary(SummaryInput {
+            url: "http://example.com".into(),
+            total_requests: 5,
+            total_errors: 0,
+            latency_histogram: create_test_histogram(&[1000]),
+            total_bytes: 0,
+            duration_secs: 1.0,
+            workers: 1,
+            status_codes: HashMap::new(),
+            e2e_latency_histogram: create_test_histogram(&[]),
+            connection_latency_histogram: create_test_histogram(&[]),
+            quic_metrics: None,
+            sse_metrics: None,
+            chaos_injected_total: 0,
+            chaos_faults_by_type: HashMap::new(),
+            resource_samples: Vec::new(),
+            total_sockets_created: 5,
+            total_connections_reused: 0,
+            dns_resolution_sum_us: 0,
+            dns_resolution_count: 0,
+        });
+        assert_eq!(s.avg_dns_resolution_ms, 0.0);
+    }
 }

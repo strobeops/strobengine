@@ -82,3 +82,23 @@ class TestPayloadAndMethodForwarding:
 
         if body:
             assert echo["body"] == {"key": "e2e-payload"}
+
+
+class TestConnectionPoolMetrics:
+    async def test_http_connection_pool_metrics(self, mock_server: str):
+        """Verify connection pool metrics are populated after a load test run."""
+        engine = StrobEngine.load_test(
+            url=f"{mock_server}/status/200",
+            concurrency=4,
+            duration=2,
+            options=RequestOptions(no_progress=True),
+        )
+        summary = await engine.run_async()
+
+        assert summary.total_requests > 0
+        # connection_reuse_ratio and avg_dns_resolution_ms should exist
+        # and be non-negative floats (reqwest doesn't expose pool internals
+        # so ratio may be 0, but it must not panic or be NaN)
+        assert summary.connection_reuse_ratio >= 0.0
+        assert summary.connection_reuse_ratio <= 1.0
+        assert summary.avg_dns_resolution_ms >= 0.0
