@@ -320,6 +320,8 @@ impl ProtocolEngine for GrpcEngine {
             bytes_received,
             is_reconnect: false,
             connection: ConnectionMetrics {
+                // tonic/hyper handles DNS internally; each iteration creates a
+                // fresh channel so is_socket_reused is always false.
                 connection_latency_us: None,
                 timestamp_sent_ns: None,
                 e2e_latency_us: None,

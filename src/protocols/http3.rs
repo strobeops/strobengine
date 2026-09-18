@@ -19,6 +19,8 @@ pub struct Http3Session {
     pub quinn_conn: quinn::Connection,
     pub zero_rtt_accepted: Option<bool>,
     pub prev_lost_packets: u64,
+    /// DNS resolution time (μs) from initial connection. Only set on first connect.
+    pub initial_dns_resolution_us: u64,
 }
 
 #[async_trait::async_trait]
@@ -170,8 +172,8 @@ impl Http3Engine {
             .await
     }
 
-    async fn connect_quic(&self) -> Result<quinn::Connection, String> {
-        let connecting = self.connect_quic_connecting().await?;
+    async fn connect_quic(&self) -> Result<(quinn::Connection, u64), String> {
+        let (connecting, dns_us) = self.connect_quic_connecting().await?;
         let connection = tokio::time::timeout(Duration::from_secs(5), async {
             connecting
                 .await
@@ -180,10 +182,10 @@ impl Http3Engine {
         .await
         .map_err(|_| "QUIC handshake timed out".to_string())?
         .map_err(|e| e.to_string())?;
-        Ok(connection)
+        Ok((connection, dns_us))
     }
 
-    async fn connect_quic_connecting(&self) -> Result<quinn::Connecting, String> {
+    async fn connect_quic_connecting(&self) -> Result<(quinn::Connecting, u64), String> {
         let endpoint = self.ensure_endpoint().await?;
 
         let addr_str = format!(
@@ -191,15 +193,18 @@ impl Http3Engine {
             self.authority.split(':').next().unwrap_or(&self.authority),
             self.authority.split(':').nth(1).unwrap_or("443")
         );
+        let dns_start = Instant::now();
         let addr = addr_str
             .to_socket_addrs()
             .map_err(|e| format!("DNS resolution failed: {e}"))?
             .next()
             .ok_or_else(|| "no addresses found for host".to_string())?;
+        let dns_us = dns_start.elapsed().as_micros() as u64;
 
-        endpoint
+        let connecting = endpoint
             .connect(addr, &self.server_name)
-            .map_err(|e| format!("QUIC connect error: {e}"))
+            .map_err(|e| format!("QUIC connect error: {e}"))?;
+        Ok((connecting, dns_us))
     }
 
     async fn connect_with_0rtt(
@@ -327,7 +332,7 @@ impl ProtocolEngine for Http3Engine {
 
         // Connect QUIC
         let connect_start = Instant::now();
-        let connection = match self.connect_quic().await {
+        let (connection, dns_us) = match self.connect_quic().await {
             Ok(c) => c,
             Err(e) => {
                 tracing::debug!(error = %e, "QUIC connection failed");
@@ -386,7 +391,7 @@ impl ProtocolEngine for Http3Engine {
                 connection_latency_us: Some(connection_latency_us),
                 timestamp_sent_ns: None,
                 e2e_latency_us: None,
-                dns_resolution_us: None,
+                dns_resolution_us: Some(dns_us),
                 is_socket_reused: false,
             },
             quic_handshake_us: None,
@@ -400,7 +405,7 @@ impl ProtocolEngine for Http3Engine {
     }
 
     async fn create_worker_context(&self) -> Option<Box<dyn super::WorkerSession>> {
-        let connecting = self.connect_quic_connecting().await.ok()?;
+        let (connecting, dns_us) = self.connect_quic_connecting().await.ok()?;
         let (connection, zero_rtt_accepted, _) = self.connect_with_0rtt(connecting).await.ok()?;
         let send_request = self.setup_h3(connection.clone()).await.ok()?;
 
@@ -409,6 +414,7 @@ impl ProtocolEngine for Http3Engine {
             quinn_conn: connection,
             zero_rtt_accepted,
             prev_lost_packets: 0,
+            initial_dns_resolution_us: dns_us,
         }))
     }
 
@@ -447,7 +453,7 @@ impl ProtocolEngine for Http3Engine {
                 tracing::debug!(error = %e, "H3 persistent session failed, reconnecting");
                 let connect_start = Instant::now();
                 match self.connect_quic_connecting().await {
-                    Ok(connecting) => match self.connect_with_0rtt(connecting).await {
+                    Ok((connecting, _dns_us)) => match self.connect_with_0rtt(connecting).await {
                         Ok((new_conn, zero_rtt, is_0rtt)) => {
                             handshake_us = Some(connect_start.elapsed().as_micros() as u64);
                             used_0rtt = is_0rtt;
@@ -495,8 +501,9 @@ impl ProtocolEngine for Http3Engine {
                 connection_latency_us: None,
                 timestamp_sent_ns: None,
                 e2e_latency_us: None,
+                // DNS was measured once during create_worker_context; not per-iteration
                 dns_resolution_us: None,
-                is_socket_reused: false,
+                is_socket_reused: !is_reconnect,
             },
             quic_handshake_us: handshake_us,
             quic_0rtt_used: used_0rtt,

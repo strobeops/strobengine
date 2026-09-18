@@ -141,6 +141,9 @@ impl ProtocolEngine for HttpEngine {
             bytes_received,
             is_reconnect: false,
             connection: ConnectionMetrics {
+                // reqwest handles DNS and connection pooling internally;
+                // dns_resolution_us and is_socket_reused are not extractable
+                // without hyper-level access.
                 connection_latency_us: None,
                 timestamp_sent_ns: None,
                 e2e_latency_us: None,
