@@ -26,6 +26,16 @@ pub struct ReportArtifact {
     pub latency_histogram: Option<HashMap<String, u64>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub system_metrics: Option<crate::metrics::system::SystemMetrics>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub connection_pool: Option<ConnectionPoolMetrics>,
+}
+
+/// Connection pool and DNS resolution metrics.
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub struct ConnectionPoolMetrics {
+    pub socket_creation_rate: f64,
+    pub socket_reuse_rate: f64,
+    pub dns_lookup_ms: f64,
 }
 
 /// Test run metadata including configuration and system information.
@@ -172,6 +182,15 @@ impl ReportArtifact {
             },
             latency_histogram: Some(summary.latency_histogram.clone()),
             system_metrics: summary.system_metrics.clone(),
+            connection_pool: if summary.total_requests > 0 {
+                Some(ConnectionPoolMetrics {
+                    socket_creation_rate: 1.0 - summary.connection_reuse_ratio,
+                    socket_reuse_rate: summary.connection_reuse_ratio,
+                    dns_lookup_ms: summary.avg_dns_resolution_ms,
+                })
+            } else {
+                None
+            },
         }
     }
 }
@@ -233,6 +252,7 @@ mod tests {
             chaos: None,
             latency_histogram: Some(std::collections::HashMap::new()),
             system_metrics: None,
+            connection_pool: None,
         }
     }
 

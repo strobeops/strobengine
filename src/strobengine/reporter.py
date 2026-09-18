@@ -371,6 +371,24 @@ def _format_system_metrics(summary: TestSummary) -> dict | None:
     }
 
 
+def _format_connection_pool(summary: TestSummary) -> dict | None:
+    """Extract connection pool metrics from summary into JSON-friendly format."""
+    total = getattr(summary, "total_requests", 0)
+    if not isinstance(total, (int, float)) or total <= 0:
+        return None
+    reuse_ratio = getattr(summary, "connection_reuse_ratio", None)
+    dns_ms = getattr(summary, "avg_dns_resolution_ms", None)
+    if not isinstance(reuse_ratio, (int, float)) or not isinstance(
+        dns_ms, (int, float)
+    ):
+        return None
+    return {
+        "socket_creation_rate": round(1.0 - reuse_ratio, 4),
+        "socket_reuse_rate": round(reuse_ratio, 4),
+        "dns_lookup_ms": round(dns_ms, 3),
+    }
+
+
 def _build_artifact_dict_fallback(summary: TestSummary, config: object) -> dict:
     """Manual construction for RequestOptions when TestConfig is unavailable."""
     successful = summary.total_requests - summary.total_errors
@@ -430,6 +448,7 @@ def _build_artifact_dict_fallback(summary: TestSummary, config: object) -> dict:
             "by_type": getattr(summary, "chaos_faults_by_type", {}),
         },
         "system_metrics": _format_system_metrics(summary),
+        "connection_pool": _format_connection_pool(summary),
     }
 
 
