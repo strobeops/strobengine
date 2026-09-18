@@ -404,6 +404,8 @@ mod tests {
             p99_99_latency_ms: 0.0,
             latency_histogram: std::collections::HashMap::new(),
             system_metrics: None,
+            connection_reuse_ratio: 0.0,
+            avg_dns_resolution_ms: 0.0,
         };
 
         let config = TestConfig::new(

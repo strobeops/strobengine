@@ -29,6 +29,10 @@ pub struct AggregatedMetrics {
     pub sse_metrics: Option<SseMetrics>,
     pub chaos_injected_total: u64,
     pub chaos_faults_by_type: HashMap<String, u64>,
+    pub total_sockets_created: u64,
+    pub total_connections_reused: u64,
+    pub dns_resolution_sum_us: u64,
+    pub dns_resolution_count: u64,
 }
 
 impl Default for AggregatedMetrics {
@@ -55,6 +59,10 @@ impl Default for AggregatedMetrics {
             sse_metrics: None,
             chaos_injected_total: 0,
             chaos_faults_by_type: HashMap::new(),
+            total_sockets_created: 0,
+            total_connections_reused: 0,
+            dns_resolution_sum_us: 0,
+            dns_resolution_count: 0,
         }
     }
 }
@@ -95,6 +103,8 @@ pub struct ConnectionMetrics {
     pub connection_latency_us: Option<u128>,
     pub timestamp_sent_ns: Option<u128>,
     pub e2e_latency_us: Option<u128>,
+    pub dns_resolution_us: Option<u64>,
+    pub is_socket_reused: bool,
 }
 
 pub struct RequestMetric {
@@ -230,6 +240,10 @@ pub struct TestSummary {
     pub latency_histogram: HashMap<String, u64>,
     #[pyo3(get)]
     pub system_metrics: Option<system::SystemMetrics>,
+    #[pyo3(get)]
+    pub connection_reuse_ratio: f64,
+    #[pyo3(get)]
+    pub avg_dns_resolution_ms: f64,
 }
 
 #[pymethods]
@@ -334,6 +348,10 @@ pub struct SummaryInput {
     pub chaos_injected_total: u64,
     pub chaos_faults_by_type: HashMap<String, u64>,
     pub resource_samples: Vec<system::ResourceSample>,
+    pub total_sockets_created: u64,
+    pub total_connections_reused: u64,
+    pub dns_resolution_sum_us: u64,
+    pub dns_resolution_count: u64,
 }
 
 /// Finalize metric aggregation from a receiver channel.
@@ -397,6 +415,19 @@ pub async fn finalize_metrics(mut rx: mpsc::Receiver<RequestMetric>) -> Aggregat
                 .entry(fault.name().to_string())
                 .or_insert(0) += 1;
         }
+        // Connection pool & DNS aggregation
+        // Note: uninstrumented engines default to is_socket_reused=false,
+        // so connection_reuse_ratio will be 0% until per-engine tracking is added.
+        if metric.connection.is_socket_reused {
+            metrics.total_connections_reused += 1;
+        } else {
+            metrics.total_sockets_created += 1;
+        }
+        if let Some(dns_us) = metric.connection.dns_resolution_us {
+            metrics.dns_resolution_sum_us += dns_us;
+            metrics.dns_resolution_count += 1;
+        }
+
         *metrics.status_codes.entry(metric.status_code).or_insert(0) += 1;
         metrics.total_bytes += metric.bytes_received;
     }
@@ -442,6 +473,19 @@ pub fn calculate_summary(input: SummaryInput) -> TestSummary {
         Some(system::SystemMetrics::from_samples(&input.resource_samples))
     };
 
+    let total_connections = input.total_sockets_created + input.total_connections_reused;
+    let connection_reuse_ratio = if total_connections > 0 {
+        input.total_connections_reused as f64 / total_connections as f64
+    } else {
+        0.0
+    };
+
+    let avg_dns_resolution_ms = if input.dns_resolution_count > 0 {
+        input.dns_resolution_sum_us as f64 / input.dns_resolution_count as f64 / 1000.0
+    } else {
+        0.0
+    };
+
     if input.latency_histogram.is_empty() {
         return TestSummary {
             url: input.url,
@@ -470,6 +514,8 @@ pub fn calculate_summary(input: SummaryInput) -> TestSummary {
             p99_99_latency_ms: 0.0,
             latency_histogram: HashMap::new(),
             system_metrics: system_metrics.clone(),
+            connection_reuse_ratio,
+            avg_dns_resolution_ms,
         };
     }
 
@@ -515,6 +561,8 @@ pub fn calculate_summary(input: SummaryInput) -> TestSummary {
         p99_99_latency_ms,
         latency_histogram,
         system_metrics,
+        connection_reuse_ratio,
+        avg_dns_resolution_ms,
     }
 }
 
@@ -551,6 +599,10 @@ mod tests {
             chaos_injected_total: 0,
             chaos_faults_by_type: HashMap::new(),
             resource_samples: Vec::new(),
+            total_sockets_created: 0,
+            total_connections_reused: 0,
+            dns_resolution_sum_us: 0,
+            dns_resolution_count: 0,
         });
         assert_eq!(s.url, "http://example.com");
         assert_eq!(s.total_requests, 10);
@@ -582,6 +634,10 @@ mod tests {
             chaos_injected_total: 0,
             chaos_faults_by_type: HashMap::new(),
             resource_samples: Vec::new(),
+            total_sockets_created: 0,
+            total_connections_reused: 0,
+            dns_resolution_sum_us: 0,
+            dns_resolution_count: 0,
         });
         assert_eq!(s.total_requests, 1);
         // HDR quantization may shift values by up to 0.1% of range
@@ -614,6 +670,10 @@ mod tests {
             chaos_injected_total: 0,
             chaos_faults_by_type: HashMap::new(),
             resource_samples: Vec::new(),
+            total_sockets_created: 0,
+            total_connections_reused: 0,
+            dns_resolution_sum_us: 0,
+            dns_resolution_count: 0,
         });
         assert!((s.average_latency_ms - 1.5).abs() < 0.01);
         assert!((s.min_latency_ms - 1.0).abs() < 0.01);
@@ -641,6 +701,10 @@ mod tests {
             chaos_injected_total: 0,
             chaos_faults_by_type: HashMap::new(),
             resource_samples: Vec::new(),
+            total_sockets_created: 0,
+            total_connections_reused: 0,
+            dns_resolution_sum_us: 0,
+            dns_resolution_count: 0,
         });
         assert!((s.average_latency_ms - 0.0505).abs() < 0.001);
         assert!((s.min_latency_ms - 0.001).abs() < 0.001);
@@ -669,6 +733,10 @@ mod tests {
             chaos_injected_total: 0,
             chaos_faults_by_type: HashMap::new(),
             resource_samples: Vec::new(),
+            total_sockets_created: 0,
+            total_connections_reused: 0,
+            dns_resolution_sum_us: 0,
+            dns_resolution_count: 0,
         });
         assert_eq!(s.total_requests, 5);
         assert_eq!(s.total_errors, 5);
@@ -692,6 +760,10 @@ mod tests {
             chaos_injected_total: 0,
             chaos_faults_by_type: HashMap::new(),
             resource_samples: Vec::new(),
+            total_sockets_created: 0,
+            total_connections_reused: 0,
+            dns_resolution_sum_us: 0,
+            dns_resolution_count: 0,
         });
         assert!((s.average_latency_ms - 12.345).abs() < 0.01);
     }
@@ -714,6 +786,10 @@ mod tests {
             chaos_injected_total: 0,
             chaos_faults_by_type: HashMap::new(),
             resource_samples: Vec::new(),
+            total_sockets_created: 0,
+            total_connections_reused: 0,
+            dns_resolution_sum_us: 0,
+            dns_resolution_count: 0,
         });
         assert!((s.p95_latency_ms - 3.0).abs() < 0.01);
         assert!((s.p99_latency_ms - 3.0).abs() < 0.01);
@@ -742,6 +818,10 @@ mod tests {
             chaos_injected_total: 0,
             chaos_faults_by_type: HashMap::new(),
             resource_samples: Vec::new(),
+            total_sockets_created: 0,
+            total_connections_reused: 0,
+            dns_resolution_sum_us: 0,
+            dns_resolution_count: 0,
         });
         assert_eq!(s.status_codes.get(&200), Some(&10));
         assert_eq!(s.status_codes.get(&500), Some(&3));
@@ -772,6 +852,10 @@ mod tests {
             chaos_injected_total: 0,
             chaos_faults_by_type: HashMap::new(),
             resource_samples: Vec::new(),
+            total_sockets_created: 0,
+            total_connections_reused: 0,
+            dns_resolution_sum_us: 0,
+            dns_resolution_count: 0,
         });
 
         assert!((s.avg_connection_latency_us - 300.0).abs() < 1.0);
@@ -804,6 +888,10 @@ mod tests {
             chaos_injected_total: 0,
             chaos_faults_by_type: HashMap::new(),
             resource_samples: Vec::new(),
+            total_sockets_created: 0,
+            total_connections_reused: 0,
+            dns_resolution_sum_us: 0,
+            dns_resolution_count: 0,
         });
         assert!(s.quic.is_none());
         assert!(s.sse.is_none());
@@ -829,6 +917,10 @@ mod tests {
             chaos_injected_total: 0,
             chaos_faults_by_type: HashMap::new(),
             resource_samples: Vec::new(),
+            total_sockets_created: 0,
+            total_connections_reused: 0,
+            dns_resolution_sum_us: 0,
+            dns_resolution_count: 0,
         });
         assert!(s.p99_99_latency_ms >= s.p99_latency_ms);
         assert!(s.p99_99_latency_ms <= s.max_latency_ms);
@@ -873,6 +965,10 @@ mod tests {
             chaos_injected_total: 0,
             chaos_faults_by_type: HashMap::new(),
             resource_samples: Vec::new(),
+            total_sockets_created: 0,
+            total_connections_reused: 0,
+            dns_resolution_sum_us: 0,
+            dns_resolution_count: 0,
         });
         assert_eq!(s.total_requests, 0);
         assert_eq!(s.p50_latency_ms, 0.0);
@@ -897,6 +993,10 @@ mod tests {
             chaos_injected_total: 0,
             chaos_faults_by_type: HashMap::new(),
             resource_samples: Vec::new(),
+            total_sockets_created: 0,
+            total_connections_reused: 0,
+            dns_resolution_sum_us: 0,
+            dns_resolution_count: 0,
         });
         assert_eq!(s.std_dev_latency_ms, 0.0);
     }
@@ -922,6 +1022,10 @@ mod tests {
             chaos_injected_total: 0,
             chaos_faults_by_type: HashMap::new(),
             resource_samples: Vec::new(),
+            total_sockets_created: 0,
+            total_connections_reused: 0,
+            dns_resolution_sum_us: 0,
+            dns_resolution_count: 0,
         });
         assert!((s.std_dev_latency_ms * MICROS_PER_MILLI - 1414.21).abs() < 15.0);
     }
