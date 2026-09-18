@@ -351,6 +351,9 @@ impl ProtocolEngine for SseEngine {
             None => return RequestMetric::error(0),
         };
 
+        // Track whether connection existed before this iteration (reuse detection)
+        let was_connected = session.stream.is_some();
+
         // Lazy connect on first call: consume response to get owned stream
         if session.stream.is_none() {
             let req_start = Instant::now();
@@ -389,7 +392,7 @@ impl ProtocolEngine for SseEngine {
                     timestamp_sent_ns: None,
                     e2e_latency_us: None,
                     dns_resolution_us: None,
-                    is_socket_reused: false,
+                    is_socket_reused: was_connected,
                 },
                 quic_handshake_us: None,
                 quic_0rtt_used: false,
@@ -443,7 +446,7 @@ impl ProtocolEngine for SseEngine {
                                 timestamp_sent_ns: None,
                                 e2e_latency_us: None,
                                 dns_resolution_us: None,
-                                is_socket_reused: false,
+                                is_socket_reused: was_connected,
                             },
                             quic_handshake_us: None,
                             quic_0rtt_used: false,
@@ -474,7 +477,7 @@ impl ProtocolEngine for SseEngine {
                 timestamp_sent_ns: None,
                 e2e_latency_us: None,
                 dns_resolution_us: None,
-                is_socket_reused: false,
+                is_socket_reused: was_connected,
             },
             quic_handshake_us: None,
             quic_0rtt_used: false,
