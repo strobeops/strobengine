@@ -102,7 +102,10 @@ pub fn start(interval_ms: u64) -> Option<(SamplerHandle, mpsc::Receiver<Resource
 
     tokio::spawn(async move {
         let mut system = sysinfo::System::new();
-        let pid = sysinfo::get_current_pid().expect("Failed to get current PID");
+        let Ok(pid) = sysinfo::get_current_pid() else {
+            tracing::warn!("resource monitor unavailable: cannot determine PID");
+            return;
+        };
         let tick = Duration::from_millis(interval_ms);
 
         // Seed initial CPU baseline so first sample isn't skewed
