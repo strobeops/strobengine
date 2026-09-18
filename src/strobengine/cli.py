@@ -306,6 +306,11 @@ def _run_load_test(
     duration: int,
     json_output: bool = False,
     log_file: str | None = None,
+    html_output: str | None = None,
+    compare_to: str | None = None,
+    export_markdown: str | None = None,
+    export_junit: str | None = None,
+    export_csv: str | None = None,
 ) -> None:
     """Consolidated runner across load, stress, and spike subcommands."""
     # Suppress logging when JSON output is requested
@@ -322,11 +327,11 @@ def _run_load_test(
     exports = ExportOptions(
         output_dir=options.output_dir,
         no_save=options.no_save,
-        html_output=None,
-        compare_to=None,
-        export_markdown=None,
-        export_junit=None,
-        export_csv=None,
+        html_output=html_output,
+        compare_to=compare_to,
+        export_markdown=export_markdown,
+        export_junit=export_junit,
+        export_csv=export_csv,
         json_output=json_output,
     )
     _output_results(
@@ -544,6 +549,11 @@ def load(
         duration=duration,
         json_output=json_output,
         log_file=log_file,
+        html_output=html_output,
+        compare_to=compare_to,
+        export_markdown=export_markdown,
+        export_junit=export_junit,
+        export_csv=export_csv,
     )
 
 
@@ -751,6 +761,11 @@ def stress(
         duration=ramp + hold,
         json_output=json_output,
         log_file=log_file,
+        html_output=html_output,
+        compare_to=compare_to,
+        export_markdown=export_markdown,
+        export_junit=export_junit,
+        export_csv=export_csv,
     )
 
 
@@ -963,6 +978,11 @@ def spike(
         duration=pre_spike + spike_duration + post_spike,
         json_output=json_output,
         log_file=log_file,
+        html_output=html_output,
+        compare_to=compare_to,
+        export_markdown=export_markdown,
+        export_junit=export_junit,
+        export_csv=export_csv,
     )
 
 
