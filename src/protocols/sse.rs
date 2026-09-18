@@ -411,7 +411,10 @@ impl ProtocolEngine for SseEngine {
         let mut total_bytes: u64 = 0;
 
         // Stream the next frame
-        while let Some(chunk_result) = session.stream.as_mut().unwrap().next().await {
+        let Some(stream) = session.stream.as_mut() else {
+            return RequestMetric::error(req_start.elapsed().as_micros());
+        };
+        while let Some(chunk_result) = stream.next().await {
             match chunk_result {
                 Ok(chunk) => {
                     total_bytes += chunk.len() as u64;
