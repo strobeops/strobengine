@@ -227,3 +227,28 @@ class TestCLIVerbosity:
         )
         assert result.exit_code == 0
         assert Path(log_file).exists()
+
+
+class TestCLIErrorHandling:
+    def test_body_and_form_conflict_friendly_error(self) -> None:
+        # --body and --form are mutually exclusive; the Rust build_engine
+        # raises ValueError. The CLI must surface a friendly message and a
+        # non-zero exit code instead of a raw Python traceback.
+        result = runner.invoke(
+            app,
+            [
+                "load",
+                "http://unused",
+                "-c",
+                "1",
+                "-d",
+                "1",
+                "--body",
+                "x",
+                "--form",
+                "a=b",
+            ],
+        )
+        assert result.exit_code == 1
+        assert "Error:" in result.output
+        assert "Traceback" not in result.output

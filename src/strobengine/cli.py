@@ -322,8 +322,17 @@ def _run_load_test(
     # Validate method before creating engine
     options.method = _validate_method(options.method)
 
-    engine = engine_factory(url=url, options=options)
-    summary = engine.run()
+    # engine_factory may raise config-validation errors and engine.run() may
+    # surface FFI errors as ValueError/RuntimeError; present them cleanly
+    # instead of a raw traceback. except Exception does not catch
+    # KeyboardInterrupt, so graceful-interrupt handling in main() is preserved.
+    try:
+        engine = engine_factory(url=url, options=options)
+        summary = engine.run()
+    except Exception as e:
+        typer.echo(f"Error: load test failed: {e}", err=True)
+        raise typer.Exit(1) from e
+
     exports = ExportOptions(
         output_dir=options.output_dir,
         no_save=options.no_save,
@@ -334,14 +343,18 @@ def _run_load_test(
         export_csv=export_csv,
         json_output=json_output,
     )
-    _output_results(
-        summary,
-        url,
-        duration,
-        engine.get_config(),
-        exports,
-        saved_report_path=engine.saved_report_path,
-    )
+    try:
+        _output_results(
+            summary,
+            url,
+            duration,
+            engine.get_config(),
+            exports,
+            saved_report_path=engine.saved_report_path,
+        )
+    except Exception as e:
+        typer.echo(f"Error: report generation failed: {e}", err=True)
+        raise typer.Exit(1) from e
 
 
 # NOTE: CLI Option Duplication
