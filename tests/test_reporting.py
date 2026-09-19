@@ -1,12 +1,12 @@
 """Unit tests for reporting modules (Markdown summary, export generators)."""
 
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 import pytest
 import typer
 
 from strobengine.cli import _parse_headers, _validate_method
-from strobengine.reporter import build_artifact_dict
+from strobengine.reporter import build_artifact_dict, save_report
 from strobengine.reporting.baseline import compute_comparison, load_baseline_artifact
 from strobengine.reporting.csv_report import generate_csv_report, save_csv_report
 from strobengine.reporting.html_report import render_html_report, save_html_report
@@ -581,3 +581,51 @@ class TestCLIHelpers:
     def test_validate_method_invalid(self):
         with pytest.raises(typer.BadParameter):
             _validate_method("INVALID")
+
+
+class TestSaveReportAtomicity:
+    """Verify save_report cleans up its temp file on failure/interrupt/success."""
+
+    def test_cleanup_on_write_failure(self, tmp_path):
+        out_dir = tmp_path / "reports"
+        with (
+            patch(
+                "strobengine.reporter.build_artifact_dict",
+                return_value={"metadata": {}},
+            ),
+            patch("os.replace", side_effect=OSError("disk full")),
+            pytest.raises(OSError),
+        ):
+            save_report(_make_summary(), _make_config(), output_dir=str(out_dir))
+        # temp file unlinked, no report written, dir left empty
+        assert list(out_dir.iterdir()) == []
+
+    def test_cleanup_on_interrupt(self, tmp_path):
+        out_dir = tmp_path / "reports"
+        with (
+            patch(
+                "strobengine.reporter.build_artifact_dict",
+                return_value={"metadata": {}},
+            ),
+            patch("json.dump", side_effect=KeyboardInterrupt()),
+            pytest.raises(KeyboardInterrupt),
+        ):
+            save_report(_make_summary(), _make_config(), output_dir=str(out_dir))
+        # KeyboardInterrupt propagates AND temp file is cleaned up
+        assert list(out_dir.iterdir()) == []
+
+    def test_success_leaves_no_temp(self, tmp_path):
+        from pathlib import Path
+
+        out_dir = tmp_path / "reports"
+        with patch(
+            "strobengine.reporter.build_artifact_dict", return_value={"metadata": {}}
+        ):
+            result = save_report(
+                _make_summary(), _make_config(), output_dir=str(out_dir)
+            )
+        assert result is not None
+        assert (out_dir / Path(result).name).exists()
+        assert not any(p.suffix == ".tmp" for p in out_dir.iterdir()), (
+            "stray temp file left behind"
+        )
