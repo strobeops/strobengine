@@ -462,6 +462,7 @@ def save_report(
     if no_save:
         return None
 
+    import contextlib
     import json
     import os
     import tempfile
@@ -480,10 +481,13 @@ def save_report(
         with os.fdopen(tmp_fd, "w") as f:
             json.dump(artifact, f, indent=2)
         os.replace(tmp_path, filepath)
-    except BaseException:
+    finally:
+        # Cleanup runs on every path (success is a no-op: replace already moved
+        # the file). contextlib.suppress ensures an unlink failure never masks
+        # the original exception or an in-flight KeyboardInterrupt/SystemExit.
         if os.path.exists(tmp_path):
-            os.unlink(tmp_path)
-        raise
+            with contextlib.suppress(OSError):
+                os.unlink(tmp_path)
 
     # Update latest.json pointer atomically
     latest_path = dirpath / "latest.json"
