@@ -4,6 +4,71 @@ All notable changes to `strobengine` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.0] - 2026-09-21
+
+### Bug Fixes
+
+- *(orchestration)* Run aggregator concurrently to prevent bounded channel deadlock
+- *(grpc)* Return explicit ProtoError on invalid hex and base64 payloads
+- *(worker)* Add timeout guards for context creation and session teardown
+- *(cli)* Forward export options from subcommands to _run_load_test
+- *(metrics)* Handle missing PID gracefully in resource monitor sampler
+- *(sse)* Replace fragile unwrap in persistent stream with safe let-else
+- *(cli)* Surface FFI and export errors with friendly messages
+- *(reporter)* Use try/finally for atomic write cleanup in save_report
+
+### Documentation
+
+- *(reporter)* Add cross-language schema references and contract tests
+- *(reports)* Update filename pattern and persistence ownership
+- Document resource monitoring, system_metrics schema, and CLI option
+- Mark connection pool metrics complete and add to JSON schema docs
+
+### Features
+
+- *(ffi)* Expose build_report_artifact_dict for Python artifact parity
+- *(protocols)* Return Result from detect_protocol to eliminate silent fallbacks
+- *(metrics)* Add ResourceMonitor with sampler worker and ResourceSample
+- *(cli)* Wire resource monitor through config and CLI options
+- *(metrics)* Add SystemMetrics struct with aggregated resource stats
+- *(report)* Include system_metrics in TestSummary JSON and ReportArtifact
+- *(reporting)* Format system metrics for terminal and Jinja context
+- *(html)* Add dual-axis Chart.js client resource footprint section
+- *(metrics)* Add DNS resolution and connection reuse tracking
+- *(protocols)* Instrument DNS resolution and socket reuse across engines
+- *(report)* Add connection pool metrics to ReportArtifact and JSON export
+
+### Miscellaneous Tasks
+
+- *(report)* Remove dead writer.rs module and tests
+
+### Refactoring
+
+- *(metrics)* Extract SummaryInput struct for calculate_summary
+- *(cli)* Extract _run_load_test helper and fix E2E test failures
+- *(metrics)* Centralize histogram bucket order via PyO3 constant
+- *(metrics)* Group connection fields into ConnectionMetrics struct
+- *(metrics)* Extract finalize_metrics logic to helper module
+- *(metrics)* Introduce AggregatedMetrics struct
+- *(report)* Align ReportArtifact serde with Python artifact schema
+- *(reporter)* Delegate build_artifact_dict to Rust for schema parity
+- *(reporter)* Make save_report atomic with latest.json pointer
+- *(engine)* Consolidate artifact persistence into StrobEngine.run()
+- *(cli)* Remove duplicate save_report from _output_results
+- *(lib)* Remove artifact write from Rust run_load_test
+- *(protocols)* Replace Box<dyn Any> with typed WorkerSession trait
+- *(config)* Introduce TestConfigBuilder and remove dead option structs
+- *(lib)* Make run_load_profiles accept TestConfig for capability parity
+- *(engine)* Build TestConfig for all execution profiles in Python
+- *(metrics)* Replace unbounded Vec<u128> with HDR Histograms
+- *(lib)* Extract shared build_engine helper from run_load_test/profiles
+
+### Testing
+
+- *(e2e)* Update persistence tests for Python artifact writer
+- *(reporting)* Add schema edge-case and parity tests
+- *(metrics)* Add unit and integration tests for connection pool and DNS metrics
+- *(reporter)* Cover save_report temp-file cleanup
 ## [0.6.1] - 2026-09-13
 
 ### Bug Fixes
@@ -13,6 +78,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Features
 
 - *(reporter)* Use dynamic terminal width for histogram bar rendering
+
+### Miscellaneous Tasks
+
+- *(release)* Bump version to 0.6.1
 
 ### Refactoring
 
