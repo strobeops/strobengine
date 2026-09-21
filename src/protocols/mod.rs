@@ -106,9 +106,10 @@ pub fn detect_protocol(
     config: &TestConfig,
     chaos: ChaosEngine,
 ) -> Result<Arc<dyn ProtocolEngine>, SetupError> {
+    let headers = config.headers.clone().unwrap_or_default();
     if url.starts_with("ws://") || url.starts_with("wss://") {
         let engine = websocket::WebSocketEngine::new(
-            config.headers.clone().unwrap_or_default(),
+            headers,
             config.ws_mode,
             config.ws_payload.clone(),
             chaos,
@@ -122,7 +123,7 @@ pub fn detect_protocol(
     } else if url.starts_with("grpc://") || url.starts_with("grpcs://") {
         let engine = grpc::GrpcEngine::new(
             url,
-            config.headers.clone().unwrap_or_default(),
+            headers,
             chaos,
             config.grpc_service.clone(),
             config.grpc_method.clone(),
@@ -135,7 +136,7 @@ pub fn detect_protocol(
     } else if url.starts_with("http3://") || url.starts_with("h3://") {
         let engine = http3::Http3Engine::new(
             url,
-            config.headers.clone().unwrap_or_default(),
+            headers,
             config.method.clone(),
             config.body.as_ref().map(|b| bytes::Bytes::from(b.clone())),
             chaos,
@@ -145,15 +146,11 @@ pub fn detect_protocol(
         .map_err(SetupError::Http3)?;
         Ok(Arc::new(engine))
     } else if url.starts_with("sse://") || url.starts_with("sses://") {
-        let engine = sse::SseEngine::new(
-            config.headers.clone().unwrap_or_default(),
-            chaos,
-            config.sse_max_events,
-        );
+        let engine = sse::SseEngine::new(headers, chaos, config.sse_max_events);
         Ok(Arc::new(engine))
     } else if config.sse_enabled {
         Ok(Arc::new(sse::SseEngine::new(
-            config.headers.clone().unwrap_or_default(),
+            headers,
             chaos,
             config.sse_max_events,
         )))
