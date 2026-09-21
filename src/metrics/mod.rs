@@ -69,10 +69,24 @@ impl Default for AggregatedMetrics {
 
 /// Get current wall-clock time in nanoseconds since UNIX epoch.
 pub fn wallclock_ns() -> u128 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_nanos()
+    ns_since_epoch(SystemTime::now())
+}
+
+/// Convert a `SystemTime` to nanoseconds since UNIX epoch.
+///
+/// Returns `0` if the clock is set before the epoch (e.g. a container/VM
+/// clock reset), logging a warning so the silent fallback is observable.
+fn ns_since_epoch(when: SystemTime) -> u128 {
+    match when.duration_since(UNIX_EPOCH) {
+        Ok(d) => d.as_nanos(),
+        Err(e) => {
+            tracing::warn!(
+                error = %e,
+                "system clock is before UNIX epoch; returning 0 wall-clock ns"
+            );
+            0
+        }
+    }
 }
 
 /// Encode a pub/sub payload: 16-byte big-endian nanosecond timestamp prefix + user payload.
@@ -579,6 +593,26 @@ mod tests {
             h.saturating_record(v);
         }
         h
+    }
+
+    #[test]
+    fn ns_since_epoch_at_epoch_is_zero() {
+        assert_eq!(ns_since_epoch(UNIX_EPOCH), 0);
+    }
+
+    #[test]
+    fn ns_since_epoch_after_epoch() {
+        use std::time::Duration;
+        let when = UNIX_EPOCH + Duration::from_secs(5);
+        assert_eq!(ns_since_epoch(when), 5_000_000_000);
+    }
+
+    #[test]
+    fn ns_since_epoch_before_epoch_returns_zero() {
+        use std::time::Duration;
+        let when = UNIX_EPOCH - Duration::from_secs(5);
+        // Clock before the epoch must not panic; it degrades to 0 (with a warn).
+        assert_eq!(ns_since_epoch(when), 0);
     }
 
     #[test]
