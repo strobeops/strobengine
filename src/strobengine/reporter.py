@@ -4,7 +4,13 @@ import os
 import shutil
 import sys
 
-from strobengine._strobengine import HISTOGRAM_BUCKET_ORDER, SystemMetrics, TestSummary
+from strobengine._strobengine import (
+    HISTOGRAM_BUCKET_ORDER,
+    QuicMetrics,
+    SseMetrics,
+    SystemMetrics,
+    TestSummary,
+)
 
 _HAS_RICH = False
 try:
@@ -389,6 +395,29 @@ def _format_connection_pool(summary: TestSummary) -> dict | None:
     }
 
 
+def _format_quic(summary: TestSummary) -> dict | None:
+    """Extract QUIC metrics from summary into a JSON-native dict or None."""
+    q = getattr(summary, "quic", None)
+    if q is None or not isinstance(q, QuicMetrics):
+        return None
+    return {
+        "zero_rtt_accepted_count": q.zero_rtt_accepted_count,
+        "retransmissions": q.retransmissions,
+        "avg_handshake_ms": q.avg_handshake_ms,
+    }
+
+
+def _format_sse(summary: TestSummary) -> dict | None:
+    """Extract SSE metrics from summary into a JSON-native dict or None."""
+    s = getattr(summary, "sse", None)
+    if s is None or not isinstance(s, SseMetrics):
+        return None
+    return {
+        "total_events_received": s.total_events_received,
+        "avg_ttfb_ms": s.avg_ttfb_ms,
+    }
+
+
 def _build_artifact_dict_fallback(summary: TestSummary, config: object) -> dict:
     """Manual construction for RequestOptions when TestConfig is unavailable."""
     successful = summary.total_requests - summary.total_errors
@@ -408,9 +437,6 @@ def _build_artifact_dict_fallback(summary: TestSummary, config: object) -> dict:
         "body": getattr(config, "body", None),
         "headers": getattr(config, "headers", None),
     }
-
-    # Get protocol-specific sections from summary.to_dict()
-    summary_dict = summary.to_dict()
 
     return {
         "metadata": {
@@ -441,8 +467,8 @@ def _build_artifact_dict_fallback(summary: TestSummary, config: object) -> dict:
         "latency_histogram": summary.latency_histogram,
         "error_breakdown": {str(k): v for k, v in summary.status_codes.items()},
         "avg_connection_latency_us": summary.avg_connection_latency_us,
-        "quic": summary_dict.get("quic"),
-        "sse": summary_dict.get("sse"),
+        "quic": _format_quic(summary),
+        "sse": _format_sse(summary),
         "chaos_faults": {
             "injected_total": getattr(summary, "chaos_injected_total", 0),
             "by_type": getattr(summary, "chaos_faults_by_type", {}),
