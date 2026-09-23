@@ -100,10 +100,14 @@ def _format_status_codes(codes: dict[int, int]) -> str:
     return " | ".join(parts)
 
 
+# gRPC status codes the engines surface as HTTP-mapped equivalents:
+# 499 = Cancelled, 504 = DeadlineExceeded.
+_GRPC_MAPPED_HTTP_CODES: frozenset[int] = frozenset({499, 504})
+
+
 def _is_grpc_mapped(codes: dict[int, int]) -> bool:
     """Check if status codes contain gRPC-mapped HTTP equivalents."""
-    grpc_mapped_codes = {499, 504}  # Cancelled, DeadlineExceeded
-    return any(code in grpc_mapped_codes for code in codes)
+    return any(code in _GRPC_MAPPED_HTTP_CODES for code in codes)
 
 
 def _print_rich(
