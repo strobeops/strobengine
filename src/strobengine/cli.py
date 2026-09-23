@@ -269,7 +269,7 @@ def _build_request_options(**kwargs: object) -> RequestOptions:
     ws_role_raw = kwargs.get("ws_role")
     return RequestOptions(
         timeout=kwargs["timeout"],
-        method=kwargs["method"],
+        method=_validate_method(kwargs["method"]),
         body=kwargs["body"],
         form=_parse_form(kwargs.get("form")),
         headers=_parse_headers(kwargs.get("header")),
@@ -318,9 +318,6 @@ def _run_load_test(
         _configure_logging("off", log_file)
     else:
         _configure_logging(_resolve_log_level(options.no_progress, False), log_file)
-
-    # Validate method before creating engine
-    options.method = _validate_method(options.method)
 
     # engine_factory may raise config-validation errors and engine.run() may
     # surface FFI errors as ValueError/RuntimeError; present them cleanly
