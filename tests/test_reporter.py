@@ -1,56 +1,8 @@
-from unittest.mock import Mock, patch
+from unittest.mock import patch
 
 from strobengine.reporter import _error_rate, _format_number, print_summary
 
-
-def _make_summary(**kwargs):
-    defaults = {
-        "url": "http://example.com",
-        "total_requests": 1000,
-        "total_errors": 5,
-        "average_latency_ms": 12.34,
-        "p95_latency_ms": 45.67,
-        "p99_latency_ms": 89.01,
-        "min_latency_ms": 1.0,
-        "p50_latency_ms": 10.0,
-        "p90_latency_ms": 35.0,
-        "max_latency_ms": 150.0,
-        "total_bytes_received": 1048576,
-        "duration_secs": 10.0,
-        "workers": 10,
-        "timestamp": "2026-08-10T10:00:00+00:00",
-        "raw_command": "strobengine.load http://example.com",
-        "status_codes": {200: 995, 500: 5},
-        "avg_e2e_latency_us": 0.0,
-        "chaos_injected_total": 0,
-        "chaos_faults_by_type": {},
-        "std_dev_latency_ms": 5.0,
-        "p99_99_latency_ms": 149.0,
-        "latency_histogram": {"<1ms": 10, "1-5ms": 50, "5-10ms": 40},
-        "to_dict": lambda: {
-            "url": "http://example.com",
-            "total_requests": 1000,
-            "total_errors": 5,
-            "average_latency_ms": 12.34,
-            "p95_latency_ms": 45.67,
-            "p99_latency_ms": 89.01,
-            "min_latency_ms": 1.0,
-            "p50_latency_ms": 10.0,
-            "p90_latency_ms": 35.0,
-            "max_latency_ms": 150.0,
-            "total_bytes_received": 1048576,
-            "duration_secs": 10.0,
-            "workers": 10,
-            "timestamp": "2026-08-10T10:00:00+00:00",
-            "raw_command": "strobengine.load http://example.com",
-            "status_codes": {200: 995, 500: 5},
-            "chaos_injected_total": 0,
-            "chaos_faults_by_type": {},
-        },
-        "to_json": lambda indent=None: '{"url": "http://example.com"}',
-    }
-    defaults.update(kwargs)
-    return Mock(**defaults)
+from .factories import make_summary as _make_summary
 
 
 class TestFormatNumber:
@@ -80,14 +32,14 @@ class TestErrorRate:
 
 class TestPrintSummary:
     def test_with_duration(self, capsys):
-        summary = _make_summary()
+        summary = _make_summary(url="http://example.com", total_requests=1000)
         print_summary(summary)
         output = capsys.readouterr().out
         assert "http://example.com" in output
         assert "1,000" in output or "1000" in output
 
     def test_without_duration(self, capsys):
-        summary = _make_summary()
+        summary = _make_summary(url="http://example.com")
         print_summary(summary)
         output = capsys.readouterr().out
         assert "http://example.com" in output
@@ -99,7 +51,7 @@ class TestPrintSummary:
         assert "50" in output
 
     def test_no_errors(self, capsys):
-        summary = _make_summary(total_errors=0)
+        summary = _make_summary(url="http://example.com", total_errors=0)
         print_summary(summary)
         output = capsys.readouterr().out
         assert "http://example.com" in output
@@ -108,7 +60,7 @@ class TestPrintSummary:
 class TestRichFallback:
     @patch("strobengine.reporter._HAS_RICH", False)
     def test_plain_fallback_used(self, capsys):
-        summary = _make_summary()
+        summary = _make_summary(url="http://example.com")
         print_summary(summary)
         output = capsys.readouterr().out
         assert "Load Test Results" in output
