@@ -6,7 +6,7 @@ import pytest
 import typer
 
 from strobengine.cli import _build_request_options, _parse_headers, _validate_method
-from strobengine.reporter import build_artifact_dict, save_report
+from strobengine.reporter import _is_grpc_mapped, build_artifact_dict, save_report
 from strobengine.reporting.baseline import compute_comparison, load_baseline_artifact
 from strobengine.reporting.csv_report import generate_csv_report, save_csv_report
 from strobengine.reporting.html_report import render_html_report, save_html_report
@@ -649,3 +649,11 @@ class TestSaveReportAtomicity:
         assert not any(p.suffix == ".tmp" for p in out_dir.iterdir()), (
             "stray temp file left behind"
         )
+
+
+def test_is_grpc_mapped():
+    assert _is_grpc_mapped({499: 1})
+    assert _is_grpc_mapped({504: 2})
+    assert _is_grpc_mapped({499: 1, 200: 5})
+    assert not _is_grpc_mapped({200: 1, 500: 1})
+    assert not _is_grpc_mapped({})
