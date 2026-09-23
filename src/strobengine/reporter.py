@@ -490,7 +490,6 @@ def save_report(
 
     import contextlib
     import json
-    import os
     import tempfile
     from pathlib import Path
 
