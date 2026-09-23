@@ -5,7 +5,7 @@ from unittest.mock import Mock, patch
 import pytest
 import typer
 
-from strobengine.cli import _parse_headers, _validate_method
+from strobengine.cli import _build_request_options, _parse_headers, _validate_method
 from strobengine.reporter import build_artifact_dict, save_report
 from strobengine.reporting.baseline import compute_comparison, load_baseline_artifact
 from strobengine.reporting.csv_report import generate_csv_report, save_csv_report
@@ -581,6 +581,26 @@ class TestCLIHelpers:
     def test_validate_method_invalid(self):
         with pytest.raises(typer.BadParameter):
             _validate_method("INVALID")
+
+    def test_build_request_options_normalizes_method(self):
+        base = {
+            "timeout": 10,
+            "body": None,
+            "chaos": False,
+            "no_progress": True,
+        }
+        opts = _build_request_options(**base, method="get")
+        assert opts.method == "GET"
+
+    def test_build_request_options_rejects_invalid_method(self):
+        base = {
+            "timeout": 10,
+            "body": None,
+            "chaos": False,
+            "no_progress": True,
+        }
+        with pytest.raises(typer.BadParameter):
+            _build_request_options(**base, method="NOPE")
 
 
 class TestSaveReportAtomicity:
