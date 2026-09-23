@@ -1,33 +1,10 @@
-from unittest.mock import Mock, patch
+from unittest.mock import patch
 
 import pytest
 
 from strobengine.engine import RequestOptions, StrobEngine
 
-
-def _make_summary(**kwargs):
-    defaults = {
-        "url": "http://example.com",
-        "total_requests": 100,
-        "total_errors": 0,
-        "average_latency_ms": 10.0,
-        "p95_latency_ms": 20.0,
-        "p99_latency_ms": 30.0,
-        "min_latency_ms": 1.0,
-        "p50_latency_ms": 15.0,
-        "p90_latency_ms": 25.0,
-        "max_latency_ms": 50.0,
-        "total_bytes_received": 102400,
-        "duration_secs": 5.0,
-        "workers": 10,
-        "timestamp": "2026-08-10T10:00:00+00:00",
-        "raw_command": "strobengine.run(url='http://example.com', workers=10)",
-        "status_codes": {200: 100},
-        "to_dict": lambda: {},
-        "to_json": lambda indent=None: "{}",
-    }
-    defaults.update(kwargs)
-    return Mock(**defaults)
+from .factories import make_summary as _make_summary
 
 
 class TestStrobEngineInit:
@@ -71,7 +48,7 @@ class TestStrobEngineRun:
     @patch("strobengine.reporter.save_report")
     @patch("strobengine.engine.run_load_test")
     def test_run_returns_summary(self, mock_run, mock_save):
-        mock_run.return_value = _make_summary()
+        mock_run.return_value = _make_summary(url="http://example.com")
         mock_save.return_value = "/fake/path.json"
 
         engine = StrobEngine(url="http://example.com")
@@ -101,7 +78,7 @@ class TestStrobEngineRunAsync:
     @patch("strobengine.reporter.save_report")
     @patch("strobengine.engine.run_load_test")
     async def test_run_async_returns_summary(self, mock_run, mock_save):
-        mock_run.return_value = _make_summary()
+        mock_run.return_value = _make_summary(url="http://example.com")
         mock_save.return_value = "/fake/path.json"
 
         engine = StrobEngine(url="http://example.com")

@@ -16,39 +16,7 @@ from strobengine.reporting.markdown_report import (
     save_markdown_report,
 )
 
-
-def _make_summary(**kwargs):
-    """Create a mock TestSummary with sensible defaults."""
-    summary = Mock()
-    defaults = {
-        "url": "http://localhost:8080",
-        "total_requests": 100,
-        "total_errors": 0,
-        "average_latency_ms": 1.5,
-        "p50_latency_ms": 1.0,
-        "p90_latency_ms": 2.0,
-        "p95_latency_ms": 3.0,
-        "p99_latency_ms": 5.0,
-        "min_latency_ms": 0.1,
-        "max_latency_ms": 10.0,
-        "total_bytes_received": 1024,
-        "duration_secs": 10.0,
-        "workers": 5,
-        "timestamp": "2026-08-28T10:00:00Z",
-        "raw_command": None,
-        "status_codes": {200: 100},
-        "avg_e2e_latency_us": 0.0,
-        "chaos_injected_total": 0,
-        "chaos_faults_by_type": {},
-        "std_dev_latency_ms": 0.5,
-        "p99_99_latency_ms": 9.5,
-        "latency_histogram": {"<1ms": 10, "1-5ms": 50, "5-10ms": 40},
-        "to_dict": lambda: {"quic": None, "sse": None},
-    }
-    defaults.update(kwargs)
-    for k, v in defaults.items():
-        setattr(summary, k, v)
-    return summary
+from .factories import make_summary as _make_summary
 
 
 def _make_config(**kwargs):
