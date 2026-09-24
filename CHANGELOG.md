@@ -4,6 +4,34 @@ All notable changes to `strobengine` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.1] - 2026-09-24
+
+### Bug Fixes
+
+- *(metrics)* Warn instead of silently zeroing wall clock on pre-epoch skew
+
+### Features
+
+- *(ffi)* Expose QuicMetrics and SseMetrics to Python
+
+### Performance
+
+- *(reporter)* Avoid full to_dict() serialization in artifact fallback
+- *(reporter)* Hoist gRPC-mapped code set to a module frozenset
+
+### Refactoring
+
+- *(protocols)* Hoist repeated headers clone in detect_protocol
+- *(cli)* Validate HTTP method at options construction
+
+### Styling
+
+- *(reporter)* Drop redundant local import os in save_report
+
+### Testing
+
+- *(cli)* Lock method normalization at options construction
+- Share _make_summary factory in tests/factories.py
 ## [0.7.0] - 2026-09-21
 
 ### Bug Fixes
@@ -41,6 +69,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Miscellaneous Tasks
 
 - *(report)* Remove dead writer.rs module and tests
+- *(release)* Bump version to 0.7.0
 
 ### Refactoring
 
