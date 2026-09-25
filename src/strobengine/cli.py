@@ -3,7 +3,6 @@ from __future__ import annotations
 import sys
 from collections.abc import Callable
 from dataclasses import dataclass
-from enum import StrEnum
 from typing import Annotated
 
 import typer
@@ -11,15 +10,78 @@ from typer.core import TyperOption
 from typer.main import get_command
 
 from strobengine._strobengine import TestSummary, init_logging
-from strobengine.engine import RequestOptions, StrobEngine, WsModeEnum
+from strobengine.engine import RequestOptions, StrobEngine
 from strobengine.reporter import print_summary
 
-VALID_METHODS = {"GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"}
+from .cli_options import (
+    _REQUEST_FIELDS,
+    BaselineOpt,
+    BodyOpt,
+    ChaosOpt,
+    CompareToOpt,
+    ConcurrencyOpt,
+    CsvOpt,
+    DurationOpt,
+    FormOpt,
+    FromOpt,
+    GrpcDeadlineMsOpt,
+    GrpcMethodOpt,
+    GrpcPayloadOpt,
+    GrpcServiceOpt,
+    GrpcUseReflectionOpt,
+    HeaderOpt,
+    HoldOpt,
+    HtmlOpt,
+    Http3Opt,
+    JsonOutputOpt,
+    JunitOpt,
+    LogFileOpt,
+    MarkdownOpt,
+    MethodOpt,
+    NoProgressOpt,
+    NoSaveOpt,
+    OutputDirOpt,
+    PeakOpt,
+    PostSpikeOpt,
+    PreSpikeOpt,
+    ProtoPathOpt,
+    QuicMaxIdleTimeoutOpt,
+    QuicZeroRttOpt,
+    QuietOpt,
+    RampOpt,
+    SpikeDurationOpt,
+    SseEnabledOpt,
+    SseMaxEventsOpt,
+    SysSampleIntervalOpt,
+    TimeoutOpt,
+    ToOpt,
+    UrlArg,
+    VerboseOpt,
+    WsBackpressureWarnRatioOpt,
+    WsKeepaliveSecsOpt,
+    WsMaxBufferBytesOpt,
+    WsModeOpt,
+    WsPayloadOpt,
+    WsPersistentOpt,
+    WsPublishIntervalOpt,
+    WsRoleOpt,
+    WsSubscribersOpt,
+    _build_request_options,
+    _parse_headers,
+    _validate_method,
+)
 
-
-class WsRole(StrEnum):
-    publisher = "publisher"
-    subscriber = "subscriber"
+# Typer option aliases + request-building helpers now live in cli_options.
+# Re-export the request-parsing helpers so the historical public surface
+# `from strobengine.cli import _build_request_options, _parse_headers,
+# _validate_method` keeps resolving (they are otherwise only used in tests).
+__all__ = [
+    "_build_request_options",
+    "_parse_headers",
+    "_validate_method",
+    "app",
+    "main",
+]
 
 
 @dataclass
@@ -40,42 +102,6 @@ def _report_saved(filepath: str | None, exports: ExportOptions) -> None:
     """Print report path to stderr unless in JSON mode or saving is disabled."""
     if filepath and not exports.json_output and not exports.no_save:
         print(f"Report saved to {filepath}", file=sys.stderr)
-
-
-_REQUEST_FIELDS = frozenset(
-    {
-        "timeout",
-        "method",
-        "body",
-        "form",
-        "header",
-        "chaos",
-        "no_progress",
-        "ws_mode",
-        "ws_payload",
-        "ws_persistent",
-        "ws_keepalive_secs",
-        "ws_role",
-        "ws_publish_interval_ms",
-        "ws_subscribers",
-        "grpc_service",
-        "grpc_method",
-        "grpc_payload",
-        "grpc_deadline_ms",
-        "proto_path",
-        "grpc_use_reflection",
-        "http3_enabled",
-        "quic_zero_rtt",
-        "quic_max_idle_timeout_ms",
-        "sse_enabled",
-        "sse_max_events",
-        "output_dir",
-        "no_save",
-        "sys_sample_interval",
-        "ws_max_buffer_bytes",
-        "ws_backpressure_warn_ratio",
-    }
-)
 
 
 def _get_version() -> str:
@@ -126,40 +152,6 @@ def _configure_logging(level: str, log_file: str | None = None) -> None:
     init_logging(level, log_file)
 
 
-def _parse_headers(header: list[str] | None) -> list[tuple[str, str]] | None:
-    """
-    Parses CLI header flags into a list of key-value tuples.
-    Preserves duplicate header names (e.g., multiple 'Set-Cookie' or 'Accept' flags).
-    """
-    if not header:
-        return None
-
-    parsed_headers: list[tuple[str, str]] = []
-
-    for h in header:
-        if ":" not in h:
-            raise typer.BadParameter(f"Header '{h}' must be in 'Key: Value' format.")
-        key, value = h.split(":", 1)
-        parsed_headers.append((key.strip(), value.strip()))
-    return parsed_headers
-
-
-def _parse_form(form_str: str | None) -> list[tuple[str, str]] | None:
-    """Parses a URL-encoded form string into decoded key-value pairs."""
-    from urllib.parse import unquote_plus
-
-    if not form_str:
-        return None
-    pairs = []
-    for item in form_str.split("&"):
-        if "=" in item:
-            k, v = item.split("=", 1)
-            pairs.append((unquote_plus(k), unquote_plus(v)))
-        elif item:
-            pairs.append((unquote_plus(item), ""))
-    return pairs or None
-
-
 def _collect_value_flags(app: typer.Typer) -> set[str]:
     """Build the set of flags that consume the next argument."""
     root = get_command(app)
@@ -169,17 +161,6 @@ def _collect_value_flags(app: typer.Typer) -> set[str]:
             if isinstance(param, TyperOption) and not param.is_flag and not param.count:
                 flags.update(param.opts)
     return flags
-
-
-def _validate_method(method: str) -> str:
-    """Normalizes and validates the HTTP method against supported verbs."""
-    upper_method = method.strip().upper()
-    if upper_method not in VALID_METHODS:
-        valid_list = ", ".join(sorted(VALID_METHODS))
-        raise typer.BadParameter(
-            f"Invalid HTTP method '{method}'. Must be one of: {valid_list}"
-        )
-    return upper_method
 
 
 app = typer.Typer(
@@ -266,43 +247,6 @@ def _output_results(
         _report_saved(exports.export_csv, exports)
 
 
-def _build_request_options(**kwargs: object) -> RequestOptions:
-    ws_mode_raw = kwargs.get("ws_mode")
-    ws_role_raw = kwargs.get("ws_role")
-    return RequestOptions(
-        timeout=kwargs["timeout"],
-        method=_validate_method(kwargs["method"]),
-        body=kwargs["body"],
-        form=_parse_form(kwargs.get("form")),
-        headers=_parse_headers(kwargs.get("header")),
-        chaos=kwargs["chaos"],
-        no_progress=kwargs["no_progress"],
-        ws_mode=WsModeEnum(ws_mode_raw) if ws_mode_raw else WsModeEnum.handshake,
-        ws_payload=kwargs.get("ws_payload"),
-        ws_persistent=kwargs.get("ws_persistent", False),
-        ws_keepalive_secs=kwargs.get("ws_keepalive_secs"),
-        ws_role=ws_role_raw.value if hasattr(ws_role_raw, "value") else ws_role_raw,
-        ws_publish_interval_ms=kwargs.get("ws_publish_interval_ms"),
-        ws_subscribers=kwargs.get("ws_subscribers"),
-        grpc_service=kwargs.get("grpc_service"),
-        grpc_method=kwargs.get("grpc_method"),
-        grpc_payload=kwargs.get("grpc_payload"),
-        grpc_deadline_ms=kwargs.get("grpc_deadline_ms"),
-        proto_path=kwargs.get("proto_path"),
-        grpc_use_reflection=kwargs.get("grpc_use_reflection", False),
-        http3_enabled=kwargs.get("http3_enabled", False),
-        quic_zero_rtt=kwargs.get("quic_zero_rtt", False),
-        quic_max_idle_timeout_ms=kwargs.get("quic_max_idle_timeout_ms"),
-        sse_enabled=kwargs.get("sse_enabled", False),
-        sse_max_events=kwargs.get("sse_max_events"),
-        output_dir=kwargs.get("output_dir"),
-        no_save=kwargs.get("no_save", False),
-        sys_sample_interval=kwargs.get("sys_sample_interval", 1000),
-        ws_max_buffer_bytes=kwargs.get("ws_max_buffer_bytes", 1_048_576),
-        ws_backpressure_warn_ratio=kwargs.get("ws_backpressure_warn_ratio", 0.8),
-    )
-
-
 def _run_load_test(
     url: str,
     options: RequestOptions,
@@ -358,215 +302,50 @@ def _run_load_test(
         raise typer.Exit(1) from e
 
 
-# NOTE: CLI Option Duplication
-#
-# The load, stress, and spike subcommands share ~34 identical option
-# definitions (Annotated[type, typer.Option(...)]). Typer does not
-# support shared option definitions via type aliases, mixins, or
-# @app.callback() without changing CLI UX (options must precede the
-# subcommand). This duplication is a known Typer limitation.
-#
-# If Typer adds shared option support in the future, refactor these
-# into a shared option set. For now, each subcommand defines its
-# options independently.
-
-
 @app.command()
 def load(
-    url: Annotated[str, typer.Argument(help="Target HTTP/HTTPS URL")],
-    concurrency: Annotated[
-        int,
-        typer.Option("-c", "--concurrency", min=1, help="Number of concurrent workers"),
-    ] = 10,
-    duration: Annotated[
-        int,
-        typer.Option("-d", "--duration", min=1, help="Test duration in seconds"),
-    ] = 10,
-    timeout: Annotated[
-        int,
-        typer.Option("-t", "--timeout", min=1, help="Request timeout in seconds"),
-    ] = 10,
-    method: Annotated[
-        str,
-        typer.Option(
-            "--method",
-            help="HTTP method (GET, POST, PUT, DELETE, PATCH, HEAD, OPTIONS)",
-        ),
-    ] = "GET",
-    body: Annotated[
-        str | None, typer.Option("--body", help="Request body (raw string)")
-    ] = None,
-    form: Annotated[
-        str | None,
-        typer.Option("--form", help="Form data body (e.g. key1=val1&key2=val2)"),
-    ] = None,
-    header: Annotated[
-        list[str] | None,
-        typer.Option("--header", help="Custom header key:value (repeatable)"),
-    ] = None,
-    chaos: Annotated[
-        bool, typer.Option("--chaos", help="Enable fault injection (~10%% of requests)")
-    ] = False,
-    no_progress: Annotated[
-        bool, typer.Option("--no-progress", help="Suppress live progress output")
-    ] = False,
-    json_output: Annotated[
-        bool, typer.Option("--json", help="Output raw JSON results")
-    ] = False,
-    verbose: Annotated[
-        int,
-        typer.Option("-v", "--verbose", count=True, help="Increase verbosity"),
-    ] = 0,
-    quiet: Annotated[
-        bool, typer.Option("-q", "--quiet", help="Suppress all output")
-    ] = False,
-    log_file: Annotated[
-        str | None, typer.Option("--log-file", help="Write logs to file")
-    ] = None,
-    ws_mode: Annotated[
-        WsModeEnum | None,
-        typer.Option(
-            "--ws-mode",
-            help="WebSocket mode: handshake, ping_pong, stream",
-            case_sensitive=False,
-        ),
-    ] = None,
-    ws_payload: Annotated[
-        str | None,
-        typer.Option("--ws-payload", help="WebSocket payload for stream mode"),
-    ] = None,
-    ws_persistent: Annotated[
-        bool,
-        typer.Option(
-            "--ws-persistent/--no-ws-persistent",
-            help="Use persistent WebSocket connections",
-        ),
-    ] = False,
-    ws_keepalive_secs: Annotated[
-        int | None,
-        typer.Option(
-            "--ws-keepalive-secs", help="WebSocket keepalive interval in seconds"
-        ),
-    ] = None,
-    ws_role: Annotated[
-        WsRole | None,
-        typer.Option(
-            "--ws-role",
-            help="WebSocket Pub/Sub role: publisher, subscriber",
-            case_sensitive=False,
-        ),
-    ] = None,
-    ws_publish_interval_ms: Annotated[
-        int | None,
-        typer.Option("--ws-publish-interval", help="Publisher send interval in ms"),
-    ] = None,
-    ws_subscribers: Annotated[
-        int | None,
-        typer.Option("--ws-subscribers", help="Number of subscriber workers"),
-    ] = None,
-    grpc_service: Annotated[
-        str | None,
-        typer.Option(
-            "--grpc-service", help="gRPC service name (e.g. helloworld.Greeter)"
-        ),
-    ] = None,
-    grpc_method: Annotated[
-        str | None,
-        typer.Option("--grpc-method", help="gRPC method name (e.g. SayHello)"),
-    ] = None,
-    grpc_payload: Annotated[
-        str | None,
-        typer.Option("--grpc-payload", help="Base64-encoded protobuf payload"),
-    ] = None,
-    grpc_deadline_ms: Annotated[
-        int | None,
-        typer.Option("--grpc-deadline-ms", help="gRPC deadline in milliseconds"),
-    ] = None,
-    proto_path: Annotated[
-        str | None,
-        typer.Option(
-            "--proto-path", help="Path to .proto file for JSON payload conversion"
-        ),
-    ] = None,
-    grpc_use_reflection: Annotated[
-        bool,
-        typer.Option(
-            "--grpc-use-reflection",
-            help="Use server reflection for schema discovery",
-        ),
-    ] = False,
-    http3_enabled: Annotated[
-        bool, typer.Option("--http3/--no-http3", help="Enable HTTP/3 over QUIC")
-    ] = False,
-    quic_zero_rtt: Annotated[
-        bool,
-        typer.Option("--quic-zero-rtt", help="Enable QUIC 0-RTT connection testing"),
-    ] = False,
-    quic_max_idle_timeout_ms: Annotated[
-        int | None,
-        typer.Option("--quic-max-idle-timeout", help="QUIC max idle timeout in ms"),
-    ] = None,
-    sse_enabled: Annotated[
-        bool, typer.Option("--sse/--no-sse", help="Enable SSE streaming mode")
-    ] = False,
-    sse_max_events: Annotated[
-        int | None,
-        typer.Option(
-            "--sse-max-events", help="Maximum events to receive per connection"
-        ),
-    ] = None,
-    output_dir: Annotated[
-        str | None,
-        typer.Option("--output-dir", help="Report output directory"),
-    ] = None,
-    no_save: Annotated[
-        bool, typer.Option("--no-save", help="Disable report persistence")
-    ] = False,
-    sys_sample_interval: Annotated[
-        int,
-        typer.Option(
-            "--sys-sample-interval",
-            min=0,
-            help="Resource monitor sample interval in ms (0 to disable)",
-        ),
-    ] = 1000,
-    ws_max_buffer_bytes: Annotated[
-        int,
-        typer.Option(
-            "--ws-max-buffer-bytes",
-            min=1,
-            help="WebSocket outbound write-buffer capacity for the backpressure gauge",
-        ),
-    ] = 1_048_576,
-    ws_backpressure_warn_ratio: Annotated[
-        float,
-        typer.Option(
-            "--ws-backpressure-warn-ratio",
-            min=0.0,
-            max=1.0,
-            help="Warn when WebSocket in-flight bytes exceed this fraction of the buffer",
-        ),
-    ] = 0.8,
-    html_output: Annotated[
-        str | None,
-        typer.Option("--html", help="Generate standalone HTML report"),
-    ] = None,
-    compare_to: Annotated[
-        str | None,
-        typer.Option("--compare-to", help="Baseline JSON report path for comparison"),
-    ] = None,
-    export_markdown: Annotated[
-        str | None,
-        typer.Option("--markdown", help="Export results as Markdown report"),
-    ] = None,
-    export_junit: Annotated[
-        str | None,
-        typer.Option("--junit", help="Export results as JUnit XML report"),
-    ] = None,
-    export_csv: Annotated[
-        str | None,
-        typer.Option("--csv", help="Export results as CSV report"),
-    ] = None,
+    url: UrlArg,
+    concurrency: ConcurrencyOpt = 10,
+    duration: DurationOpt = 10,
+    timeout: TimeoutOpt = 10,
+    method: MethodOpt = "GET",
+    body: BodyOpt = None,
+    form: FormOpt = None,
+    header: HeaderOpt = None,
+    chaos: ChaosOpt = False,
+    no_progress: NoProgressOpt = False,
+    json_output: JsonOutputOpt = False,
+    verbose: VerboseOpt = 0,
+    quiet: QuietOpt = False,
+    log_file: LogFileOpt = None,
+    ws_mode: WsModeOpt = None,
+    ws_payload: WsPayloadOpt = None,
+    ws_persistent: WsPersistentOpt = False,
+    ws_keepalive_secs: WsKeepaliveSecsOpt = None,
+    ws_role: WsRoleOpt = None,
+    ws_publish_interval_ms: WsPublishIntervalOpt = None,
+    ws_subscribers: WsSubscribersOpt = None,
+    grpc_service: GrpcServiceOpt = None,
+    grpc_method: GrpcMethodOpt = None,
+    grpc_payload: GrpcPayloadOpt = None,
+    grpc_deadline_ms: GrpcDeadlineMsOpt = None,
+    proto_path: ProtoPathOpt = None,
+    grpc_use_reflection: GrpcUseReflectionOpt = False,
+    http3_enabled: Http3Opt = False,
+    quic_zero_rtt: QuicZeroRttOpt = False,
+    quic_max_idle_timeout_ms: QuicMaxIdleTimeoutOpt = None,
+    sse_enabled: SseEnabledOpt = False,
+    sse_max_events: SseMaxEventsOpt = None,
+    output_dir: OutputDirOpt = None,
+    no_save: NoSaveOpt = False,
+    sys_sample_interval: SysSampleIntervalOpt = 1000,
+    ws_max_buffer_bytes: WsMaxBufferBytesOpt = 1_048_576,
+    ws_backpressure_warn_ratio: WsBackpressureWarnRatioOpt = 0.8,
+    html_output: HtmlOpt = None,
+    compare_to: CompareToOpt = None,
+    export_markdown: MarkdownOpt = None,
+    export_junit: JunitOpt = None,
+    export_csv: CsvOpt = None,
 ) -> None:
     options = _build_request_options(
         **{k: v for k, v in locals().items() if k in _REQUEST_FIELDS}
@@ -590,208 +369,50 @@ def load(
 
 @app.command()
 def stress(
-    url: Annotated[str, typer.Argument(help="Target HTTP/HTTPS URL")],
-    start: Annotated[
-        int,
-        typer.Option("--from", help="Starting concurrency", min=1),
-    ] = 10,
-    target: Annotated[
-        int,
-        typer.Option("--to", help="Target concurrency", min=1),
-    ] = 200,
-    ramp: Annotated[
-        int,
-        typer.Option("--ramp", help="Ramp duration in seconds", min=1),
-    ] = 60,
-    hold: Annotated[
-        int,
-        typer.Option("--hold", help="Hold duration in seconds", min=0),
-    ] = 30,
-    timeout: Annotated[
-        int,
-        typer.Option("-t", "--timeout", help="Request timeout in seconds", min=1),
-    ] = 10,
-    method: Annotated[
-        str,
-        typer.Option(
-            "--method",
-            help="HTTP method (GET, POST, PUT, DELETE, PATCH, HEAD, OPTIONS)",
-        ),
-    ] = "GET",
-    body: Annotated[
-        str | None, typer.Option("--body", help="Request body (raw string)")
-    ] = None,
-    form: Annotated[
-        str | None,
-        typer.Option("--form", help="Form data body (e.g. key1=val1&key2=val2)"),
-    ] = None,
-    header: Annotated[
-        list[str] | None,
-        typer.Option("--header", help="Custom header key:value (repeatable)"),
-    ] = None,
-    chaos: Annotated[
-        bool, typer.Option("--chaos", help="Enable fault injection (~10%% of requests)")
-    ] = False,
-    no_progress: Annotated[
-        bool, typer.Option("--no-progress", help="Suppress live progress output")
-    ] = False,
-    json_output: Annotated[
-        bool, typer.Option("--json", help="Output raw JSON results")
-    ] = False,
-    verbose: Annotated[
-        int,
-        typer.Option("-v", "--verbose", count=True, help="Increase verbosity"),
-    ] = 0,
-    quiet: Annotated[
-        bool, typer.Option("-q", "--quiet", help="Suppress all output")
-    ] = False,
-    log_file: Annotated[
-        str | None, typer.Option("--log-file", help="Write logs to file")
-    ] = None,
-    ws_mode: Annotated[
-        WsModeEnum | None,
-        typer.Option(
-            "--ws-mode",
-            help="WebSocket mode: handshake, ping_pong, stream",
-            case_sensitive=False,
-        ),
-    ] = None,
-    ws_payload: Annotated[
-        str | None,
-        typer.Option("--ws-payload", help="WebSocket payload for stream mode"),
-    ] = None,
-    ws_persistent: Annotated[
-        bool,
-        typer.Option(
-            "--ws-persistent/--no-ws-persistent",
-            help="Use persistent WebSocket connections",
-        ),
-    ] = False,
-    ws_keepalive_secs: Annotated[
-        int | None,
-        typer.Option(
-            "--ws-keepalive-secs", help="WebSocket keepalive interval in seconds"
-        ),
-    ] = None,
-    ws_role: Annotated[
-        WsRole | None,
-        typer.Option(
-            "--ws-role",
-            help="WebSocket Pub/Sub role: publisher, subscriber",
-            case_sensitive=False,
-        ),
-    ] = None,
-    ws_publish_interval_ms: Annotated[
-        int | None,
-        typer.Option("--ws-publish-interval", help="Publisher send interval in ms"),
-    ] = None,
-    ws_subscribers: Annotated[
-        int | None,
-        typer.Option("--ws-subscribers", help="Number of subscriber workers"),
-    ] = None,
-    grpc_service: Annotated[
-        str | None,
-        typer.Option(
-            "--grpc-service", help="gRPC service name (e.g. helloworld.Greeter)"
-        ),
-    ] = None,
-    grpc_method: Annotated[
-        str | None,
-        typer.Option("--grpc-method", help="gRPC method name (e.g. SayHello)"),
-    ] = None,
-    grpc_payload: Annotated[
-        str | None,
-        typer.Option("--grpc-payload", help="Base64-encoded protobuf payload"),
-    ] = None,
-    grpc_deadline_ms: Annotated[
-        int | None,
-        typer.Option("--grpc-deadline-ms", help="gRPC deadline in milliseconds"),
-    ] = None,
-    proto_path: Annotated[
-        str | None,
-        typer.Option(
-            "--proto-path", help="Path to .proto file for JSON payload conversion"
-        ),
-    ] = None,
-    grpc_use_reflection: Annotated[
-        bool,
-        typer.Option(
-            "--grpc-use-reflection",
-            help="Use server reflection for schema discovery",
-        ),
-    ] = False,
-    http3_enabled: Annotated[
-        bool, typer.Option("--http3/--no-http3", help="Enable HTTP/3 over QUIC")
-    ] = False,
-    quic_zero_rtt: Annotated[
-        bool,
-        typer.Option("--quic-zero-rtt", help="Enable QUIC 0-RTT connection testing"),
-    ] = False,
-    quic_max_idle_timeout_ms: Annotated[
-        int | None,
-        typer.Option("--quic-max-idle-timeout", help="QUIC max idle timeout in ms"),
-    ] = None,
-    sse_enabled: Annotated[
-        bool, typer.Option("--sse/--no-sse", help="Enable SSE streaming mode")
-    ] = False,
-    sse_max_events: Annotated[
-        int | None,
-        typer.Option(
-            "--sse-max-events", help="Maximum events to receive per connection"
-        ),
-    ] = None,
-    output_dir: Annotated[
-        str | None,
-        typer.Option("--output-dir", help="Report output directory"),
-    ] = None,
-    no_save: Annotated[
-        bool, typer.Option("--no-save", help="Disable report persistence")
-    ] = False,
-    sys_sample_interval: Annotated[
-        int,
-        typer.Option(
-            "--sys-sample-interval",
-            min=0,
-            help="Resource monitor sample interval in ms (0 to disable)",
-        ),
-    ] = 1000,
-    ws_max_buffer_bytes: Annotated[
-        int,
-        typer.Option(
-            "--ws-max-buffer-bytes",
-            min=1,
-            help="WebSocket outbound write-buffer capacity for the backpressure gauge",
-        ),
-    ] = 1_048_576,
-    ws_backpressure_warn_ratio: Annotated[
-        float,
-        typer.Option(
-            "--ws-backpressure-warn-ratio",
-            min=0.0,
-            max=1.0,
-            help="Warn when WebSocket in-flight bytes exceed this fraction of the buffer",
-        ),
-    ] = 0.8,
-    html_output: Annotated[
-        str | None,
-        typer.Option("--html", help="Generate standalone HTML report"),
-    ] = None,
-    compare_to: Annotated[
-        str | None,
-        typer.Option("--compare-to", help="Baseline JSON report path for comparison"),
-    ] = None,
-    export_markdown: Annotated[
-        str | None,
-        typer.Option("--markdown", help="Export results as Markdown report"),
-    ] = None,
-    export_junit: Annotated[
-        str | None,
-        typer.Option("--junit", help="Export results as JUnit XML report"),
-    ] = None,
-    export_csv: Annotated[
-        str | None,
-        typer.Option("--csv", help="Export results as CSV report"),
-    ] = None,
+    url: UrlArg,
+    start: FromOpt = 10,
+    target: ToOpt = 200,
+    ramp: RampOpt = 60,
+    hold: HoldOpt = 30,
+    timeout: TimeoutOpt = 10,
+    method: MethodOpt = "GET",
+    body: BodyOpt = None,
+    form: FormOpt = None,
+    header: HeaderOpt = None,
+    chaos: ChaosOpt = False,
+    no_progress: NoProgressOpt = False,
+    json_output: JsonOutputOpt = False,
+    verbose: VerboseOpt = 0,
+    quiet: QuietOpt = False,
+    log_file: LogFileOpt = None,
+    ws_mode: WsModeOpt = None,
+    ws_payload: WsPayloadOpt = None,
+    ws_persistent: WsPersistentOpt = False,
+    ws_keepalive_secs: WsKeepaliveSecsOpt = None,
+    ws_role: WsRoleOpt = None,
+    ws_publish_interval_ms: WsPublishIntervalOpt = None,
+    ws_subscribers: WsSubscribersOpt = None,
+    grpc_service: GrpcServiceOpt = None,
+    grpc_method: GrpcMethodOpt = None,
+    grpc_payload: GrpcPayloadOpt = None,
+    grpc_deadline_ms: GrpcDeadlineMsOpt = None,
+    proto_path: ProtoPathOpt = None,
+    grpc_use_reflection: GrpcUseReflectionOpt = False,
+    http3_enabled: Http3Opt = False,
+    quic_zero_rtt: QuicZeroRttOpt = False,
+    quic_max_idle_timeout_ms: QuicMaxIdleTimeoutOpt = None,
+    sse_enabled: SseEnabledOpt = False,
+    sse_max_events: SseMaxEventsOpt = None,
+    output_dir: OutputDirOpt = None,
+    no_save: NoSaveOpt = False,
+    sys_sample_interval: SysSampleIntervalOpt = 1000,
+    ws_max_buffer_bytes: WsMaxBufferBytesOpt = 1_048_576,
+    ws_backpressure_warn_ratio: WsBackpressureWarnRatioOpt = 0.8,
+    html_output: HtmlOpt = None,
+    compare_to: CompareToOpt = None,
+    export_markdown: MarkdownOpt = None,
+    export_junit: JunitOpt = None,
+    export_csv: CsvOpt = None,
 ) -> None:
     options = _build_request_options(
         **{k: v for k, v in locals().items() if k in _REQUEST_FIELDS}
@@ -819,212 +440,51 @@ def stress(
 
 @app.command()
 def spike(
-    url: Annotated[str, typer.Argument(help="Target HTTP/HTTPS URL")],
-    baseline: Annotated[
-        int,
-        typer.Option("--baseline", help="Baseline concurrency", min=1),
-    ] = 5,
-    peak: Annotated[
-        int,
-        typer.Option("--peak", help="Peak concurrency", min=1),
-    ] = 500,
-    pre_spike: Annotated[
-        int,
-        typer.Option("--pre-spike", help="Pre-spike duration in seconds", min=0),
-    ] = 5,
-    spike_duration: Annotated[
-        int,
-        typer.Option("--spike-duration", help="Spike duration in seconds", min=1),
-    ] = 10,
-    post_spike: Annotated[
-        int,
-        typer.Option("--post-spike", help="Post-spike duration in seconds", min=0),
-    ] = 5,
-    timeout: Annotated[
-        int,
-        typer.Option("-t", "--timeout", help="Request timeout in seconds", min=1),
-    ] = 10,
-    method: Annotated[
-        str,
-        typer.Option(
-            "--method",
-            help="HTTP method (GET, POST, PUT, DELETE, PATCH, HEAD, OPTIONS)",
-        ),
-    ] = "GET",
-    body: Annotated[
-        str | None, typer.Option("--body", help="Request body (raw string)")
-    ] = None,
-    form: Annotated[
-        str | None,
-        typer.Option("--form", help="Form data body (e.g. key1=val1&key2=val2)"),
-    ] = None,
-    header: Annotated[
-        list[str] | None,
-        typer.Option("--header", help="Custom header key:value (repeatable)"),
-    ] = None,
-    chaos: Annotated[
-        bool, typer.Option("--chaos", help="Enable fault injection (~10%% of requests)")
-    ] = False,
-    no_progress: Annotated[
-        bool, typer.Option("--no-progress", help="Suppress live progress output")
-    ] = False,
-    json_output: Annotated[
-        bool, typer.Option("--json", help="Output raw JSON results")
-    ] = False,
-    verbose: Annotated[
-        int,
-        typer.Option("-v", "--verbose", count=True, help="Increase verbosity"),
-    ] = 0,
-    quiet: Annotated[
-        bool, typer.Option("-q", "--quiet", help="Suppress all output")
-    ] = False,
-    log_file: Annotated[
-        str | None, typer.Option("--log-file", help="Write logs to file")
-    ] = None,
-    ws_mode: Annotated[
-        WsModeEnum | None,
-        typer.Option(
-            "--ws-mode",
-            help="WebSocket mode: handshake, ping_pong, stream",
-            case_sensitive=False,
-        ),
-    ] = None,
-    ws_payload: Annotated[
-        str | None,
-        typer.Option("--ws-payload", help="WebSocket payload for stream mode"),
-    ] = None,
-    ws_persistent: Annotated[
-        bool,
-        typer.Option(
-            "--ws-persistent/--no-ws-persistent",
-            help="Use persistent WebSocket connections",
-        ),
-    ] = False,
-    ws_keepalive_secs: Annotated[
-        int | None,
-        typer.Option(
-            "--ws-keepalive-secs", help="WebSocket keepalive interval in seconds"
-        ),
-    ] = None,
-    ws_role: Annotated[
-        WsRole | None,
-        typer.Option(
-            "--ws-role",
-            help="WebSocket Pub/Sub role: publisher, subscriber",
-            case_sensitive=False,
-        ),
-    ] = None,
-    ws_publish_interval_ms: Annotated[
-        int | None,
-        typer.Option("--ws-publish-interval", help="Publisher send interval in ms"),
-    ] = None,
-    ws_subscribers: Annotated[
-        int | None,
-        typer.Option("--ws-subscribers", help="Number of subscriber workers"),
-    ] = None,
-    grpc_service: Annotated[
-        str | None,
-        typer.Option(
-            "--grpc-service", help="gRPC service name (e.g. helloworld.Greeter)"
-        ),
-    ] = None,
-    grpc_method: Annotated[
-        str | None,
-        typer.Option("--grpc-method", help="gRPC method name (e.g. SayHello)"),
-    ] = None,
-    grpc_payload: Annotated[
-        str | None,
-        typer.Option("--grpc-payload", help="Base64-encoded protobuf payload"),
-    ] = None,
-    grpc_deadline_ms: Annotated[
-        int | None,
-        typer.Option("--grpc-deadline-ms", help="gRPC deadline in milliseconds"),
-    ] = None,
-    proto_path: Annotated[
-        str | None,
-        typer.Option(
-            "--proto-path", help="Path to .proto file for JSON payload conversion"
-        ),
-    ] = None,
-    grpc_use_reflection: Annotated[
-        bool,
-        typer.Option(
-            "--grpc-use-reflection",
-            help="Use server reflection for schema discovery",
-        ),
-    ] = False,
-    http3_enabled: Annotated[
-        bool, typer.Option("--http3/--no-http3", help="Enable HTTP/3 over QUIC")
-    ] = False,
-    quic_zero_rtt: Annotated[
-        bool,
-        typer.Option("--quic-zero-rtt", help="Enable QUIC 0-RTT connection testing"),
-    ] = False,
-    quic_max_idle_timeout_ms: Annotated[
-        int | None,
-        typer.Option("--quic-max-idle-timeout", help="QUIC max idle timeout in ms"),
-    ] = None,
-    sse_enabled: Annotated[
-        bool, typer.Option("--sse/--no-sse", help="Enable SSE streaming mode")
-    ] = False,
-    sse_max_events: Annotated[
-        int | None,
-        typer.Option(
-            "--sse-max-events", help="Maximum events to receive per connection"
-        ),
-    ] = None,
-    output_dir: Annotated[
-        str | None,
-        typer.Option("--output-dir", help="Report output directory"),
-    ] = None,
-    no_save: Annotated[
-        bool, typer.Option("--no-save", help="Disable report persistence")
-    ] = False,
-    sys_sample_interval: Annotated[
-        int,
-        typer.Option(
-            "--sys-sample-interval",
-            min=0,
-            help="Resource monitor sample interval in ms (0 to disable)",
-        ),
-    ] = 1000,
-    ws_max_buffer_bytes: Annotated[
-        int,
-        typer.Option(
-            "--ws-max-buffer-bytes",
-            min=1,
-            help="WebSocket outbound write-buffer capacity for the backpressure gauge",
-        ),
-    ] = 1_048_576,
-    ws_backpressure_warn_ratio: Annotated[
-        float,
-        typer.Option(
-            "--ws-backpressure-warn-ratio",
-            min=0.0,
-            max=1.0,
-            help="Warn when WebSocket in-flight bytes exceed this fraction of the buffer",
-        ),
-    ] = 0.8,
-    html_output: Annotated[
-        str | None,
-        typer.Option("--html", help="Generate standalone HTML report"),
-    ] = None,
-    compare_to: Annotated[
-        str | None,
-        typer.Option("--compare-to", help="Baseline JSON report path for comparison"),
-    ] = None,
-    export_markdown: Annotated[
-        str | None,
-        typer.Option("--markdown", help="Export results as Markdown report"),
-    ] = None,
-    export_junit: Annotated[
-        str | None,
-        typer.Option("--junit", help="Export results as JUnit XML report"),
-    ] = None,
-    export_csv: Annotated[
-        str | None,
-        typer.Option("--csv", help="Export results as CSV report"),
-    ] = None,
+    url: UrlArg,
+    baseline: BaselineOpt = 5,
+    peak: PeakOpt = 500,
+    pre_spike: PreSpikeOpt = 5,
+    spike_duration: SpikeDurationOpt = 10,
+    post_spike: PostSpikeOpt = 5,
+    timeout: TimeoutOpt = 10,
+    method: MethodOpt = "GET",
+    body: BodyOpt = None,
+    form: FormOpt = None,
+    header: HeaderOpt = None,
+    chaos: ChaosOpt = False,
+    no_progress: NoProgressOpt = False,
+    json_output: JsonOutputOpt = False,
+    verbose: VerboseOpt = 0,
+    quiet: QuietOpt = False,
+    log_file: LogFileOpt = None,
+    ws_mode: WsModeOpt = None,
+    ws_payload: WsPayloadOpt = None,
+    ws_persistent: WsPersistentOpt = False,
+    ws_keepalive_secs: WsKeepaliveSecsOpt = None,
+    ws_role: WsRoleOpt = None,
+    ws_publish_interval_ms: WsPublishIntervalOpt = None,
+    ws_subscribers: WsSubscribersOpt = None,
+    grpc_service: GrpcServiceOpt = None,
+    grpc_method: GrpcMethodOpt = None,
+    grpc_payload: GrpcPayloadOpt = None,
+    grpc_deadline_ms: GrpcDeadlineMsOpt = None,
+    proto_path: ProtoPathOpt = None,
+    grpc_use_reflection: GrpcUseReflectionOpt = False,
+    http3_enabled: Http3Opt = False,
+    quic_zero_rtt: QuicZeroRttOpt = False,
+    quic_max_idle_timeout_ms: QuicMaxIdleTimeoutOpt = None,
+    sse_enabled: SseEnabledOpt = False,
+    sse_max_events: SseMaxEventsOpt = None,
+    output_dir: OutputDirOpt = None,
+    no_save: NoSaveOpt = False,
+    sys_sample_interval: SysSampleIntervalOpt = 1000,
+    ws_max_buffer_bytes: WsMaxBufferBytesOpt = 1_048_576,
+    ws_backpressure_warn_ratio: WsBackpressureWarnRatioOpt = 0.8,
+    html_output: HtmlOpt = None,
+    compare_to: CompareToOpt = None,
+    export_markdown: MarkdownOpt = None,
+    export_junit: JunitOpt = None,
+    export_csv: CsvOpt = None,
 ) -> None:
     options = _build_request_options(
         **{k: v for k, v in locals().items() if k in _REQUEST_FIELDS}
