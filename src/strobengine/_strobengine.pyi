@@ -64,6 +64,8 @@ class TestConfig:
     output_dir: str | None
     no_save: bool
     sys_sample_interval: int
+    ws_max_buffer_bytes: int
+    ws_backpressure_warn_ratio: float
     def __init__(
         self,
         url: str,
@@ -99,6 +101,8 @@ class TestConfig:
         output_dir: str | None = None,
         no_save: bool = False,
         sys_sample_interval: int = 1000,
+        ws_max_buffer_bytes: int = 1_048_576,
+        ws_backpressure_warn_ratio: float = 0.8,
     ) -> None: ...
 
 class SystemMetrics:

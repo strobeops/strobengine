@@ -499,6 +499,8 @@ mod tests {
             None,
             false,
             1000u64,
+            1_048_576u64,
+            0.8f32,
         );
 
         let artifact = ReportArtifact::from_summary_and_config(&summary, &config);

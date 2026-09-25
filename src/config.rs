@@ -99,6 +99,10 @@ pub struct TestConfig {
     pub no_save: bool,
     #[pyo3(get, set)]
     pub sys_sample_interval: u64,
+    #[pyo3(get, set)]
+    pub ws_max_buffer_bytes: u64,
+    #[pyo3(get, set)]
+    pub ws_backpressure_warn_ratio: f32,
 }
 
 #[pymethods]
@@ -138,6 +142,8 @@ impl TestConfig {
         output_dir=None,
         no_save=false,
         sys_sample_interval=1000u64,
+        ws_max_buffer_bytes=1048576u64,
+        ws_backpressure_warn_ratio=0.8f32,
     ))]
     #[allow(clippy::too_many_arguments)]
     pub fn new(
@@ -174,6 +180,8 @@ impl TestConfig {
         output_dir: Option<String>,
         no_save: bool,
         sys_sample_interval: u64,
+        ws_max_buffer_bytes: u64,
+        ws_backpressure_warn_ratio: f32,
     ) -> Self {
         Self {
             url,
@@ -209,6 +217,8 @@ impl TestConfig {
             output_dir,
             no_save,
             sys_sample_interval,
+            ws_max_buffer_bytes,
+            ws_backpressure_warn_ratio,
         }
     }
 }
@@ -270,6 +280,8 @@ pub struct TestConfigBuilder {
     output_dir: Option<String>,
     no_save: bool,
     sys_sample_interval: u64,
+    ws_max_buffer_bytes: u64,
+    ws_backpressure_warn_ratio: f32,
 }
 
 impl Default for TestConfigBuilder {
@@ -308,6 +320,8 @@ impl Default for TestConfigBuilder {
             output_dir: None,
             no_save: false,
             sys_sample_interval: 1000,
+            ws_max_buffer_bytes: 1_048_576,
+            ws_backpressure_warn_ratio: 0.8,
         }
     }
 }
@@ -448,6 +462,14 @@ impl TestConfigBuilder {
         self.sys_sample_interval = v;
         self
     }
+    pub fn ws_max_buffer_bytes(mut self, v: u64) -> Self {
+        self.ws_max_buffer_bytes = v;
+        self
+    }
+    pub fn ws_backpressure_warn_ratio(mut self, v: f32) -> Self {
+        self.ws_backpressure_warn_ratio = v;
+        self
+    }
 
     pub fn build(self) -> TestConfig {
         TestConfig {
@@ -484,6 +506,8 @@ impl TestConfigBuilder {
             output_dir: self.output_dir,
             no_save: self.no_save,
             sys_sample_interval: self.sys_sample_interval,
+            ws_max_buffer_bytes: self.ws_max_buffer_bytes,
+            ws_backpressure_warn_ratio: self.ws_backpressure_warn_ratio,
         }
     }
 }
@@ -642,6 +666,8 @@ mod tests {
         assert!(!c.ws_persistent);
         assert!(!c.http3_enabled);
         assert!(!c.no_save);
+        assert_eq!(c.ws_max_buffer_bytes, 1_048_576);
+        assert!((c.ws_backpressure_warn_ratio - 0.8).abs() < 1e-6);
     }
 
     #[test]
@@ -719,6 +745,8 @@ mod tests {
             None,
             false,
             1000u64,
+            1_048_576u64,
+            0.8f32,
         );
         assert_eq!(c.url, "http://127.0.0.1:8080");
         assert_eq!(c.concurrency, 10);
@@ -762,6 +790,8 @@ mod tests {
             None,
             false,
             1000u64,
+            1_048_576u64,
+            0.8f32,
         );
         assert_eq!(c.concurrency, 50);
         assert!(c.chaos);
