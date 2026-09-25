@@ -125,6 +125,7 @@ class TestArtifactSchemaConsistency:
             "avg_connection_latency_us",
             "quic",
             "sse",
+            "websocket",
             "chaos_faults",
         }
         assert required_keys.issubset(artifact.keys())
@@ -163,6 +164,10 @@ class TestArtifactSchemaConsistency:
         artifact = build_artifact_dict(_make_summary(), _make_config())
         assert artifact["sse"] is None
 
+    def test_optional_ws_metrics_absent_when_none(self):
+        artifact = build_artifact_dict(_make_summary(), _make_config())
+        assert artifact["websocket"] is None
+
     def test_zero_duration_no_division_error(self):
         artifact = build_artifact_dict(_make_summary(duration_secs=0), _make_config())
         assert artifact["summary"]["rps"] == 0.0
@@ -197,6 +202,7 @@ class TestRustDictParity:
             "avg_connection_latency_us",
             "quic",
             "sse",
+            "websocket",
             "chaos_faults",
         }
         assert required_keys.issubset(artifact.keys())
@@ -244,6 +250,35 @@ class TestRustDictParity:
         summary = _make_summary(total_requests=0)
         artifact = build_artifact_dict(summary, _make_config())
         assert artifact.get("connection_pool") is None
+
+    def test_ws_report_serialization(self, monkeypatch):
+        # Real WebsocketMetrics is a Rust pyclass (not Python-constructible), so
+        # swap in a stand-in type for the isinstance guard and assert the shape.
+        import strobengine.reporter as reporter
+
+        class FakeWs:
+            pings_sent_total = 8
+            pings_received_total = 2
+            pongs_solicited_total = 7
+            pongs_unsolicited_total = 1
+            backpressure_max_bytes = 2_097_152
+            backpressure_mean_bytes = 786_432.5
+            backpressure_threshold_breaches = 3
+
+        monkeypatch.setattr(reporter, "WebsocketMetrics", FakeWs)
+        summary = _make_summary()
+        summary.ws = FakeWs()
+
+        artifact = build_artifact_dict(summary, _make_config())
+        ws = artifact["websocket"]
+        assert ws is not None
+        assert ws["pings_sent_total"] == 8
+        assert ws["pings_received_total"] == 2
+        assert ws["pongs_solicited_total"] == 7
+        assert ws["pongs_unsolicited_total"] == 1
+        assert ws["backpressure_max_bytes"] == 2_097_152
+        assert ws["backpressure_mean_bytes"] == 786_432.5
+        assert ws["backpressure_threshold_breaches"] == 3
 
 
 class TestMarkdownReportFile:
@@ -521,6 +556,31 @@ class TestHTMLReport:
         assert "2xx" in html
         assert "4xx" in html
         assert "5xx" in html
+
+    def test_render_html_omits_websocket_section_when_absent(self):
+        html = render_html_report(_make_summary(), _make_config())
+        assert "WebSocket Deep Metrics" not in html
+
+    def test_render_html_contains_websocket_section(self, monkeypatch):
+        import strobengine.reporter as reporter
+
+        class FakeWs:
+            pings_sent_total = 5
+            pings_received_total = 2
+            pongs_solicited_total = 5
+            pongs_unsolicited_total = 0
+            backpressure_max_bytes = 1_048_576
+            backpressure_mean_bytes = 524_288.0
+            backpressure_threshold_breaches = 1
+
+        monkeypatch.setattr(reporter, "WebsocketMetrics", FakeWs)
+        summary = _make_summary()
+        summary.ws = FakeWs()
+
+        html = render_html_report(summary, _make_config())
+        assert "WebSocket Deep Metrics" in html
+        assert "Pongs Solicited" in html
+        assert "Backpressure Peak" in html
 
     def test_save_html_report_file_output(self, tmp_path):
         filepath = str(tmp_path / "report.html")

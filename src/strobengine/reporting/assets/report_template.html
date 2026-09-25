@@ -80,6 +80,23 @@
   </div>
 {% endif %}
 
+{% if websocket %}
+  <div class="card" style="margin-bottom: 1.5rem;">
+    <h2>WebSocket Deep Metrics</h2>
+    <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem;">
+      <div class="meta-row"><span class="meta-label">Pings Sent</span><span class="meta-value">{{ websocket.pings_sent_total }}</span></div>
+      <div class="meta-row"><span class="meta-label">Pings Received</span><span class="meta-value">{{ websocket.pings_received_total }}</span></div>
+      <div class="meta-row"><span class="meta-label">Pongs Solicited</span><span class="meta-value">{{ websocket.pongs_solicited_total }}</span></div>
+      <div class="meta-row"><span class="meta-label">Pongs Unsolicited</span><span class="meta-value">{{ websocket.pongs_unsolicited_total }}</span></div>
+    </div>
+    <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; margin-top: 1rem;">
+      <div class="meta-row"><span class="meta-label">Backpressure Peak</span><span class="meta-value">{{ websocket.backpressure_max_bytes | filesizeformat }}</span></div>
+      <div class="meta-row"><span class="meta-label">Backpressure Mean</span><span class="meta-value">{{ websocket.backpressure_mean_bytes | round(0) | int | filesizeformat }}</span></div>
+      <div class="meta-row"><span class="meta-label">Threshold Breaches</span><span class="meta-value">{{ websocket.backpressure_threshold_breaches }}</span></div>
+    </div>
+  </div>
+{% endif %}
+
   <div class="card">
     <h2>Status Codes</h2>
     <table class="status-table">
