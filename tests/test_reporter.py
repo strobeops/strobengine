@@ -65,3 +65,35 @@ class TestRichFallback:
         output = capsys.readouterr().out
         assert "Load Test Results" in output
         assert "http://example.com" in output
+
+
+class TestPrintSummaryWebsocket:
+    def test_plain_renders_websocket_rows(self, capsys, monkeypatch):
+        import strobengine.reporter as reporter
+
+        class FakeWs:
+            pings_sent_total = 5
+            pings_received_total = 2
+            pongs_solicited_total = 5
+            pongs_unsolicited_total = 1
+            backpressure_max_bytes = 1_048_576
+            backpressure_mean_bytes = 524_288.0
+            backpressure_threshold_breaches = 2
+
+        monkeypatch.setattr(reporter, "WebsocketMetrics", FakeWs)
+        summary = _make_summary(url="http://example.com")
+        summary.ws = FakeWs()
+
+        with patch("strobengine.reporter._HAS_RICH", False):
+            print_summary(summary)
+        output = capsys.readouterr().out
+        assert "WS Heartbeat" in output
+        assert "WS Backpressure" in output
+
+    def test_plain_omits_websocket_rows_when_absent(self, capsys):
+        summary = _make_summary(url="http://example.com")
+        with patch("strobengine.reporter._HAS_RICH", False):
+            print_summary(summary)
+        output = capsys.readouterr().out
+        # Mock's auto `.ws` child is not a real WebsocketMetrics -> section skipped.
+        assert "WS Heartbeat" not in output
