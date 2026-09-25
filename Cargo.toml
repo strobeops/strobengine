@@ -45,3 +45,10 @@ h3-quinn = "0.0.10"
 webpki-roots = "0.26"
 hdrhistogram = "7"
 sysinfo = "0.34"
+
+[dev-dependencies]
+criterion = "0.5"
+
+[[bench]]
+name = "ws_metrics"
+harness = false

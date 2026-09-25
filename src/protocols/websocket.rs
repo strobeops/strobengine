@@ -1,16 +1,20 @@
+use std::pin::Pin;
+use std::task::{Context, Poll};
 use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
 use bytes::Bytes;
-use futures_util::{SinkExt, StreamExt};
+use futures_util::{Sink, SinkExt, StreamExt};
 use http::header::HeaderName;
+use tokio_tungstenite::tungstenite::Error as WsError;
 use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 
 use crate::chaos::{ChaosEngine, ChaosFault};
 use crate::config::WsMode;
 use crate::metrics::{
-    ConnectionMetrics, RequestMetric, create_pubsub_payload, parse_pubsub_payload, wallclock_ns,
+    ConnectionMetrics, RequestMetric, WsSample, create_pubsub_payload, parse_pubsub_payload,
+    wallclock_ns,
 };
 
 use super::ProtocolEngine;
@@ -24,8 +28,140 @@ type WsStreamReader = futures_util::stream::SplitStream<
     tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>,
 >;
 
+/// Byte length of a tungstenite frame's payload (used for write-buffer accounting).
+fn message_payload_len(msg: &Message) -> u64 {
+    match msg {
+        Message::Text(t) => t.len() as u64,
+        Message::Binary(b) => b.len() as u64,
+        Message::Ping(p) => p.len() as u64,
+        Message::Pong(p) => p.len() as u64,
+        Message::Frame(f) => f.payload().len() as u64,
+        Message::Close(_) => 0,
+    }
+}
+
+/// Build an optional per-iteration heartbeat sample, returning `None` when the
+/// sample carries no meaningful counters (so non-WS / idle iterations do not
+/// flip the aggregate `has_ws` flag).
+fn ws_sample(
+    pings_sent: u64,
+    pings_received: u64,
+    pongs_solicited: u64,
+    pongs_unsolicited: u64,
+) -> Option<WsSample> {
+    let sample = WsSample {
+        pings_sent,
+        pings_received,
+        pongs_solicited,
+        pongs_unsolicited,
+        ..Default::default()
+    };
+    if sample.is_significant() {
+        Some(sample)
+    } else {
+        None
+    }
+}
+
+/// A [`Sink`] wrapper that accounts for bytes handed to tungstenite's write path
+/// versus bytes acknowledged on flush, exposing an in-flight (buffered) depth
+/// high-water marker.
+///
+/// This is a *proxy* for socket backpressure: tungstenite 0.26 does not expose
+/// the OS TCP send-buffer depth, so `written - flushed` reflects frames queued in
+/// the WebSocket write buffer awaiting a flush drain, not kernel socket state.
+pub struct CountingSink<S> {
+    inner: S,
+    written: u64,
+    flushed: u64,
+    max_in_flight: u64,
+    warn_bytes: u64,
+    over_threshold: bool,
+}
+
+impl<S> CountingSink<S> {
+    pub fn new(inner: S, warn_bytes: u64) -> Self {
+        Self {
+            inner,
+            written: 0,
+            flushed: 0,
+            max_in_flight: 0,
+            warn_bytes,
+            over_threshold: false,
+        }
+    }
+
+    /// Bytes queued into the write buffer but not yet acknowledged by a flush.
+    pub fn in_flight(&self) -> u64 {
+        self.written.saturating_sub(self.flushed)
+    }
+
+    /// Peak in-flight bytes observed over the sink's lifetime.
+    pub fn max_in_flight(&self) -> u64 {
+        self.max_in_flight
+    }
+}
+
+impl<S> Sink<Message> for CountingSink<S>
+where
+    S: Sink<Message, Error = WsError> + Unpin,
+{
+    type Error = WsError;
+
+    fn poll_ready(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        Pin::new(&mut self.get_mut().inner).poll_ready(cx)
+    }
+
+    fn start_send(self: Pin<&mut Self>, item: Message) -> Result<(), Self::Error> {
+        let this = self.get_mut();
+        this.written = this.written.saturating_add(message_payload_len(&item));
+        let depth = this.in_flight();
+        if depth > this.max_in_flight {
+            this.max_in_flight = depth;
+        }
+        if this.warn_bytes > 0 {
+            if depth >= this.warn_bytes && !this.over_threshold {
+                this.over_threshold = true;
+                tracing::warn!(
+                    in_flight_bytes = depth,
+                    warn_bytes = this.warn_bytes,
+                    "websocket write buffer backpressure threshold exceeded"
+                );
+            } else if depth < this.warn_bytes {
+                this.over_threshold = false;
+            }
+        }
+        Pin::new(&mut this.inner).start_send(item)
+    }
+
+    fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        let this = self.get_mut();
+        let result = Pin::new(&mut this.inner).poll_flush(cx);
+        if result.is_ready() {
+            this.flushed = this.written;
+        }
+        result
+    }
+
+    fn poll_close(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        Pin::new(&mut self.get_mut().inner).poll_close(cx)
+    }
+}
+
+impl<S: Unpin> Unpin for CountingSink<S> {}
+
+/// Result of a bounded read pass over a WebSocket stream: terminal bytes plus the
+/// control frames observed en route.
+#[derive(Debug, Default)]
+struct ReadOutcome {
+    bytes: u64,
+    got_pong: bool,
+    pings_received: u64,
+    pongs_received: u64,
+}
+
 pub struct PublisherSession {
-    write: Option<WsStream>,
+    write: Option<CountingSink<WsStream>>,
     user_payload: Vec<u8>,
     headers: Vec<(String, String)>,
     timeout: Duration,
@@ -68,6 +204,8 @@ pub struct PersistentWsSession {
     max_messages: Option<u64>,
     headers: Vec<(String, String)>,
     timeout_secs: u64,
+    last_pings_received: u64,
+    last_pongs_received: u64,
 }
 
 impl PersistentWsSession {
@@ -82,6 +220,8 @@ impl PersistentWsSession {
             max_messages,
             headers,
             timeout_secs,
+            last_pings_received: 0,
+            last_pongs_received: 0,
         }
     }
 
@@ -141,6 +281,8 @@ impl PersistentWsSession {
             .map_err(|e| EngineError::ConnectionFailed(e.to_string()))?;
 
         self.messages_sent += 1;
+        self.last_pings_received = 0;
+        self.last_pongs_received = 0;
 
         // Read response with timeout
         let timeout = Duration::from_secs(if self.timeout_secs > 0 {
@@ -150,6 +292,8 @@ impl PersistentWsSession {
         });
         let read_result = tokio::time::timeout(timeout, async {
             let mut response_bytes = Vec::new();
+            let mut pings = 0u64;
+            let mut pongs = 0u64;
             while let Some(Ok(msg)) = stream.next().await {
                 match msg {
                     Message::Text(text) => {
@@ -160,15 +304,24 @@ impl PersistentWsSession {
                         response_bytes.extend_from_slice(&bin);
                         break;
                     }
+                    Message::Ping(_) => pings += 1,
+                    Message::Pong(_) => pongs += 1,
                     Message::Close(_) => break,
                     _ => {}
                 }
             }
-            response_bytes
+            (response_bytes, pings, pongs)
         })
         .await;
 
-        read_result.map_err(|_| EngineError::ConnectionFailed("read timed out".into()))
+        match read_result {
+            Ok((response_bytes, pings, pongs)) => {
+                self.last_pings_received = pings;
+                self.last_pongs_received = pongs;
+                Ok(response_bytes)
+            }
+            Err(_) => Err(EngineError::ConnectionFailed("read timed out".into())),
+        }
     }
 
     /// Clean up the connection.
@@ -222,6 +375,8 @@ pub struct WebSocketEngine {
     ws_max_messages: Option<u64>,
     ws_role: Option<String>,
     ws_publish_interval_ms: Option<u64>,
+    ws_max_buffer_bytes: u64,
+    ws_backpressure_warn_ratio: f32,
 }
 
 impl WebSocketEngine {
@@ -248,6 +403,8 @@ impl WebSocketEngine {
             ws_max_messages,
             ws_role: None,
             ws_publish_interval_ms: None,
+            ws_max_buffer_bytes: 1_048_576,
+            ws_backpressure_warn_ratio: 0.8,
         }
     }
 
@@ -255,6 +412,24 @@ impl WebSocketEngine {
         self.ws_role = role;
         self.ws_publish_interval_ms = publish_interval_ms;
         self
+    }
+
+    /// Configure the outbound write-buffer backpressure threshold.
+    ///
+    /// `max_buffer_bytes` bounds the frame queue depth; `warn_ratio` (0.0..=1.0)
+    /// triggers an edge-detected warning once in-flight bytes cross that fraction.
+    pub fn with_backpressure(mut self, max_buffer_bytes: u64, warn_ratio: f32) -> Self {
+        self.ws_max_buffer_bytes = max_buffer_bytes;
+        self.ws_backpressure_warn_ratio = warn_ratio;
+        self
+    }
+
+    /// Threshold in bytes at which backpressure is flagged (0 disables warnings).
+    fn warn_bytes(&self) -> u64 {
+        if self.ws_backpressure_warn_ratio <= 0.0 {
+            return 0;
+        }
+        ((self.ws_max_buffer_bytes as f32) * self.ws_backpressure_warn_ratio).max(1.0) as u64
     }
 
     fn is_publisher(&self) -> bool {
@@ -273,41 +448,49 @@ impl WebSocketEngine {
         })
     }
 
-    /// Read from WebSocket stream with timeout, returning (bytes received, pong received).
+    /// Read from WebSocket stream with timeout, tallying control frames.
+    ///
+    /// Incoming `Ping` frames are counted (tungstenite auto-replies the `Pong` at
+    /// the protocol layer) and the loop keeps reading until a data frame, a `Pong`,
+    /// or close terminates it.
     async fn read_with_timeout(
         &self,
         ws_stream: &mut tokio_tungstenite::WebSocketStream<
             tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
         >,
-    ) -> (u64, bool) {
+    ) -> ReadOutcome {
         let timeout = self.effective_timeout();
         let read_result = tokio::time::timeout(timeout, async {
-            let mut total_bytes = 0u64;
-            let mut got_pong = false;
+            let mut outcome = ReadOutcome::default();
             while let Some(Ok(msg)) = ws_stream.next().await {
                 match msg {
                     Message::Text(text) => {
-                        total_bytes += text.len() as u64;
+                        outcome.bytes += text.len() as u64;
                         break;
                     }
                     Message::Binary(bin) => {
-                        total_bytes += bin.len() as u64;
+                        outcome.bytes += bin.len() as u64;
                         break;
                     }
+                    Message::Ping(data) => {
+                        outcome.bytes += data.len() as u64;
+                        outcome.pings_received += 1;
+                    }
                     Message::Pong(data) => {
-                        total_bytes += data.len() as u64;
-                        got_pong = true;
+                        outcome.bytes += data.len() as u64;
+                        outcome.got_pong = true;
+                        outcome.pongs_received += 1;
                         break;
                     }
                     Message::Close(_) => break,
                     _ => {}
                 }
             }
-            (total_bytes, got_pong)
+            outcome
         })
         .await;
 
-        read_result.unwrap_or((0, false))
+        read_result.unwrap_or_default()
     }
 
     async fn connect_ws(
@@ -353,7 +536,7 @@ impl WebSocketEngine {
         if session.write.is_none() {
             match Self::connect_ws(&session.headers, session.timeout, target_url).await {
                 Ok((write, _read)) => {
-                    session.write = Some(write);
+                    session.write = Some(CountingSink::new(write, self.warn_bytes()));
                 }
                 Err(_) => {
                     return RequestMetric::error(req_start.elapsed().as_micros());
@@ -384,15 +567,30 @@ impl WebSocketEngine {
             None => return RequestMetric::error(req_start.elapsed().as_micros()),
         };
         let payload_len = payload_bytes.len() as u64;
-        let send_result = write
-            .send(Message::Binary(Bytes::from(payload_bytes)))
+
+        // Queue the frame without flushing, sample the write-buffer depth at that
+        // instant (bytes enqueued but not yet drained), then drive the flush.
+        let feed_result = write
+            .feed(Message::Binary(Bytes::from(payload_bytes)))
             .await;
+        let in_flight = write.in_flight();
+        let flushed = write.flush().await;
+        let depth_breach = self.warn_bytes() > 0 && in_flight >= self.warn_bytes();
 
         let latency_micros = req_start.elapsed().as_micros();
 
-        match send_result {
+        match feed_result.and(flushed) {
             Ok(()) => {
-                let _ = write.flush().await;
+                let ws = Some(WsSample {
+                    pings_sent: 0,
+                    pings_received: 0,
+                    pongs_solicited: 0,
+                    pongs_unsolicited: 0,
+                    backpressure_max_bytes: in_flight,
+                    backpressure_samples_sum: in_flight,
+                    backpressure_sample_count: 1,
+                    threshold_breaches: if depth_breach { 1 } else { 0 },
+                });
                 RequestMetric {
                     latency_micros,
                     status_code: 200,
@@ -411,6 +609,7 @@ impl WebSocketEngine {
                     sse_events_received: None,
                     sse_first_event_us: None,
                     sse_event_interval_us: None,
+                    ws,
                     chaos_fault: fault,
                 }
             }
@@ -459,6 +658,8 @@ impl WebSocketEngine {
         };
 
         let timeout = self.effective_timeout();
+        let mut pings_recv = 0u64;
+        let mut pongs_recv = 0u64;
         let read_result = tokio::time::timeout(timeout, async {
             let mut total_bytes = 0u64;
             while let Some(Ok(msg)) = read.next().await {
@@ -472,6 +673,14 @@ impl WebSocketEngine {
                         total_bytes += text.len() as u64;
                         session.received_count += 1;
                         return Some((total_bytes, text.as_bytes().to_vec()));
+                    }
+                    Message::Ping(_) => {
+                        // Server-initiated keepalive (auto-Ponged by tungstenite).
+                        pings_recv += 1;
+                    }
+                    Message::Pong(_) => {
+                        // No Ping was solicited by a subscriber, so this is anomalous.
+                        pongs_recv += 1;
                     }
                     Message::Close(_) => return None,
                     _ => {}
@@ -494,6 +703,18 @@ impl WebSocketEngine {
                         (None, data)
                     };
 
+                let ws = if pings_recv > 0 || pongs_recv > 0 {
+                    Some(WsSample {
+                        pings_sent: 0,
+                        pings_received: pings_recv,
+                        pongs_solicited: 0,
+                        pongs_unsolicited: pongs_recv,
+                        ..Default::default()
+                    })
+                } else {
+                    None
+                };
+
                 RequestMetric {
                     latency_micros,
                     status_code: 200,
@@ -512,6 +733,7 @@ impl WebSocketEngine {
                     sse_events_received: None,
                     sse_first_event_us: None,
                     sse_event_interval_us: None,
+                    ws,
                     chaos_fault: fault,
                 }
             }
@@ -567,7 +789,7 @@ impl ProtocolEngine for WebSocketEngine {
 
         let result = tokio_tungstenite::connect_async(request).await;
 
-        let (status_code, bytes_received) = match result {
+        let (status_code, bytes_received, ws) = match result {
             Ok((mut ws_stream, _response)) => {
                 // Phase 2: Post-connection chaos
                 match fault {
@@ -577,30 +799,51 @@ impl ProtocolEngine for WebSocketEngine {
                         let _ = ws_stream
                             .send(Message::Binary(Bytes::from_static(b"\xff\xfe\xbd\xef")))
                             .await;
-                        let (total_bytes, _) = self.read_with_timeout(&mut ws_stream).await;
+                        let outcome = self.read_with_timeout(&mut ws_stream).await;
                         let _ = ws_stream.close(None).await;
-                        (200, total_bytes)
+                        (
+                            200,
+                            outcome.bytes,
+                            ws_sample(0, outcome.pings_received, 0, outcome.pongs_received),
+                        )
                     }
                     _ => {
                         // Normal execution (LatencySpike already applied, or no fault)
                         match self.ws_mode {
                             WsMode::Handshake => {
                                 let _ = ws_stream.close(None).await;
-                                (200, 0)
+                                (200, 0, None)
                             }
                             WsMode::PingPong => {
-                                let _ = ws_stream.send(Message::Ping(Bytes::new())).await;
-                                let (total_bytes, got_pong) =
-                                    self.read_with_timeout(&mut ws_stream).await;
+                                let sent_ok =
+                                    ws_stream.send(Message::Ping(Bytes::new())).await.is_ok();
+                                let pings_sent = if sent_ok { 1 } else { 0 };
+                                let outcome = self.read_with_timeout(&mut ws_stream).await;
                                 let _ = ws_stream.close(None).await;
-                                if got_pong { (200, total_bytes) } else { (0, 0) }
+                                // A Pong is solicited iff it answers the Ping we sent.
+                                let pongs_solicited = outcome.pongs_received.min(pings_sent);
+                                let pongs_unsolicited =
+                                    outcome.pongs_received.saturating_sub(pongs_solicited);
+                                let ws = ws_sample(
+                                    pings_sent,
+                                    outcome.pings_received,
+                                    pongs_solicited,
+                                    pongs_unsolicited,
+                                );
+                                if outcome.got_pong {
+                                    (200, outcome.bytes, ws)
+                                } else {
+                                    (0, 0, ws)
+                                }
                             }
                             WsMode::Stream => {
                                 let payload_str = self.payload.as_deref().unwrap_or("ping");
                                 let _ = ws_stream.send(Message::Text(payload_str.into())).await;
-                                let (total_bytes, _) = self.read_with_timeout(&mut ws_stream).await;
+                                let outcome = self.read_with_timeout(&mut ws_stream).await;
                                 let _ = ws_stream.close(None).await;
-                                (200, total_bytes)
+                                let ws =
+                                    ws_sample(0, outcome.pings_received, 0, outcome.pongs_received);
+                                (200, outcome.bytes, ws)
                             }
                         }
                     }
@@ -608,7 +851,7 @@ impl ProtocolEngine for WebSocketEngine {
             }
             Err(e) => {
                 tracing::debug!(error = %e, "websocket handshake failed");
-                (0, 0)
+                (0, 0, None)
             }
         };
 
@@ -640,6 +883,7 @@ impl ProtocolEngine for WebSocketEngine {
             sse_events_received: None,
             sse_first_event_us: None,
             sse_event_interval_us: None,
+            ws,
             chaos_fault: fault,
         }
     }
@@ -731,6 +975,12 @@ impl ProtocolEngine for WebSocketEngine {
         match session.send_and_receive(&payload_bytes).await {
             Ok(response_bytes) => {
                 let frame_latency = req_start.elapsed().as_micros();
+                let ws = ws_sample(
+                    0,
+                    session.last_pings_received,
+                    0,
+                    session.last_pongs_received,
+                );
                 RequestMetric {
                     latency_micros: frame_latency,
                     status_code: 200,
@@ -749,29 +999,39 @@ impl ProtocolEngine for WebSocketEngine {
                     sse_events_received: None,
                     sse_first_event_us: None,
                     sse_event_interval_us: None,
+                    ws,
                     chaos_fault: fault,
                 }
             }
-            Err(_) => RequestMetric {
-                latency_micros: req_start.elapsed().as_micros(),
-                status_code: 0,
-                bytes_received: 0,
-                is_reconnect: connection_latency_us > 0,
-                connection: ConnectionMetrics {
-                    connection_latency_us: Some(connection_latency_us),
-                    timestamp_sent_ns: None,
-                    e2e_latency_us: None,
-                    dns_resolution_us: None,
-                    is_socket_reused: connection_latency_us == 0,
-                },
-                quic_handshake_us: None,
-                quic_0rtt_used: false,
-                quic_retransmits: None,
-                sse_events_received: None,
-                sse_first_event_us: None,
-                sse_event_interval_us: None,
-                chaos_fault: fault,
-            },
+            Err(_) => {
+                let ws = ws_sample(
+                    0,
+                    session.last_pings_received,
+                    0,
+                    session.last_pongs_received,
+                );
+                RequestMetric {
+                    latency_micros: req_start.elapsed().as_micros(),
+                    status_code: 0,
+                    bytes_received: 0,
+                    is_reconnect: connection_latency_us > 0,
+                    connection: ConnectionMetrics {
+                        connection_latency_us: Some(connection_latency_us),
+                        timestamp_sent_ns: None,
+                        e2e_latency_us: None,
+                        dns_resolution_us: None,
+                        is_socket_reused: connection_latency_us == 0,
+                    },
+                    quic_handshake_us: None,
+                    quic_0rtt_used: false,
+                    quic_retransmits: None,
+                    sse_events_received: None,
+                    sse_first_event_us: None,
+                    sse_event_interval_us: None,
+                    ws,
+                    chaos_fault: fault,
+                }
+            }
         }
     }
 }
@@ -844,6 +1104,128 @@ mod tests {
 
         assert_eq!(metric.status_code, 200);
         assert!(metric.latency_micros > 0);
+    }
+
+    #[tokio::test]
+    async fn test_ping_pong_classifies_solicited_pong() {
+        // Server echoes a Pong for our Ping -> that Pong is solicited.
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let local_addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            if let Ok((stream, _)) = listener.accept().await
+                && let Ok(mut ws_stream) = accept_async(stream).await
+            {
+                while let Some(Ok(msg)) = ws_stream.next().await {
+                    if let Message::Ping(data) = msg {
+                        let _ = ws_stream.send(Message::Pong(data)).await;
+                    }
+                }
+            }
+        });
+
+        let engine = WebSocketEngine::new(
+            vec![],
+            WsMode::PingPong,
+            None,
+            ChaosEngine::default(),
+            10,
+            false,
+            None,
+            None,
+        );
+        let metric = engine
+            .execute_iteration(&format!("ws://{}", local_addr))
+            .await;
+
+        let ws = metric.ws.expect("ping/pong iteration yields a ws sample");
+        assert_eq!(ws.pings_sent, 1);
+        assert_eq!(ws.pongs_solicited, 1);
+        assert_eq!(ws.pongs_unsolicited, 0);
+    }
+
+    #[tokio::test]
+    async fn test_server_pushed_control_frames_are_unsolicited() {
+        // Server pushes an unsolicited Ping + Pong; the client solicited neither,
+        // so the Pong must classify as unsolicited and the Ping is counted.
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let local_addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            if let Ok((stream, _)) = listener.accept().await
+                && let Ok(mut ws_stream) = accept_async(stream).await
+            {
+                let _ = ws_stream.next().await; // consume client's stream text
+                let _ = ws_stream
+                    .send(Message::Ping(Bytes::from_static(b"s1")))
+                    .await;
+                let _ = ws_stream
+                    .send(Message::Pong(Bytes::from_static(b"u1")))
+                    .await;
+            }
+        });
+
+        let engine = WebSocketEngine::new(
+            vec![],
+            WsMode::Stream,
+            Some("ping".into()),
+            ChaosEngine::default(),
+            10,
+            false,
+            None,
+            None,
+        );
+        let metric = engine
+            .execute_iteration(&format!("ws://{}", local_addr))
+            .await;
+
+        let ws = metric.ws.expect("control frames yield a ws sample");
+        assert_eq!(ws.pings_sent, 0);
+        assert_eq!(ws.pings_received, 1);
+        assert_eq!(ws.pongs_solicited, 0);
+        assert_eq!(ws.pongs_unsolicited, 1);
+    }
+
+    struct NullSink;
+    impl Sink<Message> for NullSink {
+        type Error = WsError;
+        fn poll_ready(
+            self: Pin<&mut Self>,
+            _cx: &mut Context<'_>,
+        ) -> Poll<Result<(), Self::Error>> {
+            Poll::Ready(Ok(()))
+        }
+        fn start_send(self: Pin<&mut Self>, _item: Message) -> Result<(), Self::Error> {
+            Ok(())
+        }
+        fn poll_flush(
+            self: Pin<&mut Self>,
+            _cx: &mut Context<'_>,
+        ) -> Poll<Result<(), Self::Error>> {
+            Poll::Ready(Ok(()))
+        }
+        fn poll_close(
+            self: Pin<&mut Self>,
+            _cx: &mut Context<'_>,
+        ) -> Poll<Result<(), Self::Error>> {
+            Poll::Ready(Ok(()))
+        }
+    }
+
+    #[tokio::test]
+    async fn test_counting_sink_increments_on_enqueue_and_drains_on_flush() {
+        use futures_util::SinkExt;
+        let mut sink = CountingSink::new(NullSink, 64);
+
+        // Enqueue without flushing -> in-flight grows by the queued payload bytes.
+        sink.feed(Message::Binary(Bytes::from(vec![0u8; 100])))
+            .await
+            .unwrap();
+        assert_eq!(sink.in_flight(), 100);
+        assert_eq!(sink.max_in_flight(), 100);
+
+        // Flush drains the buffer -> in-flight returns to zero, high-water retained.
+        sink.flush().await.unwrap();
+        assert_eq!(sink.in_flight(), 0);
+        assert_eq!(sink.max_in_flight(), 100);
     }
 
     #[tokio::test]

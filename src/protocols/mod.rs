@@ -118,7 +118,11 @@ pub fn detect_protocol(
             config.ws_keepalive_secs,
             config.ws_max_messages,
         )
-        .with_role(config.ws_role.clone(), config.ws_publish_interval_ms);
+        .with_role(config.ws_role.clone(), config.ws_publish_interval_ms)
+        .with_backpressure(
+            config.ws_max_buffer_bytes,
+            config.ws_backpressure_warn_ratio,
+        );
         Ok(Arc::new(engine))
     } else if url.starts_with("grpc://") || url.starts_with("grpcs://") {
         let engine = grpc::GrpcEngine::new(

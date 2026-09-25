@@ -64,6 +64,8 @@ class TestConfig:
     output_dir: str | None
     no_save: bool
     sys_sample_interval: int
+    ws_max_buffer_bytes: int
+    ws_backpressure_warn_ratio: float
     def __init__(
         self,
         url: str,
@@ -99,6 +101,8 @@ class TestConfig:
         output_dir: str | None = None,
         no_save: bool = False,
         sys_sample_interval: int = 1000,
+        ws_max_buffer_bytes: int = 1_048_576,
+        ws_backpressure_warn_ratio: float = 0.8,
     ) -> None: ...
 
 class SystemMetrics:
@@ -129,6 +133,22 @@ class SseMetrics:
     def total_events_received(self) -> int: ...
     @property
     def avg_ttfb_ms(self) -> float | None: ...
+
+class WebsocketMetrics:
+    @property
+    def pings_sent_total(self) -> int: ...
+    @property
+    def pings_received_total(self) -> int: ...
+    @property
+    def pongs_solicited_total(self) -> int: ...
+    @property
+    def pongs_unsolicited_total(self) -> int: ...
+    @property
+    def backpressure_max_bytes(self) -> int: ...
+    @property
+    def backpressure_mean_bytes(self) -> float: ...
+    @property
+    def backpressure_threshold_breaches(self) -> int: ...
 
 class TestSummary:
     def clone(self) -> TestSummary: ...
@@ -172,6 +192,8 @@ class TestSummary:
     def quic(self) -> QuicMetrics | None: ...
     @property
     def sse(self) -> SseMetrics | None: ...
+    @property
+    def ws(self) -> WebsocketMetrics | None: ...
     @property
     def chaos_injected_total(self) -> int: ...
     @property

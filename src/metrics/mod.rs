@@ -27,6 +27,7 @@ pub struct AggregatedMetrics {
     pub total_bytes: u64,
     pub quic_metrics: Option<QuicMetrics>,
     pub sse_metrics: Option<SseMetrics>,
+    pub ws_metrics: Option<WebsocketMetrics>,
     pub chaos_injected_total: u64,
     pub chaos_faults_by_type: HashMap<String, u64>,
     pub total_sockets_created: u64,
@@ -57,6 +58,7 @@ impl Default for AggregatedMetrics {
             total_bytes: 0,
             quic_metrics: None,
             sse_metrics: None,
+            ws_metrics: None,
             chaos_injected_total: 0,
             chaos_faults_by_type: HashMap::new(),
             total_sockets_created: 0,
@@ -133,6 +135,7 @@ pub struct RequestMetric {
     pub sse_events_received: Option<u64>,
     pub sse_first_event_us: Option<u64>,
     pub sse_event_interval_us: Option<u64>,
+    pub ws: Option<WsSample>,
     pub chaos_fault: Option<crate::chaos::ChaosFault>,
 }
 
@@ -150,6 +153,7 @@ impl RequestMetric {
             sse_events_received: None,
             sse_first_event_us: None,
             sse_event_interval_us: None,
+            ws: None,
             chaos_fault: None,
         }
     }
@@ -173,6 +177,56 @@ pub struct SseMetrics {
     pub total_events_received: u64,
     #[pyo3(get)]
     pub avg_ttfb_ms: Option<f64>,
+}
+
+/// Aggregated WebSocket heartbeat and write-buffer telemetry.
+#[pyclass(skip_from_py_object)]
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+pub struct WebsocketMetrics {
+    #[pyo3(get)]
+    pub pings_sent_total: u64,
+    #[pyo3(get)]
+    pub pings_received_total: u64,
+    #[pyo3(get)]
+    pub pongs_solicited_total: u64,
+    #[pyo3(get)]
+    pub pongs_unsolicited_total: u64,
+    #[pyo3(get)]
+    pub backpressure_max_bytes: u64,
+    #[pyo3(get)]
+    pub backpressure_mean_bytes: f64,
+    #[pyo3(get)]
+    pub backpressure_threshold_breaches: u64,
+}
+
+/// Per-iteration WebSocket sample fed from the protocol engine.
+///
+/// Counters are deltas for a single iteration; `backpressure_*` fields carry the
+/// high-water in-flight bytes and the running sum/count of write-buffer samples
+/// taken during the iteration (zero count means no outbound write occurred).
+#[derive(Debug, Clone, Default)]
+pub struct WsSample {
+    pub pings_sent: u64,
+    pub pings_received: u64,
+    pub pongs_solicited: u64,
+    pub pongs_unsolicited: u64,
+    pub backpressure_max_bytes: u64,
+    pub backpressure_samples_sum: u64,
+    pub backpressure_sample_count: u64,
+    pub threshold_breaches: u64,
+}
+
+impl WsSample {
+    /// True when the sample carries any meaningful WebSocket telemetry.
+    pub fn is_significant(&self) -> bool {
+        self.pings_sent > 0
+            || self.pings_received > 0
+            || self.pongs_solicited > 0
+            || self.pongs_unsolicited > 0
+            || self.backpressure_max_bytes > 0
+            || self.backpressure_sample_count > 0
+            || self.threshold_breaches > 0
+    }
 }
 
 pub struct LiveCounters {
@@ -242,6 +296,8 @@ pub struct TestSummary {
     pub quic: Option<QuicMetrics>,
     #[pyo3(get)]
     pub sse: Option<SseMetrics>,
+    #[pyo3(get)]
+    pub ws: Option<WebsocketMetrics>,
     #[pyo3(get)]
     pub chaos_injected_total: u64,
     #[pyo3(get)]
@@ -359,6 +415,7 @@ pub struct SummaryInput {
     pub connection_latency_histogram: Histogram<u64>,
     pub quic_metrics: Option<QuicMetrics>,
     pub sse_metrics: Option<SseMetrics>,
+    pub ws_metrics: Option<WebsocketMetrics>,
     pub chaos_injected_total: u64,
     pub chaos_faults_by_type: HashMap<String, u64>,
     pub resource_samples: Vec<system::ResourceSample>,
@@ -374,7 +431,11 @@ pub async fn finalize_metrics(mut rx: mpsc::Receiver<RequestMetric>) -> Aggregat
     let mut metrics = AggregatedMetrics::default();
     let mut quic_stats = QuicMetrics::default();
     let mut sse_stats = SseMetrics::default();
+    let mut ws_stats = WebsocketMetrics::default();
     let mut has_quic = false;
+    let mut has_ws = false;
+    let mut ws_bp_sum: u64 = 0;
+    let mut ws_bp_count: u64 = 0;
     let mut quic_handshake_sum_us: u64 = 0;
     let mut quic_handshake_count: u64 = 0;
     let mut sse_first_event_sum_us: u64 = 0;
@@ -421,6 +482,23 @@ pub async fn finalize_metrics(mut rx: mpsc::Receiver<RequestMetric>) -> Aggregat
             sse_first_event_count += 1;
         }
 
+        // WebSocket aggregation (O(1) running counters)
+        if let Some(sample) = metric.ws.as_ref()
+            && sample.is_significant()
+        {
+            has_ws = true;
+            ws_stats.pings_sent_total += sample.pings_sent;
+            ws_stats.pings_received_total += sample.pings_received;
+            ws_stats.pongs_solicited_total += sample.pongs_solicited;
+            ws_stats.pongs_unsolicited_total += sample.pongs_unsolicited;
+            if sample.backpressure_max_bytes > ws_stats.backpressure_max_bytes {
+                ws_stats.backpressure_max_bytes = sample.backpressure_max_bytes;
+            }
+            ws_stats.backpressure_threshold_breaches += sample.threshold_breaches;
+            ws_bp_sum += sample.backpressure_samples_sum;
+            ws_bp_count += sample.backpressure_sample_count;
+        }
+
         // Chaos aggregation
         if let Some(ref fault) = metric.chaos_fault {
             metrics.chaos_injected_total += 1;
@@ -458,12 +536,18 @@ pub async fn finalize_metrics(mut rx: mpsc::Receiver<RequestMetric>) -> Aggregat
             Some((sse_first_event_sum_us as f64 / sse_first_event_count as f64) / 1000.0);
     }
 
+    // Compute WebSocket backpressure mean via O(1) running counters
+    if ws_bp_count > 0 {
+        ws_stats.backpressure_mean_bytes = ws_bp_sum as f64 / ws_bp_count as f64;
+    }
+
     metrics.quic_metrics = if has_quic { Some(quic_stats) } else { None };
     metrics.sse_metrics = if sse_stats.total_events_received > 0 || sse_first_event_count > 0 {
         Some(sse_stats)
     } else {
         None
     };
+    metrics.ws_metrics = if has_ws { Some(ws_stats) } else { None };
 
     metrics
 }
@@ -522,6 +606,7 @@ pub fn calculate_summary(input: SummaryInput) -> TestSummary {
             avg_connection_latency_us,
             quic: input.quic_metrics,
             sse: input.sse_metrics,
+            ws: input.ws_metrics,
             chaos_injected_total: input.chaos_injected_total,
             chaos_faults_by_type: input.chaos_faults_by_type,
             std_dev_latency_ms: 0.0,
@@ -569,6 +654,7 @@ pub fn calculate_summary(input: SummaryInput) -> TestSummary {
         avg_connection_latency_us,
         quic: input.quic_metrics,
         sse: input.sse_metrics,
+        ws: input.ws_metrics,
         chaos_injected_total: input.chaos_injected_total,
         chaos_faults_by_type: input.chaos_faults_by_type,
         std_dev_latency_ms,
@@ -630,6 +716,7 @@ mod tests {
             connection_latency_histogram: create_test_histogram(&[]),
             quic_metrics: None,
             sse_metrics: None,
+            ws_metrics: None,
             chaos_injected_total: 0,
             chaos_faults_by_type: HashMap::new(),
             resource_samples: Vec::new(),
@@ -665,6 +752,7 @@ mod tests {
             connection_latency_histogram: create_test_histogram(&[]),
             quic_metrics: None,
             sse_metrics: None,
+            ws_metrics: None,
             chaos_injected_total: 0,
             chaos_faults_by_type: HashMap::new(),
             resource_samples: Vec::new(),
@@ -701,6 +789,7 @@ mod tests {
             connection_latency_histogram: create_test_histogram(&[]),
             quic_metrics: None,
             sse_metrics: None,
+            ws_metrics: None,
             chaos_injected_total: 0,
             chaos_faults_by_type: HashMap::new(),
             resource_samples: Vec::new(),
@@ -732,6 +821,7 @@ mod tests {
             connection_latency_histogram: create_test_histogram(&[]),
             quic_metrics: None,
             sse_metrics: None,
+            ws_metrics: None,
             chaos_injected_total: 0,
             chaos_faults_by_type: HashMap::new(),
             resource_samples: Vec::new(),
@@ -764,6 +854,7 @@ mod tests {
             connection_latency_histogram: create_test_histogram(&[]),
             quic_metrics: None,
             sse_metrics: None,
+            ws_metrics: None,
             chaos_injected_total: 0,
             chaos_faults_by_type: HashMap::new(),
             resource_samples: Vec::new(),
@@ -791,6 +882,7 @@ mod tests {
             connection_latency_histogram: create_test_histogram(&[]),
             quic_metrics: None,
             sse_metrics: None,
+            ws_metrics: None,
             chaos_injected_total: 0,
             chaos_faults_by_type: HashMap::new(),
             resource_samples: Vec::new(),
@@ -817,6 +909,7 @@ mod tests {
             connection_latency_histogram: create_test_histogram(&[]),
             quic_metrics: None,
             sse_metrics: None,
+            ws_metrics: None,
             chaos_injected_total: 0,
             chaos_faults_by_type: HashMap::new(),
             resource_samples: Vec::new(),
@@ -849,6 +942,7 @@ mod tests {
             connection_latency_histogram: create_test_histogram(&[]),
             quic_metrics: None,
             sse_metrics: None,
+            ws_metrics: None,
             chaos_injected_total: 0,
             chaos_faults_by_type: HashMap::new(),
             resource_samples: Vec::new(),
@@ -883,6 +977,7 @@ mod tests {
                 total_events_received: 100,
                 avg_ttfb_ms: Some(0.5),
             }),
+            ws_metrics: None,
             chaos_injected_total: 0,
             chaos_faults_by_type: HashMap::new(),
             resource_samples: Vec::new(),
@@ -905,6 +1000,89 @@ mod tests {
     }
 
     #[test]
+    fn test_aggregate_websocket_metrics() {
+        let s = calculate_summary(SummaryInput {
+            url: "ws://example.com".into(),
+            total_requests: 10,
+            total_errors: 0,
+            latency_histogram: create_test_histogram(&[1000, 2000, 3000]),
+            total_bytes: 3000,
+            duration_secs: 5.0,
+            workers: 2,
+            status_codes: HashMap::new(),
+            e2e_latency_histogram: create_test_histogram(&[]),
+            connection_latency_histogram: create_test_histogram(&[]),
+            quic_metrics: None,
+            sse_metrics: None,
+            ws_metrics: Some(WebsocketMetrics {
+                pings_sent_total: 8,
+                pings_received_total: 2,
+                pongs_solicited_total: 7,
+                pongs_unsolicited_total: 1,
+                backpressure_max_bytes: 2097152,
+                backpressure_mean_bytes: 786432.0,
+                backpressure_threshold_breaches: 3,
+            }),
+            chaos_injected_total: 0,
+            chaos_faults_by_type: HashMap::new(),
+            resource_samples: Vec::new(),
+            total_sockets_created: 0,
+            total_connections_reused: 0,
+            dns_resolution_sum_us: 0,
+            dns_resolution_count: 0,
+        });
+
+        let ws = s.ws.as_ref().unwrap();
+        assert_eq!(ws.pings_sent_total, 8);
+        assert_eq!(ws.pings_received_total, 2);
+        assert_eq!(ws.pongs_solicited_total, 7);
+        assert_eq!(ws.pongs_unsolicited_total, 1);
+        assert_eq!(ws.backpressure_max_bytes, 2097152);
+        assert!((ws.backpressure_mean_bytes - 786432.0).abs() < 1e-6);
+        assert_eq!(ws.backpressure_threshold_breaches, 3);
+    }
+
+    #[tokio::test]
+    async fn test_finalize_metrics_aggregates_websocket_samples() {
+        let (tx, rx) = tokio::sync::mpsc::channel::<RequestMetric>(8);
+        let sample = |sent, recv, sol, un, bp_max, bp_sum, bp_count, breaches| WsSample {
+            pings_sent: sent,
+            pings_received: recv,
+            pongs_solicited: sol,
+            pongs_unsolicited: un,
+            backpressure_max_bytes: bp_max,
+            backpressure_samples_sum: bp_sum,
+            backpressure_sample_count: bp_count,
+            threshold_breaches: breaches,
+        };
+
+        let mut first = RequestMetric::error(1000);
+        first.ws = Some(sample(1, 0, 1, 0, 1000, 1000, 1, 0));
+        tx.send(first).await.unwrap();
+
+        let mut second = RequestMetric::error(1000);
+        second.ws = Some(sample(0, 0, 0, 0, 2000, 3000, 2, 1));
+        tx.send(second).await.unwrap();
+
+        // Insignificant samples must not flip `has_ws`.
+        let mut third = RequestMetric::error(1000);
+        third.ws = Some(WsSample::default());
+        tx.send(third).await.unwrap();
+
+        drop(tx);
+        let agg = finalize_metrics(rx).await;
+
+        let ws = agg
+            .ws_metrics
+            .expect("ws metrics present after significant samples");
+        assert_eq!(ws.pings_sent_total, 1);
+        assert_eq!(ws.pongs_solicited_total, 1);
+        assert_eq!(ws.backpressure_max_bytes, 2000);
+        assert_eq!(ws.backpressure_threshold_breaches, 1);
+        assert!((ws.backpressure_mean_bytes - (4000.0_f64 / 3.0)).abs() < 1e-6);
+    }
+
+    #[test]
     fn test_summary_optional_protocol_metrics_defaults() {
         let s = calculate_summary(SummaryInput {
             url: "http://example.com".into(),
@@ -919,6 +1097,7 @@ mod tests {
             connection_latency_histogram: create_test_histogram(&[]),
             quic_metrics: None,
             sse_metrics: None,
+            ws_metrics: None,
             chaos_injected_total: 0,
             chaos_faults_by_type: HashMap::new(),
             resource_samples: Vec::new(),
@@ -929,6 +1108,7 @@ mod tests {
         });
         assert!(s.quic.is_none());
         assert!(s.sse.is_none());
+        assert!(s.ws.is_none());
         assert_eq!(s.avg_connection_latency_us, 0.0);
     }
 
@@ -948,6 +1128,7 @@ mod tests {
             connection_latency_histogram: create_test_histogram(&[]),
             quic_metrics: None,
             sse_metrics: None,
+            ws_metrics: None,
             chaos_injected_total: 0,
             chaos_faults_by_type: HashMap::new(),
             resource_samples: Vec::new(),
@@ -996,6 +1177,7 @@ mod tests {
             connection_latency_histogram: create_test_histogram(&[]),
             quic_metrics: None,
             sse_metrics: None,
+            ws_metrics: None,
             chaos_injected_total: 0,
             chaos_faults_by_type: HashMap::new(),
             resource_samples: Vec::new(),
@@ -1024,6 +1206,7 @@ mod tests {
             connection_latency_histogram: create_test_histogram(&[]),
             quic_metrics: None,
             sse_metrics: None,
+            ws_metrics: None,
             chaos_injected_total: 0,
             chaos_faults_by_type: HashMap::new(),
             resource_samples: Vec::new(),
@@ -1053,6 +1236,7 @@ mod tests {
             connection_latency_histogram: create_test_histogram(&[]),
             quic_metrics: None,
             sse_metrics: None,
+            ws_metrics: None,
             chaos_injected_total: 0,
             chaos_faults_by_type: HashMap::new(),
             resource_samples: Vec::new(),
@@ -1079,6 +1263,7 @@ mod tests {
             connection_latency_histogram: create_test_histogram(&[]),
             quic_metrics: None,
             sse_metrics: None,
+            ws_metrics: None,
             chaos_injected_total: 0,
             chaos_faults_by_type: HashMap::new(),
             resource_samples: Vec::new(),
@@ -1106,6 +1291,7 @@ mod tests {
             connection_latency_histogram: create_test_histogram(&[]),
             quic_metrics: None,
             sse_metrics: None,
+            ws_metrics: None,
             chaos_injected_total: 0,
             chaos_faults_by_type: HashMap::new(),
             resource_samples: Vec::new(),
@@ -1132,6 +1318,7 @@ mod tests {
             connection_latency_histogram: create_test_histogram(&[]),
             quic_metrics: None,
             sse_metrics: None,
+            ws_metrics: None,
             chaos_injected_total: 0,
             chaos_faults_by_type: HashMap::new(),
             resource_samples: Vec::new(),
@@ -1158,6 +1345,7 @@ mod tests {
             connection_latency_histogram: create_test_histogram(&[]),
             quic_metrics: None,
             sse_metrics: None,
+            ws_metrics: None,
             chaos_injected_total: 0,
             chaos_faults_by_type: HashMap::new(),
             resource_samples: Vec::new(),
@@ -1185,6 +1373,7 @@ mod tests {
             connection_latency_histogram: create_test_histogram(&[]),
             quic_metrics: None,
             sse_metrics: None,
+            ws_metrics: None,
             chaos_injected_total: 0,
             chaos_faults_by_type: HashMap::new(),
             resource_samples: Vec::new(),
@@ -1211,6 +1400,7 @@ mod tests {
             connection_latency_histogram: create_test_histogram(&[]),
             quic_metrics: None,
             sse_metrics: None,
+            ws_metrics: None,
             chaos_injected_total: 0,
             chaos_faults_by_type: HashMap::new(),
             resource_samples: Vec::new(),

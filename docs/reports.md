@@ -46,6 +46,7 @@ These flags appear on all three subcommands (`load`, `stress`, `spike`):
 | `avg_connection_latency_us` | Average connection establishment latency in microseconds |
 | `quic` | `zero_rtt_accepted_count`, `retransmissions`, `avg_handshake_ms` *(HTTP/3 only)* |
 | `sse` | `total_events_received`, `avg_ttfb_ms` *(SSE only)* |
+| `websocket` | `pings_sent_total`, `pings_received_total`, `pongs_solicited_total`, `pongs_unsolicited_total`, `backpressure_max_bytes`, `backpressure_mean_bytes`, `backpressure_threshold_breaches` *(WebSocket runs with heartbeat/write activity only)* |
 | `chaos_faults` | `injected_total`, `by_type` *(chaos-enabled runs only)* |
 | `system_metrics` | `summary` (peak/avg CPU, memory MB, threads), `samples` (time series) *(when `--sys-sample-interval > 0`)* |
 | `connection_pool` | `socket_creation_rate`, `socket_reuse_rate`, `dns_lookup_ms` *(when requests > 0)* |

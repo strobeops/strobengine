@@ -72,6 +72,8 @@ _REQUEST_FIELDS = frozenset(
         "output_dir",
         "no_save",
         "sys_sample_interval",
+        "ws_max_buffer_bytes",
+        "ws_backpressure_warn_ratio",
     }
 )
 
@@ -296,6 +298,8 @@ def _build_request_options(**kwargs: object) -> RequestOptions:
         output_dir=kwargs.get("output_dir"),
         no_save=kwargs.get("no_save", False),
         sys_sample_interval=kwargs.get("sys_sample_interval", 1000),
+        ws_max_buffer_bytes=kwargs.get("ws_max_buffer_bytes", 1_048_576),
+        ws_backpressure_warn_ratio=kwargs.get("ws_backpressure_warn_ratio", 0.8),
     )
 
 
@@ -526,6 +530,23 @@ def load(
             help="Resource monitor sample interval in ms (0 to disable)",
         ),
     ] = 1000,
+    ws_max_buffer_bytes: Annotated[
+        int,
+        typer.Option(
+            "--ws-max-buffer-bytes",
+            min=1,
+            help="WebSocket outbound write-buffer capacity for the backpressure gauge",
+        ),
+    ] = 1_048_576,
+    ws_backpressure_warn_ratio: Annotated[
+        float,
+        typer.Option(
+            "--ws-backpressure-warn-ratio",
+            min=0.0,
+            max=1.0,
+            help="Warn when WebSocket in-flight bytes exceed this fraction of the buffer",
+        ),
+    ] = 0.8,
     html_output: Annotated[
         str | None,
         typer.Option("--html", help="Generate standalone HTML report"),
@@ -734,6 +755,23 @@ def stress(
             help="Resource monitor sample interval in ms (0 to disable)",
         ),
     ] = 1000,
+    ws_max_buffer_bytes: Annotated[
+        int,
+        typer.Option(
+            "--ws-max-buffer-bytes",
+            min=1,
+            help="WebSocket outbound write-buffer capacity for the backpressure gauge",
+        ),
+    ] = 1_048_576,
+    ws_backpressure_warn_ratio: Annotated[
+        float,
+        typer.Option(
+            "--ws-backpressure-warn-ratio",
+            min=0.0,
+            max=1.0,
+            help="Warn when WebSocket in-flight bytes exceed this fraction of the buffer",
+        ),
+    ] = 0.8,
     html_output: Annotated[
         str | None,
         typer.Option("--html", help="Generate standalone HTML report"),
@@ -950,6 +988,23 @@ def spike(
             help="Resource monitor sample interval in ms (0 to disable)",
         ),
     ] = 1000,
+    ws_max_buffer_bytes: Annotated[
+        int,
+        typer.Option(
+            "--ws-max-buffer-bytes",
+            min=1,
+            help="WebSocket outbound write-buffer capacity for the backpressure gauge",
+        ),
+    ] = 1_048_576,
+    ws_backpressure_warn_ratio: Annotated[
+        float,
+        typer.Option(
+            "--ws-backpressure-warn-ratio",
+            min=0.0,
+            max=1.0,
+            help="Warn when WebSocket in-flight bytes exceed this fraction of the buffer",
+        ),
+    ] = 0.8,
     html_output: Annotated[
         str | None,
         typer.Option("--html", help="Generate standalone HTML report"),

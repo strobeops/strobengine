@@ -10,6 +10,7 @@ from strobengine._strobengine import (
     SseMetrics,
     SystemMetrics,
     TestSummary,
+    WebsocketMetrics,
 )
 
 _HAS_RICH = False
@@ -196,6 +197,24 @@ def _print_rich(
             f"Peak Threads: {sm.peak_thread_count}",
         )
 
+    # WebSocket heartbeat & backpressure (WS protocol runs only)
+    ws = getattr(summary, "ws", None)
+    if ws is not None and isinstance(ws, WebsocketMetrics):
+        table.add_row(
+            "WS Heartbeat",
+            f"Pings: {_format_number(ws.pings_sent_total)} sent / "
+            f"{_format_number(ws.pings_received_total)} recv | "
+            f"Pongs: {_format_number(ws.pongs_solicited_total)} solicited / "
+            f"{_format_number(ws.pongs_unsolicited_total)} unsolicited",
+        )
+        if ws.backpressure_max_bytes > 0 or ws.backpressure_threshold_breaches > 0:
+            table.add_row(
+                "WS Backpressure",
+                f"Max {_format_number(ws.backpressure_max_bytes)} B | "
+                f"Mean {ws.backpressure_mean_bytes:.0f} B | "
+                f"Breaches {_format_number(ws.backpressure_threshold_breaches)}",
+            )
+
     console.print()
     console.print(table)
     console.print()
@@ -284,6 +303,22 @@ def _print_plain(
             f"  Client Footprint:{sm.peak_cpu_percent:.1f}% CPU | "
             f"{mb:.1f} MB RSS | {sm.peak_thread_count} threads"
         )
+
+    # WebSocket heartbeat & backpressure (WS protocol runs only)
+    ws = getattr(summary, "ws", None)
+    if ws is not None and isinstance(ws, WebsocketMetrics):
+        lines.append(
+            f"  WS Heartbeat:  {_format_number(ws.pings_sent_total)} pings sent / "
+            f"{_format_number(ws.pings_received_total)} recv, "
+            f"{_format_number(ws.pongs_solicited_total)} sol / "
+            f"{_format_number(ws.pongs_unsolicited_total)} unsol pongs"
+        )
+        if ws.backpressure_max_bytes > 0 or ws.backpressure_threshold_breaches > 0:
+            lines.append(
+                f"  WS Backpressure: max {_format_number(ws.backpressure_max_bytes)} B, "
+                f"mean {ws.backpressure_mean_bytes:.0f} B, "
+                f"{_format_number(ws.backpressure_threshold_breaches)} breaches"
+            )
 
     lines.append(sep)
 
@@ -422,6 +457,22 @@ def _format_sse(summary: TestSummary) -> dict | None:
     }
 
 
+def _format_ws(summary: TestSummary) -> dict | None:
+    """Extract WebSocket heartbeat/backpressure metrics into a JSON-native dict."""
+    w = getattr(summary, "ws", None)
+    if w is None or not isinstance(w, WebsocketMetrics):
+        return None
+    return {
+        "pings_sent_total": w.pings_sent_total,
+        "pings_received_total": w.pings_received_total,
+        "pongs_solicited_total": w.pongs_solicited_total,
+        "pongs_unsolicited_total": w.pongs_unsolicited_total,
+        "backpressure_max_bytes": w.backpressure_max_bytes,
+        "backpressure_mean_bytes": round(w.backpressure_mean_bytes, 1),
+        "backpressure_threshold_breaches": w.backpressure_threshold_breaches,
+    }
+
+
 def _build_artifact_dict_fallback(summary: TestSummary, config: object) -> dict:
     """Manual construction for RequestOptions when TestConfig is unavailable."""
     successful = summary.total_requests - summary.total_errors
@@ -479,6 +530,7 @@ def _build_artifact_dict_fallback(summary: TestSummary, config: object) -> dict:
         },
         "system_metrics": _format_system_metrics(summary),
         "connection_pool": _format_connection_pool(summary),
+        "websocket": _format_ws(summary),
     }
 
 

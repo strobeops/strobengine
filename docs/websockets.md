@@ -161,6 +161,27 @@ WebSocket load tests produce the same `TestSummary` metrics as HTTP:
 | `avg_e2e_latency_us` | Average cross-client broadcast latency (Pub/Sub mode) |
 | `status_codes` | Status code distribution (200=success, 0=network error) |
 
+### Deep Metrics
+
+The engine additionally reports protocol-level telemetry in the `websocket`
+artifact block (surfaced in the CLI summary and HTML report when nonzero):
+
+| Metric | Description |
+|--------|-------------|
+| `pings_sent_total` | Ping frames the client sent (keepalive / PingPong mode) |
+| `pings_received_total` | Server-initiated (unsolicited) Ping frames received |
+| `pongs_solicited_total` | Pong frames matching a Ping the client sent |
+| `pongs_unsolicited_total` | Pong frames with no matching outstanding Ping (protocol anomaly) |
+| `backpressure_max_bytes` | Peak in-flight outbound write-buffer depth |
+| `backpressure_mean_bytes` | Mean in-flight write-buffer depth across samples |
+| `backpressure_threshold_breaches` | Iterations where in-flight bytes crossed the warn ratio |
+
+Backpressure is a **write-buffer proxy**: it measures bytes queued into the
+tungstenite write path awaiting a flush drain, not the kernel TCP send buffer
+(tungstenite exposes no socket-buffer accessor). Configure the gauge with
+`--ws-max-buffer-bytes` (default 1 MiB) and `--ws-backpressure-warn-ratio`
+(default 0.8); crossing the ratio emits an edge-triggered `tracing::warn!`.
+
 ## Chaos Testing
 
 WebSocket chaos testing applies protocol-agnostic faults from the existing
