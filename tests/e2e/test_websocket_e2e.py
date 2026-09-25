@@ -1,6 +1,7 @@
 import asyncio
 
 from strobengine.engine import RequestOptions, StrobEngine
+from strobengine.reporter import build_artifact_dict
 
 
 class TestWebSocketLoadTest:
@@ -47,6 +48,30 @@ class TestWebSocketLoadTest:
         assert summary.total_requests > 0
         assert summary.total_errors == 0
         assert summary.average_latency_ms > 0
+
+    async def test_websocket_ping_pong_reports_metrics(self, mock_server: str):
+        # End-to-end validation of the deep-metrics path: engine -> channel ->
+        # finalize_metrics -> TestSummary.ws -> PyO3 artifact, against the local
+        # aiohttp server (which auto-pongs each client Ping).
+        ws_url = mock_server.replace("http://", "ws://") + "/ws"
+        engine = StrobEngine(
+            url=ws_url,
+            concurrency=3,
+            duration=2,
+            options=RequestOptions(no_progress=True, ws_mode="ping_pong"),
+        )
+        summary = await asyncio.wait_for(engine.run_async(), timeout=10.0)
+
+        assert summary.ws is not None
+        assert summary.ws.pings_sent_total >= 1
+        # aiohttp replies to each Ping, so solicited pongs match the pings sent.
+        assert summary.ws.pongs_solicited_total >= 1
+
+        artifact = build_artifact_dict(summary, engine.config)
+        websocket = artifact["websocket"]
+        assert websocket is not None
+        assert websocket["pings_sent_total"] >= 1
+        assert websocket["pongs_solicited_total"] >= 1
 
     async def test_websocket_custom_headers(self, mock_server: str):
         ws_url = mock_server.replace("http://", "ws://") + "/ws"

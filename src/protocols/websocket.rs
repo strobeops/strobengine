@@ -1429,6 +1429,55 @@ mod tests {
 
         assert_eq!(metric.status_code, 200);
         assert!(metric.connection.timestamp_sent_ns.is_some());
+
+        // The CountingSink feed->flush cycle yields a per-iteration backpressure sample.
+        let ws = metric.ws.expect("publisher iteration yields a ws sample");
+        assert_eq!(ws.backpressure_sample_count, 1);
+        assert!(ws.backpressure_max_bytes > 0);
+        // Payload is far below the default 1 MiB warn threshold.
+        assert_eq!(ws.threshold_breaches, 0);
+    }
+
+    #[tokio::test]
+    async fn test_publisher_backpressure_breach_counted_under_tiny_buffer() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let local_addr = listener.local_addr().unwrap();
+
+        // Discard server (publisher never reads).
+        tokio::spawn(async move {
+            if let Ok((stream, _)) = listener.accept().await
+                && let Ok(mut ws_stream) = accept_async(stream).await
+            {
+                while ws_stream.next().await.is_some() {}
+            }
+        });
+
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        let ws_url = format!("ws://{}", local_addr);
+        let engine = WebSocketEngine::new(
+            vec![],
+            WsMode::Stream,
+            Some("x".repeat(2048)),
+            ChaosEngine::default(),
+            5,
+            false,
+            None,
+            None,
+        )
+        .with_role(Some("publisher".into()), Some(100))
+        // 1 KiB buffer, warn at 50% -> a 2 KiB payload crosses the threshold.
+        .with_backpressure(1024, 0.5);
+
+        let mut ctx = engine.create_worker_context().await.unwrap();
+        let metric = engine
+            .execute_iteration_with_context(&ws_url, ctx.as_mut())
+            .await;
+
+        assert_eq!(metric.status_code, 200);
+        let ws = metric.ws.expect("publisher yields a ws sample");
+        assert!(ws.backpressure_max_bytes > 1024);
+        assert_eq!(ws.threshold_breaches, 1);
     }
 
     #[tokio::test]
