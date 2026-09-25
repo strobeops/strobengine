@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 
 use crate::chaos::ChaosMetrics;
-use crate::metrics::{QuicMetrics, SseMetrics};
+use crate::metrics::{QuicMetrics, SseMetrics, WebsocketMetrics};
 
 /// Top-level report artifact persisted to disk after each load test.
 // NOTE: This struct is mirrored in Python as `build_artifact_dict` in `src/strobengine/reporter.py`.
@@ -20,6 +20,8 @@ pub struct ReportArtifact {
     pub quic: Option<QuicMetrics>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sse: Option<SseMetrics>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub websocket: Option<WebsocketMetrics>,
     #[serde(rename = "chaos_faults", skip_serializing_if = "Option::is_none")]
     pub chaos: Option<ChaosMetrics>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -172,6 +174,7 @@ impl ReportArtifact {
             },
             quic: summary.quic.clone(),
             sse: summary.sse.clone(),
+            websocket: summary.ws.clone(),
             chaos: if summary.chaos_injected_total > 0 {
                 Some(ChaosMetrics {
                     total_injected: summary.chaos_injected_total,
@@ -249,6 +252,7 @@ mod tests {
             avg_connection_latency_us: None,
             quic: None,
             sse: None,
+            websocket: None,
             chaos: None,
             latency_histogram: Some(std::collections::HashMap::new()),
             system_metrics: None,
@@ -311,6 +315,38 @@ mod tests {
         // Latency histogram
         assert!(json.get("latency_histogram").is_some());
         assert!(json["latency_histogram"].is_object());
+    }
+
+    #[test]
+    fn test_websocket_field_skipped_when_none() {
+        let artifact = sample_artifact();
+        let json = serde_json::to_value(&artifact).unwrap();
+        assert!(json.get("websocket").is_none());
+    }
+
+    #[test]
+    fn test_websocket_field_serializes_when_present() {
+        let mut artifact = sample_artifact();
+        artifact.websocket = Some(crate::metrics::WebsocketMetrics {
+            pings_sent_total: 4,
+            pings_received_total: 2,
+            pongs_solicited_total: 4,
+            pongs_unsolicited_total: 1,
+            backpressure_max_bytes: 8192,
+            backpressure_mean_bytes: 1024.0,
+            backpressure_threshold_breaches: 3,
+        });
+
+        let json = serde_json::to_value(&artifact).unwrap();
+        let ws = &json["websocket"];
+        assert_eq!(ws["pings_sent_total"], 4);
+        assert_eq!(ws["backpressure_max_bytes"], 8192);
+        assert_eq!(ws["backpressure_threshold_breaches"], 3);
+        assert!((ws["backpressure_mean_bytes"].as_f64().unwrap() - 1024.0).abs() < 1e-6);
+
+        let s = serde_json::to_string(&artifact).unwrap();
+        let back: ReportArtifact = serde_json::from_str(&s).unwrap();
+        assert_eq!(back.websocket.unwrap().pongs_unsolicited_total, 1);
     }
 
     #[test]
@@ -418,6 +454,7 @@ mod tests {
             avg_connection_latency_us: 0.0,
             quic: None,
             sse: None,
+            ws: None,
             chaos_injected_total: 0,
             chaos_faults_by_type: std::collections::HashMap::new(),
             std_dev_latency_ms: 0.0,

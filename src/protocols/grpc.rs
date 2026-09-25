@@ -334,6 +334,7 @@ impl ProtocolEngine for GrpcEngine {
             sse_events_received: None,
             sse_first_event_us: None,
             sse_event_interval_us: None,
+            ws: None,
             chaos_fault: fault,
         }
     }
