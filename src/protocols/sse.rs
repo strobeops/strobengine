@@ -266,6 +266,7 @@ impl ProtocolEngine for SseEngine {
                 sse_first_event_us: None,
                 sse_event_interval_us: None,
                 ws: None,
+                grpc: None,
                 chaos_fault: None,
             };
         }
@@ -302,6 +303,7 @@ impl ProtocolEngine for SseEngine {
                             sse_first_event_us: Some(latency_micros as u64),
                             sse_event_interval_us: None,
                             ws: None,
+                            grpc: None,
                             chaos_fault: None,
                         };
                     }
@@ -334,6 +336,7 @@ impl ProtocolEngine for SseEngine {
             sse_first_event_us: None,
             sse_event_interval_us: None,
             ws: None,
+            grpc: None,
             chaos_fault: None,
         }
     }
@@ -406,6 +409,7 @@ impl ProtocolEngine for SseEngine {
                     .map(|t| t.elapsed().as_micros() as u64),
                 sse_event_interval_us: None,
                 ws: None,
+                grpc: None,
                 chaos_fault: None,
             };
         }
@@ -462,6 +466,7 @@ impl ProtocolEngine for SseEngine {
                             sse_first_event_us: first_event_us,
                             sse_event_interval_us: interval_us,
                             ws: None,
+                            grpc: None,
                             chaos_fault: None,
                         };
                     }
@@ -496,6 +501,7 @@ impl ProtocolEngine for SseEngine {
                 .map(|t| t.elapsed().as_micros() as u64),
             sse_event_interval_us: None,
             ws: None,
+            grpc: None,
             chaos_fault: None,
         }
     }

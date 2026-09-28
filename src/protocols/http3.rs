@@ -401,6 +401,7 @@ impl ProtocolEngine for Http3Engine {
             sse_first_event_us: None,
             sse_event_interval_us: None,
             ws: None,
+            grpc: None,
             chaos_fault: fault,
         }
     }
@@ -513,6 +514,7 @@ impl ProtocolEngine for Http3Engine {
             sse_first_event_us: None,
             sse_event_interval_us: None,
             ws: None,
+            grpc: None,
             chaos_fault: fault,
         }
     }

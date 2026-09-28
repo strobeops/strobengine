@@ -28,6 +28,7 @@ pub struct AggregatedMetrics {
     pub quic_metrics: Option<QuicMetrics>,
     pub sse_metrics: Option<SseMetrics>,
     pub ws_metrics: Option<WebsocketMetrics>,
+    pub grpc_metrics: Option<GrpcMetrics>,
     pub chaos_injected_total: u64,
     pub chaos_faults_by_type: HashMap<String, u64>,
     pub total_sockets_created: u64,
@@ -59,6 +60,7 @@ impl Default for AggregatedMetrics {
             quic_metrics: None,
             sse_metrics: None,
             ws_metrics: None,
+            grpc_metrics: None,
             chaos_injected_total: 0,
             chaos_faults_by_type: HashMap::new(),
             total_sockets_created: 0,
@@ -136,6 +138,7 @@ pub struct RequestMetric {
     pub sse_first_event_us: Option<u64>,
     pub sse_event_interval_us: Option<u64>,
     pub ws: Option<WsSample>,
+    pub grpc: Option<GrpcSample>,
     pub chaos_fault: Option<crate::chaos::ChaosFault>,
 }
 
@@ -154,6 +157,7 @@ impl RequestMetric {
             sse_first_event_us: None,
             sse_event_interval_us: None,
             ws: None,
+            grpc: None,
             chaos_fault: None,
         }
     }
@@ -229,6 +233,52 @@ impl WsSample {
     }
 }
 
+/// Aggregated gRPC/HTTP2 stream-concurrency and flow-control telemetry.
+#[pyclass(skip_from_py_object)]
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+pub struct GrpcMetrics {
+    #[pyo3(get)]
+    pub active_streams_peak: u64,
+    #[pyo3(get)]
+    pub concurrency_utilization_peak: f64,
+    #[pyo3(get)]
+    pub concurrency_utilization_mean: f64,
+    #[pyo3(get)]
+    pub window_exhaustion_events_total: u64,
+    #[pyo3(get)]
+    pub window_stall_duration_ms_total: f64,
+    #[pyo3(get)]
+    pub send_capacity_min_bytes: u64,
+}
+
+/// Per-iteration gRPC sample fed from the protocol engine.
+///
+/// `active_streams` / `max_concurrent_streams` snapshot the connection's HTTP/2
+/// multiplexing state; `send_capacity_bytes`/`has_send_capacity` report the
+/// effective send flow-control credit (a client-side proxy for the connection
+/// window); stall fields carry zero-credit send blocks timed during the write.
+#[derive(Debug, Clone, Default)]
+pub struct GrpcSample {
+    pub active_streams: u64,
+    pub max_concurrent_streams: u64,
+    pub utilization: f64,
+    pub window_exhaustion_events: u64,
+    pub window_stall_us: u64,
+    pub send_capacity_bytes: u64,
+    pub has_send_capacity: bool,
+}
+
+impl GrpcSample {
+    /// True when the sample carries any meaningful gRPC telemetry.
+    pub fn is_significant(&self) -> bool {
+        self.active_streams > 0
+            || self.utilization > 0.0
+            || self.window_exhaustion_events > 0
+            || self.window_stall_us > 0
+            || self.has_send_capacity
+    }
+}
+
 pub struct LiveCounters {
     pub total_requests: AtomicU64,
     pub errors: AtomicU64,
@@ -298,6 +348,8 @@ pub struct TestSummary {
     pub sse: Option<SseMetrics>,
     #[pyo3(get)]
     pub ws: Option<WebsocketMetrics>,
+    #[pyo3(get)]
+    pub grpc: Option<GrpcMetrics>,
     #[pyo3(get)]
     pub chaos_injected_total: u64,
     #[pyo3(get)]
@@ -416,6 +468,7 @@ pub struct SummaryInput {
     pub quic_metrics: Option<QuicMetrics>,
     pub sse_metrics: Option<SseMetrics>,
     pub ws_metrics: Option<WebsocketMetrics>,
+    pub grpc_metrics: Option<GrpcMetrics>,
     pub chaos_injected_total: u64,
     pub chaos_faults_by_type: HashMap<String, u64>,
     pub resource_samples: Vec<system::ResourceSample>,
@@ -432,10 +485,16 @@ pub async fn finalize_metrics(mut rx: mpsc::Receiver<RequestMetric>) -> Aggregat
     let mut quic_stats = QuicMetrics::default();
     let mut sse_stats = SseMetrics::default();
     let mut ws_stats = WebsocketMetrics::default();
+    let mut grpc_stats = GrpcMetrics::default();
     let mut has_quic = false;
     let mut has_ws = false;
+    let mut has_grpc = false;
     let mut ws_bp_sum: u64 = 0;
     let mut ws_bp_count: u64 = 0;
+    let mut grpc_util_sum: f64 = 0.0;
+    let mut grpc_util_count: u64 = 0;
+    let mut grpc_capacity_min: u64 = u64::MAX;
+    let mut grpc_stall_sum_us: u64 = 0;
     let mut quic_handshake_sum_us: u64 = 0;
     let mut quic_handshake_count: u64 = 0;
     let mut sse_first_event_sum_us: u64 = 0;
@@ -499,6 +558,26 @@ pub async fn finalize_metrics(mut rx: mpsc::Receiver<RequestMetric>) -> Aggregat
             ws_bp_count += sample.backpressure_sample_count;
         }
 
+        // gRPC aggregation (O(1) running counters)
+        if let Some(sample) = metric.grpc.as_ref()
+            && sample.is_significant()
+        {
+            has_grpc = true;
+            if sample.active_streams > grpc_stats.active_streams_peak {
+                grpc_stats.active_streams_peak = sample.active_streams;
+            }
+            if sample.utilization > grpc_stats.concurrency_utilization_peak {
+                grpc_stats.concurrency_utilization_peak = sample.utilization;
+            }
+            grpc_util_sum += sample.utilization;
+            grpc_util_count += 1;
+            grpc_stats.window_exhaustion_events_total += sample.window_exhaustion_events;
+            grpc_stall_sum_us += sample.window_stall_us;
+            if sample.has_send_capacity && sample.send_capacity_bytes < grpc_capacity_min {
+                grpc_capacity_min = sample.send_capacity_bytes;
+            }
+        }
+
         // Chaos aggregation
         if let Some(ref fault) = metric.chaos_fault {
             metrics.chaos_injected_total += 1;
@@ -541,6 +620,17 @@ pub async fn finalize_metrics(mut rx: mpsc::Receiver<RequestMetric>) -> Aggregat
         ws_stats.backpressure_mean_bytes = ws_bp_sum as f64 / ws_bp_count as f64;
     }
 
+    // Compute gRPC concurrency mean + stall total via O(1) running counters
+    if grpc_util_count > 0 {
+        grpc_stats.concurrency_utilization_mean = grpc_util_sum / grpc_util_count as f64;
+    }
+    grpc_stats.window_stall_duration_ms_total = grpc_stall_sum_us as f64 / 1000.0;
+    grpc_stats.send_capacity_min_bytes = if grpc_capacity_min == u64::MAX {
+        0
+    } else {
+        grpc_capacity_min
+    };
+
     metrics.quic_metrics = if has_quic { Some(quic_stats) } else { None };
     metrics.sse_metrics = if sse_stats.total_events_received > 0 || sse_first_event_count > 0 {
         Some(sse_stats)
@@ -548,6 +638,7 @@ pub async fn finalize_metrics(mut rx: mpsc::Receiver<RequestMetric>) -> Aggregat
         None
     };
     metrics.ws_metrics = if has_ws { Some(ws_stats) } else { None };
+    metrics.grpc_metrics = if has_grpc { Some(grpc_stats) } else { None };
 
     metrics
 }
@@ -607,6 +698,7 @@ pub fn calculate_summary(input: SummaryInput) -> TestSummary {
             quic: input.quic_metrics,
             sse: input.sse_metrics,
             ws: input.ws_metrics,
+            grpc: input.grpc_metrics,
             chaos_injected_total: input.chaos_injected_total,
             chaos_faults_by_type: input.chaos_faults_by_type,
             std_dev_latency_ms: 0.0,
@@ -655,6 +747,7 @@ pub fn calculate_summary(input: SummaryInput) -> TestSummary {
         quic: input.quic_metrics,
         sse: input.sse_metrics,
         ws: input.ws_metrics,
+        grpc: input.grpc_metrics,
         chaos_injected_total: input.chaos_injected_total,
         chaos_faults_by_type: input.chaos_faults_by_type,
         std_dev_latency_ms,
@@ -717,6 +810,7 @@ mod tests {
             quic_metrics: None,
             sse_metrics: None,
             ws_metrics: None,
+            grpc_metrics: None,
             chaos_injected_total: 0,
             chaos_faults_by_type: HashMap::new(),
             resource_samples: Vec::new(),
@@ -753,6 +847,7 @@ mod tests {
             quic_metrics: None,
             sse_metrics: None,
             ws_metrics: None,
+            grpc_metrics: None,
             chaos_injected_total: 0,
             chaos_faults_by_type: HashMap::new(),
             resource_samples: Vec::new(),
@@ -790,6 +885,7 @@ mod tests {
             quic_metrics: None,
             sse_metrics: None,
             ws_metrics: None,
+            grpc_metrics: None,
             chaos_injected_total: 0,
             chaos_faults_by_type: HashMap::new(),
             resource_samples: Vec::new(),
@@ -822,6 +918,7 @@ mod tests {
             quic_metrics: None,
             sse_metrics: None,
             ws_metrics: None,
+            grpc_metrics: None,
             chaos_injected_total: 0,
             chaos_faults_by_type: HashMap::new(),
             resource_samples: Vec::new(),
@@ -855,6 +952,7 @@ mod tests {
             quic_metrics: None,
             sse_metrics: None,
             ws_metrics: None,
+            grpc_metrics: None,
             chaos_injected_total: 0,
             chaos_faults_by_type: HashMap::new(),
             resource_samples: Vec::new(),
@@ -883,6 +981,7 @@ mod tests {
             quic_metrics: None,
             sse_metrics: None,
             ws_metrics: None,
+            grpc_metrics: None,
             chaos_injected_total: 0,
             chaos_faults_by_type: HashMap::new(),
             resource_samples: Vec::new(),
@@ -910,6 +1009,7 @@ mod tests {
             quic_metrics: None,
             sse_metrics: None,
             ws_metrics: None,
+            grpc_metrics: None,
             chaos_injected_total: 0,
             chaos_faults_by_type: HashMap::new(),
             resource_samples: Vec::new(),
@@ -943,6 +1043,7 @@ mod tests {
             quic_metrics: None,
             sse_metrics: None,
             ws_metrics: None,
+            grpc_metrics: None,
             chaos_injected_total: 0,
             chaos_faults_by_type: HashMap::new(),
             resource_samples: Vec::new(),
@@ -978,6 +1079,7 @@ mod tests {
                 avg_ttfb_ms: Some(0.5),
             }),
             ws_metrics: None,
+            grpc_metrics: None,
             chaos_injected_total: 0,
             chaos_faults_by_type: HashMap::new(),
             resource_samples: Vec::new(),
@@ -1023,6 +1125,7 @@ mod tests {
                 backpressure_mean_bytes: 786432.0,
                 backpressure_threshold_breaches: 3,
             }),
+            grpc_metrics: None,
             chaos_injected_total: 0,
             chaos_faults_by_type: HashMap::new(),
             resource_samples: Vec::new(),
@@ -1082,6 +1185,53 @@ mod tests {
         assert!((ws.backpressure_mean_bytes - (4000.0_f64 / 3.0)).abs() < 1e-6);
     }
 
+    #[tokio::test]
+    async fn test_finalize_metrics_aggregates_grpc_samples() {
+        let (tx, rx) = tokio::sync::mpsc::channel::<RequestMetric>(8);
+
+        let mut first = RequestMetric::error(1000);
+        first.grpc = Some(GrpcSample {
+            active_streams: 4,
+            max_concurrent_streams: 100,
+            utilization: 0.04,
+            window_exhaustion_events: 1,
+            window_stall_us: 1500,
+            send_capacity_bytes: 65535,
+            has_send_capacity: true,
+        });
+        tx.send(first).await.unwrap();
+
+        let mut second = RequestMetric::error(1000);
+        second.grpc = Some(GrpcSample {
+            active_streams: 6,
+            max_concurrent_streams: 100,
+            utilization: 0.06,
+            window_exhaustion_events: 2,
+            window_stall_us: 3000,
+            send_capacity_bytes: 32768,
+            has_send_capacity: true,
+        });
+        tx.send(second).await.unwrap();
+
+        // Insignificant sample must not flip `has_grpc`.
+        let mut third = RequestMetric::error(1000);
+        third.grpc = Some(GrpcSample::default());
+        tx.send(third).await.unwrap();
+
+        drop(tx);
+        let agg = finalize_metrics(rx).await;
+        let grpc = agg
+            .grpc_metrics
+            .expect("grpc metrics present after significant samples");
+
+        assert_eq!(grpc.active_streams_peak, 6);
+        assert!((grpc.concurrency_utilization_peak - 0.06).abs() < 1e-6);
+        assert!((grpc.concurrency_utilization_mean - 0.05).abs() < 1e-6);
+        assert_eq!(grpc.window_exhaustion_events_total, 3);
+        assert!((grpc.window_stall_duration_ms_total - 4.5).abs() < 1e-6); // 4500us
+        assert_eq!(grpc.send_capacity_min_bytes, 32768);
+    }
+
     #[test]
     fn test_summary_optional_protocol_metrics_defaults() {
         let s = calculate_summary(SummaryInput {
@@ -1098,6 +1248,7 @@ mod tests {
             quic_metrics: None,
             sse_metrics: None,
             ws_metrics: None,
+            grpc_metrics: None,
             chaos_injected_total: 0,
             chaos_faults_by_type: HashMap::new(),
             resource_samples: Vec::new(),
@@ -1109,6 +1260,7 @@ mod tests {
         assert!(s.quic.is_none());
         assert!(s.sse.is_none());
         assert!(s.ws.is_none());
+        assert!(s.grpc.is_none());
         assert_eq!(s.avg_connection_latency_us, 0.0);
     }
 
@@ -1129,6 +1281,7 @@ mod tests {
             quic_metrics: None,
             sse_metrics: None,
             ws_metrics: None,
+            grpc_metrics: None,
             chaos_injected_total: 0,
             chaos_faults_by_type: HashMap::new(),
             resource_samples: Vec::new(),
@@ -1178,6 +1331,7 @@ mod tests {
             quic_metrics: None,
             sse_metrics: None,
             ws_metrics: None,
+            grpc_metrics: None,
             chaos_injected_total: 0,
             chaos_faults_by_type: HashMap::new(),
             resource_samples: Vec::new(),
@@ -1207,6 +1361,7 @@ mod tests {
             quic_metrics: None,
             sse_metrics: None,
             ws_metrics: None,
+            grpc_metrics: None,
             chaos_injected_total: 0,
             chaos_faults_by_type: HashMap::new(),
             resource_samples: Vec::new(),
@@ -1237,6 +1392,7 @@ mod tests {
             quic_metrics: None,
             sse_metrics: None,
             ws_metrics: None,
+            grpc_metrics: None,
             chaos_injected_total: 0,
             chaos_faults_by_type: HashMap::new(),
             resource_samples: Vec::new(),
@@ -1264,6 +1420,7 @@ mod tests {
             quic_metrics: None,
             sse_metrics: None,
             ws_metrics: None,
+            grpc_metrics: None,
             chaos_injected_total: 0,
             chaos_faults_by_type: HashMap::new(),
             resource_samples: Vec::new(),
@@ -1292,6 +1449,7 @@ mod tests {
             quic_metrics: None,
             sse_metrics: None,
             ws_metrics: None,
+            grpc_metrics: None,
             chaos_injected_total: 0,
             chaos_faults_by_type: HashMap::new(),
             resource_samples: Vec::new(),
@@ -1319,6 +1477,7 @@ mod tests {
             quic_metrics: None,
             sse_metrics: None,
             ws_metrics: None,
+            grpc_metrics: None,
             chaos_injected_total: 0,
             chaos_faults_by_type: HashMap::new(),
             resource_samples: Vec::new(),
@@ -1346,6 +1505,7 @@ mod tests {
             quic_metrics: None,
             sse_metrics: None,
             ws_metrics: None,
+            grpc_metrics: None,
             chaos_injected_total: 0,
             chaos_faults_by_type: HashMap::new(),
             resource_samples: Vec::new(),
@@ -1374,6 +1534,7 @@ mod tests {
             quic_metrics: None,
             sse_metrics: None,
             ws_metrics: None,
+            grpc_metrics: None,
             chaos_injected_total: 0,
             chaos_faults_by_type: HashMap::new(),
             resource_samples: Vec::new(),
@@ -1401,6 +1562,7 @@ mod tests {
             quic_metrics: None,
             sse_metrics: None,
             ws_metrics: None,
+            grpc_metrics: None,
             chaos_injected_total: 0,
             chaos_faults_by_type: HashMap::new(),
             resource_samples: Vec::new(),
