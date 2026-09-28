@@ -14,7 +14,7 @@ use crate::metrics::{ConnectionMetrics, RequestMetric};
 use super::ProtocolEngine;
 
 /// Maps gRPC status codes to HTTP-equivalent status codes.
-fn grpc_to_http_status(code: u16) -> u16 {
+pub(crate) fn grpc_to_http_status(code: u16) -> u16 {
     match code {
         0 => 200,  // OK
         1 => 499,  // Cancelled
@@ -34,6 +34,53 @@ fn grpc_to_http_status(code: u16) -> u16 {
         15 => 500, // DataLoss
         16 => 401, // Unauthenticated
         _ => 500,  // Unknown codes
+    }
+}
+
+/// Decodes the gRPC request payload into raw protobuf bytes.
+///
+/// Two modes: a `proto_path` + JSON payload is converted to protobuf via
+/// `prost-reflect`; otherwise the payload is treated as hex (`0x…`) or base64.
+/// Shared by the tonic and raw-h2 engines so wire decoding stays consistent.
+pub(crate) fn decode_grpc_payload(
+    grpc_payload: &Option<String>,
+    proto_path: &Option<String>,
+    service: &str,
+    method: &str,
+) -> Result<Vec<u8>, crate::protocols::grpc_parser::ProtoError> {
+    if let (Some(path), Some(json)) = (proto_path, grpc_payload) {
+        let schema = crate::protocols::grpc_parser::ProtoSchema::new(path, service, method)?;
+        let bytes = schema.json_to_protobuf(json)?;
+        tracing::info!(
+            proto_path = %path,
+            service = %service,
+            method = %method,
+            payload_bytes = bytes.len(),
+            "JSON payload converted to protobuf"
+        );
+        Ok(bytes)
+    } else {
+        let payload = match grpc_payload.as_deref() {
+            Some(s) => {
+                if let Some(hex_str) = s.strip_prefix("0x") {
+                    hex::decode(hex_str).map_err(|e| {
+                        crate::protocols::grpc_parser::ProtoError::EncodeError(format!(
+                            "invalid hex payload '{hex_str}': {e}"
+                        ))
+                    })?
+                } else {
+                    base64::engine::general_purpose::STANDARD
+                        .decode(s)
+                        .map_err(|e| {
+                            crate::protocols::grpc_parser::ProtoError::EncodeError(format!(
+                                "invalid base64 payload: {e}"
+                            ))
+                        })?
+                }
+            }
+            None => Vec::new(),
+        };
+        Ok(payload)
     }
 }
 
@@ -131,43 +178,7 @@ impl GrpcEngine {
         let svc = service.clone().unwrap_or_default();
         let mth = method.clone().unwrap_or_default();
 
-        // If proto_path is provided, parse schema and convert JSON to protobuf
-        let (payload, _proto_schema) =
-            if let (Some(path), Some(json)) = (&proto_path, &grpc_payload) {
-                let schema = crate::protocols::grpc_parser::ProtoSchema::new(path, &svc, &mth)?;
-                let bytes = schema.json_to_protobuf(json)?;
-                tracing::info!(
-                    proto_path = %path,
-                    service = %svc,
-                    method = %mth,
-                    payload_bytes = bytes.len(),
-                    "JSON payload converted to protobuf"
-                );
-                (bytes, Some(schema))
-            } else {
-                // Decode payload: try hex (0x prefix) first, then base64
-                let payload = match grpc_payload.as_deref() {
-                    Some(s) => {
-                        if let Some(hex_str) = s.strip_prefix("0x") {
-                            hex::decode(hex_str).map_err(|e| {
-                                crate::protocols::grpc_parser::ProtoError::EncodeError(format!(
-                                    "invalid hex payload '{hex_str}': {e}"
-                                ))
-                            })?
-                        } else {
-                            base64::engine::general_purpose::STANDARD
-                                .decode(s)
-                                .map_err(|e| {
-                                    crate::protocols::grpc_parser::ProtoError::EncodeError(format!(
-                                        "invalid base64 payload: {e}"
-                                    ))
-                                })?
-                        }
-                    }
-                    None => Vec::new(),
-                };
-                (payload, None)
-            };
+        let payload = decode_grpc_payload(&grpc_payload, &proto_path, &svc, &mth)?;
 
         Ok(Self {
             endpoint,

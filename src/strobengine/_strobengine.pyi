@@ -66,6 +66,7 @@ class TestConfig:
     sys_sample_interval: int
     ws_max_buffer_bytes: int
     ws_backpressure_warn_ratio: float
+    grpc_h2_multiplex: bool
     def __init__(
         self,
         url: str,
@@ -103,6 +104,7 @@ class TestConfig:
         sys_sample_interval: int = 1000,
         ws_max_buffer_bytes: int = 1_048_576,
         ws_backpressure_warn_ratio: float = 0.8,
+        grpc_h2_multiplex: bool = False,
     ) -> None: ...
 
 class SystemMetrics:

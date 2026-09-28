@@ -1,4 +1,5 @@
 pub mod grpc;
+pub mod grpc_h2;
 pub mod grpc_parser;
 pub mod grpc_reflection;
 pub mod http;
@@ -125,6 +126,24 @@ pub fn detect_protocol(
         );
         Ok(Arc::new(engine))
     } else if url.starts_with("grpc://") || url.starts_with("grpcs://") {
+        if config.grpc_h2_multiplex && url.starts_with("grpc://") {
+            let engine = grpc_h2::GrpcH2Engine::new(
+                url,
+                headers,
+                chaos,
+                config.grpc_service.clone(),
+                config.grpc_method.clone(),
+                config.grpc_payload.clone(),
+                config.grpc_deadline_ms,
+                config.proto_path.clone(),
+            )?;
+            return Ok(Arc::new(engine));
+        }
+        if config.grpc_h2_multiplex {
+            tracing::warn!(
+                "--grpc-h2-multiplex supports cleartext grpc:// only; using tonic for {url}"
+            );
+        }
         let engine = grpc::GrpcEngine::new(
             url,
             headers,

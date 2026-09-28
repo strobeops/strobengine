@@ -45,6 +45,7 @@ h3-quinn = "0.0.10"
 webpki-roots = "0.26"
 hdrhistogram = "7"
 sysinfo = "0.34"
+h2 = "0.4"
 
 [dev-dependencies]
 criterion = "0.5"
