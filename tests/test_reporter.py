@@ -97,3 +97,33 @@ class TestPrintSummaryWebsocket:
         output = capsys.readouterr().out
         # Mock's auto `.ws` child is not a real WebsocketMetrics -> section skipped.
         assert "WS Heartbeat" not in output
+
+
+class TestPrintSummaryGrpc:
+    def test_plain_renders_grpc_rows(self, capsys, monkeypatch):
+        import strobengine.reporter as reporter
+
+        class FakeGrpc:
+            active_streams_peak = 6
+            concurrency_utilization_peak = 0.06
+            concurrency_utilization_mean = 0.05
+            window_exhaustion_events_total = 3
+            window_stall_duration_ms_total = 42.0
+            send_capacity_min_bytes = 32768
+
+        monkeypatch.setattr(reporter, "GrpcMetrics", FakeGrpc)
+        summary = _make_summary(url="http://example.com")
+        summary.grpc = FakeGrpc()
+
+        with patch("strobengine.reporter._HAS_RICH", False):
+            print_summary(summary)
+        output = capsys.readouterr().out
+        assert "gRPC Streams" in output
+        assert "gRPC Window" in output
+
+    def test_plain_omits_grpc_rows_when_absent(self, capsys):
+        summary = _make_summary(url="http://example.com")
+        with patch("strobengine.reporter._HAS_RICH", False):
+            print_summary(summary)
+        output = capsys.readouterr().out
+        assert "gRPC Streams" not in output
