@@ -36,8 +36,8 @@ use super::ProtocolEngine;
 use super::grpc::{decode_grpc_payload, grpc_to_http_status};
 
 /// Builds a gRPC `Length-Prefixed-Message` (1-byte compression flag + u32BE
-/// length + payload).
-fn build_frame(payload: &[u8]) -> Bytes {
+/// length + payload). `pub` for benchmarking the per-request framing cost.
+pub fn build_frame(payload: &[u8]) -> Bytes {
     let mut buf = BytesMut::with_capacity(5 + payload.len());
     buf.put_u8(0);
     buf.put_u32(payload.len() as u32);

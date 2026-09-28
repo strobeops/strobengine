@@ -53,3 +53,7 @@ criterion = "0.5"
 [[bench]]
 name = "ws_metrics"
 harness = false
+
+[[bench]]
+name = "grpc_metrics"
+harness = false
