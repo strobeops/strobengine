@@ -97,6 +97,23 @@
   </div>
 {% endif %}
 
+{% if grpc %}
+  <div class="card" style="margin-bottom: 1.5rem;">
+    <h2>gRPC Stream Concurrency</h2>
+    <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem;">
+      <div class="meta-row"><span class="meta-label">Peak Active Streams</span><span class="meta-value">{{ grpc.active_streams_peak }}</span></div>
+      <div class="meta-row"><span class="meta-label">Utilization Peak</span><span class="meta-value">{{ "%.3f" | format(grpc.concurrency_utilization_peak) }}</span></div>
+      <div class="meta-row"><span class="meta-label">Utilization Mean</span><span class="meta-value">{{ "%.3f" | format(grpc.concurrency_utilization_mean) }}</span></div>
+    </div>
+    <h2>gRPC Flow Control</h2>
+    <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; margin-top: 1rem;">
+      <div class="meta-row"><span class="meta-label">Window Exhaustions</span><span class="meta-value">{{ grpc.window_exhaustion_events_total }}</span></div>
+      <div class="meta-row"><span class="meta-label">Stall Duration</span><span class="meta-value">{{ "%.1f" | format(grpc.window_stall_duration_ms_total) }} ms</span></div>
+      <div class="meta-row"><span class="meta-label">Min Send Credit</span><span class="meta-value">{{ grpc.send_capacity_min_bytes | filesizeformat }}</span></div>
+    </div>
+  </div>
+{% endif %}
+
   <div class="card">
     <h2>Status Codes</h2>
     <table class="status-table">

@@ -6,6 +6,7 @@ import sys
 
 from strobengine._strobengine import (
     HISTOGRAM_BUCKET_ORDER,
+    GrpcMetrics,
     QuicMetrics,
     SseMetrics,
     SystemMetrics,
@@ -215,6 +216,26 @@ def _print_rich(
                 f"Breaches {_format_number(ws.backpressure_threshold_breaches)}",
             )
 
+    # gRPC stream concurrency & flow-control window (multiplexed h2 runs only)
+    grpc = getattr(summary, "grpc", None)
+    if grpc is not None and isinstance(grpc, GrpcMetrics):
+        table.add_row(
+            "gRPC Streams",
+            f"Peak active {_format_number(grpc.active_streams_peak)} | "
+            f"Util peak {grpc.concurrency_utilization_peak:.3f} / "
+            f"mean {grpc.concurrency_utilization_mean:.3f}",
+        )
+        if (
+            grpc.window_exhaustion_events_total > 0
+            or grpc.window_stall_duration_ms_total > 0
+        ):
+            table.add_row(
+                "gRPC Window",
+                f"Exhaustions {_format_number(grpc.window_exhaustion_events_total)} | "
+                f"Stall {grpc.window_stall_duration_ms_total:.1f} ms | "
+                f"Min credit {_format_number(grpc.send_capacity_min_bytes)} B",
+            )
+
     console.print()
     console.print(table)
     console.print()
@@ -318,6 +339,24 @@ def _print_plain(
                 f"  WS Backpressure: max {_format_number(ws.backpressure_max_bytes)} B, "
                 f"mean {ws.backpressure_mean_bytes:.0f} B, "
                 f"{_format_number(ws.backpressure_threshold_breaches)} breaches"
+            )
+
+    # gRPC stream concurrency & flow-control window (multiplexed h2 runs only)
+    grpc = getattr(summary, "grpc", None)
+    if grpc is not None and isinstance(grpc, GrpcMetrics):
+        lines.append(
+            f"  gRPC Streams:  peak {_format_number(grpc.active_streams_peak)} active, "
+            f"util peak {grpc.concurrency_utilization_peak:.3f} / "
+            f"mean {grpc.concurrency_utilization_mean:.3f}"
+        )
+        if (
+            grpc.window_exhaustion_events_total > 0
+            or grpc.window_stall_duration_ms_total > 0
+        ):
+            lines.append(
+                f"  gRPC Window:   {_format_number(grpc.window_exhaustion_events_total)} "
+                f"exhaustions, {grpc.window_stall_duration_ms_total:.1f} ms stalled, "
+                f"min credit {_format_number(grpc.send_capacity_min_bytes)} B"
             )
 
     lines.append(sep)
@@ -473,6 +512,21 @@ def _format_ws(summary: TestSummary) -> dict | None:
     }
 
 
+def _format_grpc(summary: TestSummary) -> dict | None:
+    """Extract gRPC stream-concurrency/flow-control metrics into a JSON-native dict."""
+    g = getattr(summary, "grpc", None)
+    if g is None or not isinstance(g, GrpcMetrics):
+        return None
+    return {
+        "active_streams_peak": g.active_streams_peak,
+        "concurrency_utilization_peak": round(g.concurrency_utilization_peak, 4),
+        "concurrency_utilization_mean": round(g.concurrency_utilization_mean, 4),
+        "window_exhaustion_events_total": g.window_exhaustion_events_total,
+        "window_stall_duration_ms_total": round(g.window_stall_duration_ms_total, 1),
+        "send_capacity_min_bytes": g.send_capacity_min_bytes,
+    }
+
+
 def _build_artifact_dict_fallback(summary: TestSummary, config: object) -> dict:
     """Manual construction for RequestOptions when TestConfig is unavailable."""
     successful = summary.total_requests - summary.total_errors
@@ -531,6 +585,7 @@ def _build_artifact_dict_fallback(summary: TestSummary, config: object) -> dict:
         "system_metrics": _format_system_metrics(summary),
         "connection_pool": _format_connection_pool(summary),
         "websocket": _format_ws(summary),
+        "grpc": _format_grpc(summary),
     }
 
 

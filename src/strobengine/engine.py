@@ -75,6 +75,7 @@ class RequestOptions:
     sys_sample_interval: int = 1000
     ws_max_buffer_bytes: int = 1_048_576
     ws_backpressure_warn_ratio: float = 0.8
+    grpc_h2_multiplex: bool = False
 
     def __post_init__(self) -> None:
         if self.timeout <= 0:
@@ -120,6 +121,7 @@ def _build_test_config(
         sys_sample_interval=opts.sys_sample_interval,
         ws_max_buffer_bytes=opts.ws_max_buffer_bytes,
         ws_backpressure_warn_ratio=opts.ws_backpressure_warn_ratio,
+        grpc_h2_multiplex=opts.grpc_h2_multiplex,
     )
 
 

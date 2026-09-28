@@ -186,6 +186,13 @@ WsBackpressureWarnRatioOpt = Annotated[
         help="Warn when WebSocket in-flight bytes exceed this fraction of the buffer",
     ),
 ]
+GrpcH2MultiplexOpt = Annotated[
+    bool,
+    typer.Option(
+        "--grpc-h2-multiplex/--no-grpc-h2-multiplex",
+        help="Use a multiplexed raw-h2 gRPC engine emitting stream/window metrics (grpc:// only)",
+    ),
+]
 HtmlOpt = Annotated[
     str | None,
     typer.Option("--html", help="Generate standalone HTML report"),
@@ -289,6 +296,7 @@ _REQUEST_FIELDS = frozenset(
         "sys_sample_interval",
         "ws_max_buffer_bytes",
         "ws_backpressure_warn_ratio",
+        "grpc_h2_multiplex",
     }
 )
 
@@ -372,4 +380,5 @@ def _build_request_options(**kwargs: object) -> RequestOptions:
         sys_sample_interval=kwargs.get("sys_sample_interval", 1000),
         ws_max_buffer_bytes=kwargs.get("ws_max_buffer_bytes", 1_048_576),
         ws_backpressure_warn_ratio=kwargs.get("ws_backpressure_warn_ratio", 0.8),
+        grpc_h2_multiplex=kwargs.get("grpc_h2_multiplex", False),
     )

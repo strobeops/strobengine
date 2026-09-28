@@ -54,6 +54,7 @@ def render_html_report(summary, config, comparison=None) -> str:
 
     system_metrics = artifact.get("system_metrics")
     websocket = artifact.get("websocket")
+    grpc = artifact.get("grpc")
 
     return _HTML_TEMPLATE.render(
         metadata=artifact["metadata"],
@@ -64,6 +65,7 @@ def render_html_report(summary, config, comparison=None) -> str:
         comparison=comparison,
         system_metrics=system_metrics,
         websocket=websocket,
+        grpc=grpc,
         chart_js_code=_CHART_JS_SOURCE,
     )
 

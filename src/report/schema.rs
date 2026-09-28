@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 
 use crate::chaos::ChaosMetrics;
-use crate::metrics::{QuicMetrics, SseMetrics, WebsocketMetrics};
+use crate::metrics::{GrpcMetrics, QuicMetrics, SseMetrics, WebsocketMetrics};
 
 /// Top-level report artifact persisted to disk after each load test.
 // NOTE: This struct is mirrored in Python as `build_artifact_dict` in `src/strobengine/reporter.py`.
@@ -22,6 +22,8 @@ pub struct ReportArtifact {
     pub sse: Option<SseMetrics>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub websocket: Option<WebsocketMetrics>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub grpc: Option<GrpcMetrics>,
     #[serde(rename = "chaos_faults", skip_serializing_if = "Option::is_none")]
     pub chaos: Option<ChaosMetrics>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -175,6 +177,7 @@ impl ReportArtifact {
             quic: summary.quic.clone(),
             sse: summary.sse.clone(),
             websocket: summary.ws.clone(),
+            grpc: summary.grpc.clone(),
             chaos: if summary.chaos_injected_total > 0 {
                 Some(ChaosMetrics {
                     total_injected: summary.chaos_injected_total,
@@ -253,6 +256,7 @@ mod tests {
             quic: None,
             sse: None,
             websocket: None,
+            grpc: None,
             chaos: None,
             latency_histogram: Some(std::collections::HashMap::new()),
             system_metrics: None,
@@ -347,6 +351,38 @@ mod tests {
         let s = serde_json::to_string(&artifact).unwrap();
         let back: ReportArtifact = serde_json::from_str(&s).unwrap();
         assert_eq!(back.websocket.unwrap().pongs_unsolicited_total, 1);
+    }
+
+    #[test]
+    fn test_grpc_field_skipped_when_none() {
+        let artifact = sample_artifact();
+        let json = serde_json::to_value(&artifact).unwrap();
+        assert!(json.get("grpc").is_none());
+    }
+
+    #[test]
+    fn test_grpc_field_serializes_when_present() {
+        let mut artifact = sample_artifact();
+        artifact.grpc = Some(crate::metrics::GrpcMetrics {
+            active_streams_peak: 6,
+            concurrency_utilization_peak: 0.06,
+            concurrency_utilization_mean: 0.05,
+            window_exhaustion_events_total: 3,
+            window_stall_duration_ms_total: 4.5,
+            send_capacity_min_bytes: 32768,
+        });
+
+        let json = serde_json::to_value(&artifact).unwrap();
+        let g = &json["grpc"];
+        assert_eq!(g["active_streams_peak"], 6);
+        assert_eq!(g["window_exhaustion_events_total"], 3);
+        assert_eq!(g["send_capacity_min_bytes"], 32768);
+        assert!((g["concurrency_utilization_mean"].as_f64().unwrap() - 0.05).abs() < 1e-9);
+        assert!((g["window_stall_duration_ms_total"].as_f64().unwrap() - 4.5).abs() < 1e-9);
+
+        let s = serde_json::to_string(&artifact).unwrap();
+        let back: ReportArtifact = serde_json::from_str(&s).unwrap();
+        assert_eq!(back.grpc.unwrap().active_streams_peak, 6);
     }
 
     #[test]
@@ -455,6 +491,7 @@ mod tests {
             quic: None,
             sse: None,
             ws: None,
+            grpc: None,
             chaos_injected_total: 0,
             chaos_faults_by_type: std::collections::HashMap::new(),
             std_dev_latency_ms: 0.0,
@@ -501,6 +538,7 @@ mod tests {
             1000u64,
             1_048_576u64,
             0.8f32,
+            false,
         );
 
         let artifact = ReportArtifact::from_summary_and_config(&summary, &config);

@@ -103,6 +103,8 @@ pub struct TestConfig {
     pub ws_max_buffer_bytes: u64,
     #[pyo3(get, set)]
     pub ws_backpressure_warn_ratio: f32,
+    #[pyo3(get, set)]
+    pub grpc_h2_multiplex: bool,
 }
 
 #[pymethods]
@@ -144,6 +146,7 @@ impl TestConfig {
         sys_sample_interval=1000u64,
         ws_max_buffer_bytes=1048576u64,
         ws_backpressure_warn_ratio=0.8f32,
+        grpc_h2_multiplex=false,
     ))]
     #[allow(clippy::too_many_arguments)]
     pub fn new(
@@ -182,6 +185,7 @@ impl TestConfig {
         sys_sample_interval: u64,
         ws_max_buffer_bytes: u64,
         ws_backpressure_warn_ratio: f32,
+        grpc_h2_multiplex: bool,
     ) -> Self {
         Self {
             url,
@@ -219,6 +223,7 @@ impl TestConfig {
             sys_sample_interval,
             ws_max_buffer_bytes,
             ws_backpressure_warn_ratio,
+            grpc_h2_multiplex,
         }
     }
 }
@@ -282,6 +287,7 @@ pub struct TestConfigBuilder {
     sys_sample_interval: u64,
     ws_max_buffer_bytes: u64,
     ws_backpressure_warn_ratio: f32,
+    grpc_h2_multiplex: bool,
 }
 
 impl Default for TestConfigBuilder {
@@ -322,6 +328,7 @@ impl Default for TestConfigBuilder {
             sys_sample_interval: 1000,
             ws_max_buffer_bytes: 1_048_576,
             ws_backpressure_warn_ratio: 0.8,
+            grpc_h2_multiplex: false,
         }
     }
 }
@@ -470,6 +477,10 @@ impl TestConfigBuilder {
         self.ws_backpressure_warn_ratio = v;
         self
     }
+    pub fn grpc_h2_multiplex(mut self, v: bool) -> Self {
+        self.grpc_h2_multiplex = v;
+        self
+    }
 
     pub fn build(self) -> TestConfig {
         TestConfig {
@@ -508,6 +519,7 @@ impl TestConfigBuilder {
             sys_sample_interval: self.sys_sample_interval,
             ws_max_buffer_bytes: self.ws_max_buffer_bytes,
             ws_backpressure_warn_ratio: self.ws_backpressure_warn_ratio,
+            grpc_h2_multiplex: self.grpc_h2_multiplex,
         }
     }
 }
@@ -668,6 +680,7 @@ mod tests {
         assert!(!c.no_save);
         assert_eq!(c.ws_max_buffer_bytes, 1_048_576);
         assert!((c.ws_backpressure_warn_ratio - 0.8).abs() < 1e-6);
+        assert!(!c.grpc_h2_multiplex);
     }
 
     #[test]
@@ -747,6 +760,7 @@ mod tests {
             1000u64,
             1_048_576u64,
             0.8f32,
+            false,
         );
         assert_eq!(c.url, "http://127.0.0.1:8080");
         assert_eq!(c.concurrency, 10);
@@ -792,6 +806,7 @@ mod tests {
             1000u64,
             1_048_576u64,
             0.8f32,
+            false,
         );
         assert_eq!(c.concurrency, 50);
         assert!(c.chaos);

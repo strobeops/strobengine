@@ -462,6 +462,7 @@ async fn execute_test(
         quic_metrics: aggregated.quic_metrics,
         sse_metrics: aggregated.sse_metrics,
         ws_metrics: aggregated.ws_metrics,
+        grpc_metrics: aggregated.grpc_metrics,
         chaos_injected_total: aggregated.chaos_injected_total,
         chaos_faults_by_type: aggregated.chaos_faults_by_type,
         resource_samples,
@@ -611,6 +612,7 @@ fn _strobengine(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<metrics::QuicMetrics>()?;
     m.add_class::<metrics::SseMetrics>()?;
     m.add_class::<metrics::WebsocketMetrics>()?;
+    m.add_class::<metrics::GrpcMetrics>()?;
     m.add_class::<metrics::system::SystemMetrics>()?;
     m.add_class::<metrics::system::ResourceSample>()?;
     m.add("HISTOGRAM_BUCKET_ORDER", metrics::HISTOGRAM_BUCKET_ORDER)?;

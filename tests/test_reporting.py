@@ -126,6 +126,7 @@ class TestArtifactSchemaConsistency:
             "quic",
             "sse",
             "websocket",
+            "grpc",
             "chaos_faults",
         }
         assert required_keys.issubset(artifact.keys())
@@ -168,6 +169,10 @@ class TestArtifactSchemaConsistency:
         artifact = build_artifact_dict(_make_summary(), _make_config())
         assert artifact["websocket"] is None
 
+    def test_optional_grpc_metrics_absent_when_none(self):
+        artifact = build_artifact_dict(_make_summary(), _make_config())
+        assert artifact["grpc"] is None
+
     def test_zero_duration_no_division_error(self):
         artifact = build_artifact_dict(_make_summary(duration_secs=0), _make_config())
         assert artifact["summary"]["rps"] == 0.0
@@ -203,6 +208,7 @@ class TestRustDictParity:
             "quic",
             "sse",
             "websocket",
+            "grpc",
             "chaos_faults",
         }
         assert required_keys.issubset(artifact.keys())
@@ -279,6 +285,31 @@ class TestRustDictParity:
         assert ws["backpressure_max_bytes"] == 2_097_152
         assert ws["backpressure_mean_bytes"] == 786_432.5
         assert ws["backpressure_threshold_breaches"] == 3
+
+    def test_grpc_report_serialization(self, monkeypatch):
+        import strobengine.reporter as reporter
+
+        class FakeGrpc:
+            active_streams_peak = 6
+            concurrency_utilization_peak = 0.06
+            concurrency_utilization_mean = 0.05
+            window_exhaustion_events_total = 3
+            window_stall_duration_ms_total = 42.5
+            send_capacity_min_bytes = 32768
+
+        monkeypatch.setattr(reporter, "GrpcMetrics", FakeGrpc)
+        summary = _make_summary()
+        summary.grpc = FakeGrpc()
+
+        artifact = build_artifact_dict(summary, _make_config())
+        g = artifact["grpc"]
+        assert g is not None
+        assert g["active_streams_peak"] == 6
+        assert g["concurrency_utilization_peak"] == 0.06
+        assert g["concurrency_utilization_mean"] == 0.05
+        assert g["window_exhaustion_events_total"] == 3
+        assert g["window_stall_duration_ms_total"] == 42.5
+        assert g["send_capacity_min_bytes"] == 32768
 
 
 class TestMarkdownReportFile:
@@ -581,6 +612,30 @@ class TestHTMLReport:
         assert "WebSocket Deep Metrics" in html
         assert "Pongs Solicited" in html
         assert "Backpressure Peak" in html
+
+    def test_render_html_omits_grpc_section_when_absent(self):
+        html = render_html_report(_make_summary(), _make_config())
+        assert "gRPC Stream Concurrency" not in html
+
+    def test_render_html_contains_grpc_section(self, monkeypatch):
+        import strobengine.reporter as reporter
+
+        class FakeGrpc:
+            active_streams_peak = 6
+            concurrency_utilization_peak = 0.06
+            concurrency_utilization_mean = 0.05
+            window_exhaustion_events_total = 3
+            window_stall_duration_ms_total = 42.0
+            send_capacity_min_bytes = 1_048_576
+
+        monkeypatch.setattr(reporter, "GrpcMetrics", FakeGrpc)
+        summary = _make_summary()
+        summary.grpc = FakeGrpc()
+
+        html = render_html_report(summary, _make_config())
+        assert "gRPC Stream Concurrency" in html
+        assert "Peak Active Streams" in html
+        assert "Window Exhaustions" in html
 
     def test_save_html_report_file_output(self, tmp_path):
         filepath = str(tmp_path / "report.html")

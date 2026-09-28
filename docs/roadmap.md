@@ -111,7 +111,7 @@ This document outlines the planned trajectory and upcoming feature epics for **s
 
 - [ ] **Protocol-Specific Deep Metrics** `[v0.8.0]`
   - [x] WebSocket: unsolicited pings/pongs, backpressure depth
-  - [ ] gRPC: stream concurrency utilization, flow control window exhaustion
+  - [x] gRPC: stream concurrency utilization, flow control window exhaustion
   - [ ] HTTP/3: congestion window size, connection migration success rate
 
 ---

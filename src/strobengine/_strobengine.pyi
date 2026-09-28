@@ -66,6 +66,7 @@ class TestConfig:
     sys_sample_interval: int
     ws_max_buffer_bytes: int
     ws_backpressure_warn_ratio: float
+    grpc_h2_multiplex: bool
     def __init__(
         self,
         url: str,
@@ -103,6 +104,7 @@ class TestConfig:
         sys_sample_interval: int = 1000,
         ws_max_buffer_bytes: int = 1_048_576,
         ws_backpressure_warn_ratio: float = 0.8,
+        grpc_h2_multiplex: bool = False,
     ) -> None: ...
 
 class SystemMetrics:
@@ -150,6 +152,20 @@ class WebsocketMetrics:
     @property
     def backpressure_threshold_breaches(self) -> int: ...
 
+class GrpcMetrics:
+    @property
+    def active_streams_peak(self) -> int: ...
+    @property
+    def concurrency_utilization_peak(self) -> float: ...
+    @property
+    def concurrency_utilization_mean(self) -> float: ...
+    @property
+    def window_exhaustion_events_total(self) -> int: ...
+    @property
+    def window_stall_duration_ms_total(self) -> float: ...
+    @property
+    def send_capacity_min_bytes(self) -> int: ...
+
 class TestSummary:
     def clone(self) -> TestSummary: ...
     @property
@@ -194,6 +210,8 @@ class TestSummary:
     def sse(self) -> SseMetrics | None: ...
     @property
     def ws(self) -> WebsocketMetrics | None: ...
+    @property
+    def grpc(self) -> GrpcMetrics | None: ...
     @property
     def chaos_injected_total(self) -> int: ...
     @property

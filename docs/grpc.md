@@ -189,6 +189,34 @@ gRPC status codes are mapped to HTTP equivalents for consistent error tracking:
 
 Status code `0` indicates a connection-level failure (timeout, unreachable, chaos drop).
 
+### Deep Metrics (multiplexed raw-h2 engine)
+
+Enable a second engine with `--grpc-h2-multiplex` (`RequestOptions(grpc_h2_multiplex=True)`)
+to collect HTTP/2 stream-concurrency and flow-control telemetry, emitted in the
+`grpc` artifact block (CLI + HTML panels) when nonzero:
+
+| Metric | Description |
+|--------|-------------|
+| `active_streams_peak` | Peak concurrent in-flight RPCs on the shared HTTP/2 connection |
+| `concurrency_utilization_peak` | Peak `active_streams / SETTINGS_MAX_CONCURRENT_STREAMS` |
+| `concurrency_utilization_mean` | Mean utilization across samples |
+| `window_exhaustion_events_total` | Send stalls where the flow-control window was exhausted (zero credit) |
+| `window_stall_duration_ms_total` | Cumulative milliseconds spent blocked awaiting a `WINDOW_UPDATE` |
+| `send_capacity_min_bytes` | Minimum effective send-side flow-control credit observed |
+
+The multiplexed engine holds one connection and clones its `SendRequest` per
+iteration, so `active_streams` reflects true multiplexing against the peer's
+negotiated `SETTINGS_MAX_CONCURRENT_STREAMS`. Sends are driven through
+`reserve_capacity`/`poll_capacity`; a stall is recorded once an already-started
+body write blocks on zero credit.
+
+**Scope & caveats:** the flag currently supports cleartext `grpc://` only;
+`grpcs://` logs a warning and falls back to the default tonic engine.
+`send_capacity_min_bytes` is a client-side **proxy** for the connection window
+(min effective send credit) — h2 does not expose the raw connection-level window
+counter. Metrics are only present when the flag is enabled; the default tonic
+path emits no `grpc` block.
+
 ## Chaos Testing
 
 gRPC chaos testing applies the same fault injection as HTTP/WebSocket:
