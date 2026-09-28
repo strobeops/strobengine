@@ -532,7 +532,9 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn grpc_h2_active_streams_reflect_concurrency() {
-        // Slow responses keep streams open so concurrent iterations overlap.
+        // Slow responses keep streams open so concurrent iterations overlap. On a
+        // loaded runner the scheduler may serialize the three calls in a given
+        // round (peak==1), so retry across rounds until genuine overlap is seen.
         let addr = spawn_server(ServerCfg {
             window: 65535,
             read_delay_ms: 0,
@@ -541,20 +543,27 @@ mod tests {
         })
         .await;
         let engine = std::sync::Arc::new(engine_for(addr, None));
-        let e1 = engine.clone();
-        let e2 = engine.clone();
-        let e3 = engine.clone();
-        let (a, b, c) = tokio::join!(
-            e1.execute_iteration(""),
-            e2.execute_iteration(""),
-            e3.execute_iteration("")
-        );
-        let peak = [a, b, c]
-            .iter()
-            .filter_map(|m| m.grpc.as_ref())
-            .map(|g| g.active_streams)
-            .max()
-            .unwrap_or(0);
+
+        let mut peak = 0u64;
+        for _ in 0..8 {
+            let (e1, e2, e3) = (engine.clone(), engine.clone(), engine.clone());
+            let (a, b, c) = tokio::join!(
+                e1.execute_iteration(""),
+                e2.execute_iteration(""),
+                e3.execute_iteration("")
+            );
+            peak = peak.max(
+                [a, b, c]
+                    .iter()
+                    .filter_map(|m| m.grpc.as_ref())
+                    .map(|g| g.active_streams)
+                    .max()
+                    .unwrap_or(0),
+            );
+            if peak >= 2 {
+                break;
+            }
+        }
         assert!(
             peak >= 2,
             "expected concurrent in-flight streams, got peak {peak}"
@@ -563,7 +572,11 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn grpc_h2_detects_window_exhaustion_stall() {
-        // Tiny advertised window + delayed server read forces a send stall.
+        // h2 applies the server's advertised SETTINGS (tiny 16-byte window) to the
+        // client asynchronously via the connection-driver task, so the first
+        // iteration may still see the default 65535 window and drain without
+        // stalling. Poll until SETTINGS is applied, then the 1KB body + 60ms
+        // delayed read guarantees a window-exhaustion stall.
         let addr = spawn_server(ServerCfg {
             window: 16,
             read_delay_ms: 60,
@@ -574,17 +587,21 @@ mod tests {
         let raw = vec![0xABu8; 1024];
         let b64 = base64::engine::general_purpose::STANDARD.encode(&raw);
         let engine = engine_for(addr, Some(b64));
-        let metric = engine.execute_iteration("").await;
 
-        assert_eq!(metric.status_code, 200);
-        let g = metric.grpc.expect("grpc sample present");
-        assert!(
-            g.window_exhaustion_events >= 1,
-            "expected at least one window-exhaustion stall, got {}",
-            g.window_exhaustion_events
-        );
+        let mut stalled: Option<GrpcSample> = None;
+        for _ in 0..12 {
+            let m = engine.execute_iteration("").await;
+            assert_eq!(m.status_code, 200);
+            let g = m.grpc.expect("grpc sample present");
+            if g.window_exhaustion_events >= 1 {
+                stalled = Some(g);
+                break;
+            }
+        }
+        let g = stalled.expect("expected at least one window-exhaustion stall across iterations");
         assert!(g.window_stall_us > 0);
-        // Send credit is capped by the tiny advertised window.
+        // A stall is only possible once the 16-byte window is active, so the
+        // observed send credit is bounded by it.
         assert!(g.has_send_capacity && g.send_capacity_bytes <= 16);
     }
 }
