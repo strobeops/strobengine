@@ -58,3 +58,7 @@ harness = false
 [[bench]]
 name = "grpc_metrics"
 harness = false
+
+[[bench]]
+name = "http3_metrics"
+harness = false
