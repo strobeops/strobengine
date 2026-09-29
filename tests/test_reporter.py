@@ -127,3 +127,34 @@ class TestPrintSummaryGrpc:
             print_summary(summary)
         output = capsys.readouterr().out
         assert "gRPC Streams" not in output
+
+
+class TestPrintSummaryHttp3:
+    def test_plain_renders_http3_rows(self, capsys, monkeypatch):
+        import strobengine.reporter as reporter
+
+        class FakeHttp3:
+            cwnd_bytes_current = 4000
+            cwnd_bytes_min = 1000
+            cwnd_bytes_max = 8000
+            cwnd_bytes_mean = 3500.0
+            migrations_attempted_total = 4
+            migrations_successful_total = 3
+            migration_success_rate = 0.75
+
+        monkeypatch.setattr(reporter, "Http3Metrics", FakeHttp3)
+        summary = _make_summary(url="http://example.com")
+        summary.http3 = FakeHttp3()
+
+        with patch("strobengine.reporter._HAS_RICH", False):
+            print_summary(summary)
+        output = capsys.readouterr().out
+        assert "HTTP/3 cwnd" in output
+        assert "HTTP/3 Migr" in output
+
+    def test_plain_omits_http3_rows_when_absent(self, capsys):
+        summary = _make_summary(url="http://example.com")
+        with patch("strobengine.reporter._HAS_RICH", False):
+            print_summary(summary)
+        output = capsys.readouterr().out
+        assert "HTTP/3 cwnd" not in output

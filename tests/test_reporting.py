@@ -127,6 +127,7 @@ class TestArtifactSchemaConsistency:
             "sse",
             "websocket",
             "grpc",
+            "http3",
             "chaos_faults",
         }
         assert required_keys.issubset(artifact.keys())
@@ -173,6 +174,10 @@ class TestArtifactSchemaConsistency:
         artifact = build_artifact_dict(_make_summary(), _make_config())
         assert artifact["grpc"] is None
 
+    def test_optional_http3_metrics_absent_when_none(self):
+        artifact = build_artifact_dict(_make_summary(), _make_config())
+        assert artifact["http3"] is None
+
     def test_zero_duration_no_division_error(self):
         artifact = build_artifact_dict(_make_summary(duration_secs=0), _make_config())
         assert artifact["summary"]["rps"] == 0.0
@@ -209,6 +214,7 @@ class TestRustDictParity:
             "sse",
             "websocket",
             "grpc",
+            "http3",
             "chaos_faults",
         }
         assert required_keys.issubset(artifact.keys())
@@ -310,6 +316,33 @@ class TestRustDictParity:
         assert g["window_exhaustion_events_total"] == 3
         assert g["window_stall_duration_ms_total"] == 42.5
         assert g["send_capacity_min_bytes"] == 32768
+
+    def test_http3_report_serialization(self, monkeypatch):
+        import strobengine.reporter as reporter
+
+        class FakeHttp3:
+            cwnd_bytes_current = 4000
+            cwnd_bytes_min = 1000
+            cwnd_bytes_max = 8000
+            cwnd_bytes_mean = 3500.0
+            migrations_attempted_total = 4
+            migrations_successful_total = 3
+            migration_success_rate = 0.75
+
+        monkeypatch.setattr(reporter, "Http3Metrics", FakeHttp3)
+        summary = _make_summary()
+        summary.http3 = FakeHttp3()
+
+        artifact = build_artifact_dict(summary, _make_config())
+        h = artifact["http3"]
+        assert h is not None
+        assert h["cwnd_bytes_current"] == 4000
+        assert h["cwnd_bytes_min"] == 1000
+        assert h["cwnd_bytes_max"] == 8000
+        assert h["cwnd_bytes_mean"] == 3500.0
+        assert h["migrations_attempted_total"] == 4
+        assert h["migrations_successful_total"] == 3
+        assert h["migration_success_rate"] == 0.75
 
 
 class TestMarkdownReportFile:
@@ -636,6 +669,31 @@ class TestHTMLReport:
         assert "gRPC Stream Concurrency" in html
         assert "Peak Active Streams" in html
         assert "Window Exhaustions" in html
+
+    def test_render_html_omits_http3_section_when_absent(self):
+        html = render_html_report(_make_summary(), _make_config())
+        assert "HTTP/3 Congestion Window" not in html
+
+    def test_render_html_contains_http3_section(self, monkeypatch):
+        import strobengine.reporter as reporter
+
+        class FakeHttp3:
+            cwnd_bytes_current = 4000
+            cwnd_bytes_min = 1000
+            cwnd_bytes_max = 8000
+            cwnd_bytes_mean = 3500.0
+            migrations_attempted_total = 4
+            migrations_successful_total = 3
+            migration_success_rate = 0.75
+
+        monkeypatch.setattr(reporter, "Http3Metrics", FakeHttp3)
+        summary = _make_summary()
+        summary.http3 = FakeHttp3()
+
+        html = render_html_report(summary, _make_config())
+        assert "HTTP/3 Congestion Window" in html
+        assert "cwnd Max" in html
+        assert "HTTP/3 Connection Migration" in html
 
     def test_save_html_report_file_output(self, tmp_path):
         filepath = str(tmp_path / "report.html")
