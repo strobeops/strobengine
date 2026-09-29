@@ -67,6 +67,8 @@ class TestConfig:
     ws_max_buffer_bytes: int
     ws_backpressure_warn_ratio: float
     grpc_h2_multiplex: bool
+    http3_migrate: bool
+    http3_migrate_every: int
     def __init__(
         self,
         url: str,
@@ -105,6 +107,8 @@ class TestConfig:
         ws_max_buffer_bytes: int = 1_048_576,
         ws_backpressure_warn_ratio: float = 0.8,
         grpc_h2_multiplex: bool = False,
+        http3_migrate: bool = False,
+        http3_migrate_every: int = 50,
     ) -> None: ...
 
 class SystemMetrics:

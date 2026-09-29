@@ -577,6 +577,8 @@ mod tests {
             1_048_576u64,
             0.8f32,
             false,
+            false,
+            50u64,
         );
 
         let artifact = ReportArtifact::from_summary_and_config(&summary, &config);

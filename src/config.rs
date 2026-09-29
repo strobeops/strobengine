@@ -105,6 +105,10 @@ pub struct TestConfig {
     pub ws_backpressure_warn_ratio: f32,
     #[pyo3(get, set)]
     pub grpc_h2_multiplex: bool,
+    #[pyo3(get, set)]
+    pub http3_migrate: bool,
+    #[pyo3(get, set)]
+    pub http3_migrate_every: u64,
 }
 
 #[pymethods]
@@ -147,6 +151,8 @@ impl TestConfig {
         ws_max_buffer_bytes=1048576u64,
         ws_backpressure_warn_ratio=0.8f32,
         grpc_h2_multiplex=false,
+        http3_migrate=false,
+        http3_migrate_every=50u64,
     ))]
     #[allow(clippy::too_many_arguments)]
     pub fn new(
@@ -186,6 +192,8 @@ impl TestConfig {
         ws_max_buffer_bytes: u64,
         ws_backpressure_warn_ratio: f32,
         grpc_h2_multiplex: bool,
+        http3_migrate: bool,
+        http3_migrate_every: u64,
     ) -> Self {
         Self {
             url,
@@ -224,6 +232,8 @@ impl TestConfig {
             ws_max_buffer_bytes,
             ws_backpressure_warn_ratio,
             grpc_h2_multiplex,
+            http3_migrate,
+            http3_migrate_every,
         }
     }
 }
@@ -288,6 +298,8 @@ pub struct TestConfigBuilder {
     ws_max_buffer_bytes: u64,
     ws_backpressure_warn_ratio: f32,
     grpc_h2_multiplex: bool,
+    http3_migrate: bool,
+    http3_migrate_every: u64,
 }
 
 impl Default for TestConfigBuilder {
@@ -329,6 +341,8 @@ impl Default for TestConfigBuilder {
             ws_max_buffer_bytes: 1_048_576,
             ws_backpressure_warn_ratio: 0.8,
             grpc_h2_multiplex: false,
+            http3_migrate: false,
+            http3_migrate_every: 50,
         }
     }
 }
@@ -481,6 +495,14 @@ impl TestConfigBuilder {
         self.grpc_h2_multiplex = v;
         self
     }
+    pub fn http3_migrate(mut self, v: bool) -> Self {
+        self.http3_migrate = v;
+        self
+    }
+    pub fn http3_migrate_every(mut self, v: u64) -> Self {
+        self.http3_migrate_every = v;
+        self
+    }
 
     pub fn build(self) -> TestConfig {
         TestConfig {
@@ -520,6 +542,8 @@ impl TestConfigBuilder {
             ws_max_buffer_bytes: self.ws_max_buffer_bytes,
             ws_backpressure_warn_ratio: self.ws_backpressure_warn_ratio,
             grpc_h2_multiplex: self.grpc_h2_multiplex,
+            http3_migrate: self.http3_migrate,
+            http3_migrate_every: self.http3_migrate_every,
         }
     }
 }
@@ -681,6 +705,8 @@ mod tests {
         assert_eq!(c.ws_max_buffer_bytes, 1_048_576);
         assert!((c.ws_backpressure_warn_ratio - 0.8).abs() < 1e-6);
         assert!(!c.grpc_h2_multiplex);
+        assert!(!c.http3_migrate);
+        assert_eq!(c.http3_migrate_every, 50);
     }
 
     #[test]
@@ -761,6 +787,8 @@ mod tests {
             1_048_576u64,
             0.8f32,
             false,
+            false,
+            50u64,
         );
         assert_eq!(c.url, "http://127.0.0.1:8080");
         assert_eq!(c.concurrency, 10);
@@ -807,6 +835,8 @@ mod tests {
             1_048_576u64,
             0.8f32,
             false,
+            false,
+            50u64,
         );
         assert_eq!(c.concurrency, 50);
         assert!(c.chaos);
