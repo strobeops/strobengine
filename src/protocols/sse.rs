@@ -267,6 +267,7 @@ impl ProtocolEngine for SseEngine {
                 sse_event_interval_us: None,
                 ws: None,
                 grpc: None,
+                http3: None,
                 chaos_fault: None,
             };
         }
@@ -304,6 +305,7 @@ impl ProtocolEngine for SseEngine {
                             sse_event_interval_us: None,
                             ws: None,
                             grpc: None,
+                            http3: None,
                             chaos_fault: None,
                         };
                     }
@@ -337,6 +339,7 @@ impl ProtocolEngine for SseEngine {
             sse_event_interval_us: None,
             ws: None,
             grpc: None,
+            http3: None,
             chaos_fault: None,
         }
     }
@@ -410,6 +413,7 @@ impl ProtocolEngine for SseEngine {
                 sse_event_interval_us: None,
                 ws: None,
                 grpc: None,
+                http3: None,
                 chaos_fault: None,
             };
         }
@@ -467,6 +471,7 @@ impl ProtocolEngine for SseEngine {
                             sse_event_interval_us: interval_us,
                             ws: None,
                             grpc: None,
+                            http3: None,
                             chaos_fault: None,
                         };
                     }
@@ -502,6 +507,7 @@ impl ProtocolEngine for SseEngine {
             sse_event_interval_us: None,
             ws: None,
             grpc: None,
+            http3: None,
             chaos_fault: None,
         }
     }

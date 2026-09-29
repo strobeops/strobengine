@@ -282,6 +282,7 @@ impl ProtocolEngine for GrpcH2Engine {
             sse_event_interval_us: None,
             ws: None,
             grpc: Some(ws_sample),
+            http3: None,
             chaos_fault: fault,
         }
     }

@@ -611,6 +611,7 @@ impl WebSocketEngine {
                     sse_event_interval_us: None,
                     ws,
                     grpc: None,
+                    http3: None,
                     chaos_fault: fault,
                 }
             }
@@ -736,6 +737,7 @@ impl WebSocketEngine {
                     sse_event_interval_us: None,
                     ws,
                     grpc: None,
+                    http3: None,
                     chaos_fault: fault,
                 }
             }
@@ -887,6 +889,7 @@ impl ProtocolEngine for WebSocketEngine {
             sse_event_interval_us: None,
             ws,
             grpc: None,
+            http3: None,
             chaos_fault: fault,
         }
     }
@@ -1004,6 +1007,7 @@ impl ProtocolEngine for WebSocketEngine {
                     sse_event_interval_us: None,
                     ws,
                     grpc: None,
+                    http3: None,
                     chaos_fault: fault,
                 }
             }
@@ -1034,6 +1038,7 @@ impl ProtocolEngine for WebSocketEngine {
                     sse_event_interval_us: None,
                     ws,
                     grpc: None,
+                    http3: None,
                     chaos_fault: fault,
                 }
             }
