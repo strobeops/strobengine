@@ -751,7 +751,7 @@ class TestSaveReportAtomicity:
         out_dir = tmp_path / "reports"
         with (
             patch(
-                "strobengine.reporter.build_artifact_dict",
+                "strobengine.persistence.build_artifact_dict",
                 return_value={"metadata": {}},
             ),
             patch("os.replace", side_effect=OSError("disk full")),
@@ -765,7 +765,7 @@ class TestSaveReportAtomicity:
         out_dir = tmp_path / "reports"
         with (
             patch(
-                "strobengine.reporter.build_artifact_dict",
+                "strobengine.persistence.build_artifact_dict",
                 return_value={"metadata": {}},
             ),
             patch("json.dump", side_effect=KeyboardInterrupt()),
@@ -780,7 +780,7 @@ class TestSaveReportAtomicity:
 
         out_dir = tmp_path / "reports"
         with patch(
-            "strobengine.reporter.build_artifact_dict", return_value={"metadata": {}}
+            "strobengine.persistence.build_artifact_dict", return_value={"metadata": {}}
         ):
             result = save_report(
                 _make_summary(), _make_config(), output_dir=str(out_dir)
