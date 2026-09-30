@@ -114,6 +114,24 @@
   </div>
 {% endif %}
 
+{% if http3 %}
+  <div class="card" style="margin-bottom: 1.5rem;">
+    <h2>HTTP/3 Congestion Window</h2>
+    <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem;">
+      <div class="meta-row"><span class="meta-label">cwnd Current</span><span class="meta-value">{{ http3.cwnd_bytes_current | filesizeformat }}</span></div>
+      <div class="meta-row"><span class="meta-label">cwnd Min</span><span class="meta-value">{{ http3.cwnd_bytes_min | filesizeformat }}</span></div>
+      <div class="meta-row"><span class="meta-label">cwnd Max</span><span class="meta-value">{{ http3.cwnd_bytes_max | filesizeformat }}</span></div>
+      <div class="meta-row"><span class="meta-label">cwnd Mean</span><span class="meta-value">{{ http3.cwnd_bytes_mean | round(0) | int | filesizeformat }}</span></div>
+    </div>
+    <h2>HTTP/3 Connection Migration</h2>
+    <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; margin-top: 1rem;">
+      <div class="meta-row"><span class="meta-label">Migrations Attempted</span><span class="meta-value">{{ http3.migrations_attempted_total }}</span></div>
+      <div class="meta-row"><span class="meta-label">Migrations Successful</span><span class="meta-value">{{ http3.migrations_successful_total }}</span></div>
+      <div class="meta-row"><span class="meta-label">Success Rate</span><span class="meta-value">{{ "%.0f" | format(http3.migration_success_rate * 100) }}%</span></div>
+    </div>
+  </div>
+{% endif %}
+
   <div class="card">
     <h2>Status Codes</h2>
     <table class="status-table">

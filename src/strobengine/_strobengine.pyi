@@ -67,6 +67,8 @@ class TestConfig:
     ws_max_buffer_bytes: int
     ws_backpressure_warn_ratio: float
     grpc_h2_multiplex: bool
+    http3_migrate: bool
+    http3_migrate_every: int
     def __init__(
         self,
         url: str,
@@ -105,6 +107,8 @@ class TestConfig:
         ws_max_buffer_bytes: int = 1_048_576,
         ws_backpressure_warn_ratio: float = 0.8,
         grpc_h2_multiplex: bool = False,
+        http3_migrate: bool = False,
+        http3_migrate_every: int = 50,
     ) -> None: ...
 
 class SystemMetrics:
@@ -166,6 +170,22 @@ class GrpcMetrics:
     @property
     def send_capacity_min_bytes(self) -> int: ...
 
+class Http3Metrics:
+    @property
+    def cwnd_bytes_current(self) -> int: ...
+    @property
+    def cwnd_bytes_min(self) -> int: ...
+    @property
+    def cwnd_bytes_max(self) -> int: ...
+    @property
+    def cwnd_bytes_mean(self) -> float: ...
+    @property
+    def migrations_attempted_total(self) -> int: ...
+    @property
+    def migrations_successful_total(self) -> int: ...
+    @property
+    def migration_success_rate(self) -> float: ...
+
 class TestSummary:
     def clone(self) -> TestSummary: ...
     @property
@@ -212,6 +232,8 @@ class TestSummary:
     def ws(self) -> WebsocketMetrics | None: ...
     @property
     def grpc(self) -> GrpcMetrics | None: ...
+    @property
+    def http3(self) -> Http3Metrics | None: ...
     @property
     def chaos_injected_total(self) -> int: ...
     @property

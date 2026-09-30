@@ -49,6 +49,7 @@ h2 = "0.4"
 
 [dev-dependencies]
 criterion = "0.5"
+rcgen = "0.13"
 
 [[bench]]
 name = "ws_metrics"
@@ -56,4 +57,8 @@ harness = false
 
 [[bench]]
 name = "grpc_metrics"
+harness = false
+
+[[bench]]
+name = "http3_metrics"
 harness = false

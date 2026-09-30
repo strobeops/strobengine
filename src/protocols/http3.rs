@@ -9,7 +9,7 @@ use quinn::{ClientConfig, Endpoint, TokioRuntime, TransportConfig};
 use tokio::sync::OnceCell;
 
 use crate::chaos::{ChaosEngine, ChaosFault};
-use crate::metrics::{ConnectionMetrics, RequestMetric};
+use crate::metrics::{ConnectionMetrics, Http3Sample, RequestMetric};
 
 use super::ProtocolEngine;
 
@@ -21,6 +21,8 @@ pub struct Http3Session {
     pub prev_lost_packets: u64,
     /// DNS resolution time (μs) from initial connection. Only set on first connect.
     pub initial_dns_resolution_us: u64,
+    /// Iterations executed on this persistent connection (for migration cadence).
+    pub iterations: u64,
 }
 
 #[async_trait::async_trait]
@@ -44,6 +46,13 @@ pub struct Http3Engine {
     max_idle_timeout_ms: Option<u64>,
     #[allow(dead_code)]
     zero_rtt: bool,
+    /// Opt-in: periodically rebind the endpoint's UDP socket to exercise QUIC
+    /// client connection migration (path validation) and count its outcome.
+    migrate: bool,
+    migrate_every: u64,
+    /// Test-only extra trust anchor (DER) so in-process self-signed servers can
+    /// be verified. Never set from config/CLI; defaults to `None`.
+    extra_roots_der: Option<Vec<u8>>,
 }
 
 impl Http3Engine {
@@ -106,7 +115,23 @@ impl Http3Engine {
             chaos,
             max_idle_timeout_ms,
             zero_rtt,
+            migrate: false,
+            migrate_every: 50,
+            extra_roots_der: None,
         })
+    }
+
+    /// Enable opt-in QUIC connection migration (default off).
+    pub fn with_migration(mut self, migrate: bool, every: u64) -> Self {
+        self.migrate = migrate;
+        self.migrate_every = every.max(1);
+        self
+    }
+
+    /// Trust an additional DER root (test-only: self-signed local servers).
+    pub fn with_test_ca(mut self, der: Vec<u8>) -> Self {
+        self.extra_roots_der = Some(der);
+        self
     }
 
     /// Lazily create the QUIC endpoint on first use.
@@ -138,6 +163,11 @@ impl Http3Engine {
                 // Configure TLS 1.3 with ALPN h3
                 let mut roots = quinn::rustls::RootCertStore::empty();
                 roots.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
+                if let Some(der) = self.extra_roots_der.clone() {
+                    let _ = roots.add_parsable_certificates([
+                        quinn::rustls::pki_types::CertificateDer::from(der),
+                    ]);
+                }
 
                 let mut tls = quinn::rustls::ClientConfig::builder()
                     .with_root_certificates(roots)
@@ -240,10 +270,15 @@ impl Http3Engine {
         connection: quinn::Connection,
     ) -> Result<h3::client::SendRequest<h3_quinn::OpenStreams, Bytes>, String> {
         let h3_quinn_conn = H3QuinnConnection::new(connection);
-        let (_, send_request) = h3::client::builder()
+        let (mut h3_conn, send_request) = h3::client::builder()
             .build(h3_quinn_conn)
             .await
             .map_err(|e| format!("H3 connection setup failed: {e}"))?;
+        // The h3 client Connection must be continuously polled to process the
+        // control/QPACK/settings streams; drop-guarded in a background task.
+        tokio::spawn(async move {
+            let _ = h3_conn.wait_idle().await;
+        });
         Ok(send_request)
     }
 
@@ -378,6 +413,8 @@ impl ProtocolEngine for Http3Engine {
             },
         };
 
+        // Sample QUIC congestion window before teardown.
+        let cwnd_bytes = connection.stats().path.cwnd;
         connection.close(0u32.into(), b"");
 
         let latency_micros = req_start.elapsed().as_micros();
@@ -402,6 +439,11 @@ impl ProtocolEngine for Http3Engine {
             sse_event_interval_us: None,
             ws: None,
             grpc: None,
+            http3: Some(Http3Sample {
+                cwnd_bytes,
+                migrations_attempted: 0,
+                migrations_successful: 0,
+            }),
             chaos_fault: fault,
         }
     }
@@ -417,6 +459,7 @@ impl ProtocolEngine for Http3Engine {
             zero_rtt_accepted,
             prev_lost_packets: 0,
             initial_dns_resolution_us: dns_us,
+            iterations: 0,
         }))
     }
 
@@ -448,6 +491,29 @@ impl ProtocolEngine for Http3Engine {
         let mut is_reconnect = false;
         let mut handshake_us: Option<u64> = None;
         let mut used_0rtt = false;
+        session.iterations += 1;
+        let mut mig_att = 0u64;
+        let mut mig_succ = 0u64;
+
+        // Opt-in migration: rebind the endpoint's UDP socket to a fresh local
+        // address, forcing QUIC path validation (PATH_CHALLENGE/RESPONSE) for the
+        // in-flight connection. Success is observed indirectly: the connection
+        // staying open and the subsequent round-trip completing.
+        if self.migrate
+            && session.iterations.is_multiple_of(self.migrate_every)
+            && let Some(endpoint) = self.endpoint.get()
+        {
+            match bind_migration_socket() {
+                Ok(socket) => {
+                    if endpoint.rebind(socket).is_ok() {
+                        mig_att = 1;
+                    } else {
+                        tracing::debug!("http3 migration rebind failed");
+                    }
+                }
+                Err(e) => tracing::debug!(error = %e, "http3 migration socket bind failed"),
+            }
+        }
 
         let result = match self.send_request_on_conn(&mut session.h3_send).await {
             Ok((status, bytes)) => (status, bytes),
@@ -486,6 +552,13 @@ impl ProtocolEngine for Http3Engine {
         let lost = stats.path.lost_packets;
         let retransmits = lost.saturating_sub(session.prev_lost_packets);
         session.prev_lost_packets = lost;
+        let cwnd_bytes = stats.path.cwnd;
+
+        // A migration "succeeds" when the connection survived the rebind and the
+        // round-trip completed on it (no reconnect) with a valid response.
+        if mig_att == 1 && !is_reconnect && result.0 != 0 {
+            mig_succ = 1;
+        }
 
         // Check if 0-RTT was accepted
         if !used_0rtt && let Some(accepted) = session.zero_rtt_accepted {
@@ -515,9 +588,24 @@ impl ProtocolEngine for Http3Engine {
             sse_event_interval_us: None,
             ws: None,
             grpc: None,
+            http3: Some(Http3Sample {
+                cwnd_bytes,
+                migrations_attempted: mig_att,
+                migrations_successful: mig_succ,
+            }),
             chaos_fault: fault,
         }
     }
+}
+
+/// Bind a fresh non-blocking UDP socket for a client migration rebind.
+fn bind_migration_socket() -> Result<std::net::UdpSocket, String> {
+    let socket = std::net::UdpSocket::bind("0.0.0.0:0")
+        .map_err(|e| format!("failed to bind migration socket: {e}"))?;
+    socket
+        .set_nonblocking(true)
+        .map_err(|e| format!("failed to set nonblocking: {e}"))?;
+    Ok(socket)
 }
 
 #[cfg(test)]
@@ -616,5 +704,137 @@ mod tests {
             Ok(_) => panic!("expected error for invalid method"),
             Err(e) => assert!(e.contains("invalid HTTP method")),
         }
+    }
+
+    // ---- In-process HTTP/3 (quinn+h3) server for cwnd/migration tests ----
+    use super::ProtocolEngine;
+
+    /// Start a minimal h3 echo server on 127.0.0.1/::1 (whichever "localhost"
+    /// resolves to). Returns (port, DER trust anchor to hand the client).
+    async fn spawn_h3_server() -> (u16, Vec<u8>) {
+        // rustls requires a process-default CryptoProvider before builder(); the
+        // client normally installs it lazily, so ensure it here too.
+        let _ = quinn::rustls::crypto::ring::default_provider().install_default();
+        let ck = rcgen::generate_simple_self_signed(vec!["127.0.0.1".to_string()]).unwrap();
+        let cert_der = ck.cert.der().clone();
+        let trust_der = ck.cert.der().to_vec();
+        let key_der =
+            quinn::rustls::pki_types::PrivatePkcs8KeyDer::from(ck.key_pair.serialize_der());
+
+        let mut tls = quinn::rustls::ServerConfig::builder()
+            .with_no_client_auth()
+            .with_single_cert(
+                vec![cert_der],
+                quinn::rustls::pki_types::PrivateKeyDer::Pkcs8(key_der),
+            )
+            .unwrap();
+        tls.alpn_protocols = vec![b"h3".to_vec()];
+        let quic_crypto = quinn::crypto::rustls::QuicServerConfig::try_from(tls).unwrap();
+        let server_config = quinn::ServerConfig::with_crypto(std::sync::Arc::new(quic_crypto));
+
+        let socket = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
+        socket.set_nonblocking(true).unwrap();
+        let port = socket.local_addr().unwrap().port();
+        let endpoint = quinn::Endpoint::new(
+            quinn::EndpointConfig::default(),
+            Some(server_config),
+            socket,
+            std::sync::Arc::new(quinn::TokioRuntime),
+        )
+        .unwrap();
+
+        tokio::spawn(async move {
+            while let Some(incoming) = endpoint.accept().await {
+                tokio::spawn(async move {
+                    let Ok(conn) = incoming.await else { return };
+                    let Ok(mut h3conn) = h3::server::builder()
+                        .build(h3_quinn::Connection::new(conn))
+                        .await
+                    else {
+                        return;
+                    };
+                    while let Ok(Some(resolver)) = h3conn.accept().await {
+                        tokio::spawn(async move {
+                            let Ok((_req, mut stream)) = resolver.resolve_request().await else {
+                                return;
+                            };
+                            let resp = http::Response::builder()
+                                .status(http::StatusCode::OK)
+                                .body(())
+                                .unwrap();
+                            if stream.send_response(resp).await.is_ok() {
+                                let _ = stream
+                                    .send_data(bytes::Bytes::from_static(b"hello-h3"))
+                                    .await;
+                                let _ = stream.finish().await;
+                            }
+                        });
+                    }
+                });
+            }
+        });
+        (port, trust_der)
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn http3_engine_samples_cwnd_over_real_transfer() {
+        let (port, trust) = spawn_h3_server().await;
+        let engine = Http3Engine::new(
+            &format!("h3://127.0.0.1:{port}/test"),
+            vec![],
+            "GET".into(),
+            None,
+            ChaosEngine::default(),
+            None,
+            false,
+        )
+        .unwrap()
+        .with_test_ca(trust);
+
+        let m = tokio::time::timeout(Duration::from_secs(5), engine.execute_iteration(""))
+            .await
+            .expect("h3 request should complete");
+
+        assert_eq!(m.status_code, 200);
+        let h = m.http3.expect("http3 sample present");
+        // A real QUIC connection has a non-zero initial congestion window.
+        assert!(h.cwnd_bytes > 0, "expected cwnd > 0, got {}", h.cwnd_bytes);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn http3_engine_counts_opt_in_migration() {
+        let (port, trust) = spawn_h3_server().await;
+        let engine = std::sync::Arc::new(
+            Http3Engine::new(
+                &format!("h3://127.0.0.1:{port}/test"),
+                vec![],
+                "GET".into(),
+                None,
+                ChaosEngine::default(),
+                None,
+                false,
+            )
+            .unwrap()
+            .with_test_ca(trust)
+            .with_migration(true, 1), // migrate every iteration
+        );
+
+        let mut ctx = engine.create_worker_context().await.expect("session");
+        let mut attempted = 0u64;
+        for _ in 0..3 {
+            let m = tokio::time::timeout(
+                Duration::from_secs(5),
+                engine.execute_iteration_with_context("", ctx.as_mut()),
+            )
+            .await
+            .expect("iteration should finish");
+            if let Some(h) = &m.http3 {
+                attempted += h.migrations_attempted;
+            }
+        }
+        assert!(
+            attempted >= 1,
+            "expected at least one migration attempt, got {attempted}"
+        );
     }
 }

@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 
 use crate::chaos::ChaosMetrics;
-use crate::metrics::{GrpcMetrics, QuicMetrics, SseMetrics, WebsocketMetrics};
+use crate::metrics::{GrpcMetrics, Http3Metrics, QuicMetrics, SseMetrics, WebsocketMetrics};
 
 /// Top-level report artifact persisted to disk after each load test.
 // NOTE: This struct is mirrored in Python as `build_artifact_dict` in `src/strobengine/reporter.py`.
@@ -24,6 +24,8 @@ pub struct ReportArtifact {
     pub websocket: Option<WebsocketMetrics>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub grpc: Option<GrpcMetrics>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub http3: Option<Http3Metrics>,
     #[serde(rename = "chaos_faults", skip_serializing_if = "Option::is_none")]
     pub chaos: Option<ChaosMetrics>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -178,6 +180,7 @@ impl ReportArtifact {
             sse: summary.sse.clone(),
             websocket: summary.ws.clone(),
             grpc: summary.grpc.clone(),
+            http3: summary.http3.clone(),
             chaos: if summary.chaos_injected_total > 0 {
                 Some(ChaosMetrics {
                     total_injected: summary.chaos_injected_total,
@@ -257,6 +260,7 @@ mod tests {
             sse: None,
             websocket: None,
             grpc: None,
+            http3: None,
             chaos: None,
             latency_histogram: Some(std::collections::HashMap::new()),
             system_metrics: None,
@@ -386,6 +390,39 @@ mod tests {
     }
 
     #[test]
+    fn test_http3_field_skipped_when_none() {
+        let artifact = sample_artifact();
+        let json = serde_json::to_value(&artifact).unwrap();
+        assert!(json.get("http3").is_none());
+    }
+
+    #[test]
+    fn test_http3_field_serializes_when_present() {
+        let mut artifact = sample_artifact();
+        artifact.http3 = Some(crate::metrics::Http3Metrics {
+            cwnd_bytes_current: 4000,
+            cwnd_bytes_min: 1000,
+            cwnd_bytes_max: 8000,
+            cwnd_bytes_mean: 3500.0,
+            migrations_attempted_total: 4,
+            migrations_successful_total: 3,
+            migration_success_rate: 0.75,
+        });
+
+        let json = serde_json::to_value(&artifact).unwrap();
+        let h = &json["http3"];
+        assert_eq!(h["cwnd_bytes_max"], 8000);
+        assert_eq!(h["migrations_attempted_total"], 4);
+        assert_eq!(h["migrations_successful_total"], 3);
+        assert!((h["cwnd_bytes_mean"].as_f64().unwrap() - 3500.0).abs() < 1e-9);
+        assert!((h["migration_success_rate"].as_f64().unwrap() - 0.75).abs() < 1e-9);
+
+        let s = serde_json::to_string(&artifact).unwrap();
+        let back: ReportArtifact = serde_json::from_str(&s).unwrap();
+        assert_eq!(back.http3.unwrap().cwnd_bytes_min, 1000);
+    }
+
+    #[test]
     fn test_latency_percentiles_values() {
         let lp = LatencyPercentiles {
             p50_us: 1500.0,
@@ -492,6 +529,7 @@ mod tests {
             sse: None,
             ws: None,
             grpc: None,
+            http3: None,
             chaos_injected_total: 0,
             chaos_faults_by_type: std::collections::HashMap::new(),
             std_dev_latency_ms: 0.0,
@@ -539,6 +577,8 @@ mod tests {
             1_048_576u64,
             0.8f32,
             false,
+            false,
+            50u64,
         );
 
         let artifact = ReportArtifact::from_summary_and_config(&summary, &config);

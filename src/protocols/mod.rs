@@ -166,7 +166,8 @@ pub fn detect_protocol(
             config.quic_max_idle_timeout_ms,
             config.quic_zero_rtt,
         )
-        .map_err(SetupError::Http3)?;
+        .map_err(SetupError::Http3)?
+        .with_migration(config.http3_migrate, config.http3_migrate_every);
         Ok(Arc::new(engine))
     } else if url.starts_with("sse://") || url.starts_with("sses://") {
         let engine = sse::SseEngine::new(headers, chaos, config.sse_max_events);

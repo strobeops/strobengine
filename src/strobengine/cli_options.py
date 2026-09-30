@@ -193,6 +193,21 @@ GrpcH2MultiplexOpt = Annotated[
         help="Use a multiplexed raw-h2 gRPC engine emitting stream/window metrics (grpc:// only)",
     ),
 ]
+Http3MigrateOpt = Annotated[
+    bool,
+    typer.Option(
+        "--http3-migrate/--no-http3-migrate",
+        help="Opt-in QUIC connection migration (periodic socket rebind) for HTTP/3 metrics",
+    ),
+]
+Http3MigrateEveryOpt = Annotated[
+    int,
+    typer.Option(
+        "--http3-migrate-every",
+        min=1,
+        help="Perform an HTTP/3 migration every N iterations on a persistent session",
+    ),
+]
 HtmlOpt = Annotated[
     str | None,
     typer.Option("--html", help="Generate standalone HTML report"),
@@ -297,6 +312,8 @@ _REQUEST_FIELDS = frozenset(
         "ws_max_buffer_bytes",
         "ws_backpressure_warn_ratio",
         "grpc_h2_multiplex",
+        "http3_migrate",
+        "http3_migrate_every",
     }
 )
 
@@ -381,4 +398,6 @@ def _build_request_options(**kwargs: object) -> RequestOptions:
         ws_max_buffer_bytes=kwargs.get("ws_max_buffer_bytes", 1_048_576),
         ws_backpressure_warn_ratio=kwargs.get("ws_backpressure_warn_ratio", 0.8),
         grpc_h2_multiplex=kwargs.get("grpc_h2_multiplex", False),
+        http3_migrate=kwargs.get("http3_migrate", False),
+        http3_migrate_every=kwargs.get("http3_migrate_every", 50),
     )

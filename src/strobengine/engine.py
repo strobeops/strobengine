@@ -76,6 +76,8 @@ class RequestOptions:
     ws_max_buffer_bytes: int = 1_048_576
     ws_backpressure_warn_ratio: float = 0.8
     grpc_h2_multiplex: bool = False
+    http3_migrate: bool = False
+    http3_migrate_every: int = 50
 
     def __post_init__(self) -> None:
         if self.timeout <= 0:
@@ -122,6 +124,8 @@ def _build_test_config(
         ws_max_buffer_bytes=opts.ws_max_buffer_bytes,
         ws_backpressure_warn_ratio=opts.ws_backpressure_warn_ratio,
         grpc_h2_multiplex=opts.grpc_h2_multiplex,
+        http3_migrate=opts.http3_migrate,
+        http3_migrate_every=opts.http3_migrate_every,
     )
 
 

@@ -29,6 +29,7 @@ pub struct AggregatedMetrics {
     pub sse_metrics: Option<SseMetrics>,
     pub ws_metrics: Option<WebsocketMetrics>,
     pub grpc_metrics: Option<GrpcMetrics>,
+    pub http3_metrics: Option<Http3Metrics>,
     pub chaos_injected_total: u64,
     pub chaos_faults_by_type: HashMap<String, u64>,
     pub total_sockets_created: u64,
@@ -61,6 +62,7 @@ impl Default for AggregatedMetrics {
             sse_metrics: None,
             ws_metrics: None,
             grpc_metrics: None,
+            http3_metrics: None,
             chaos_injected_total: 0,
             chaos_faults_by_type: HashMap::new(),
             total_sockets_created: 0,
@@ -139,6 +141,7 @@ pub struct RequestMetric {
     pub sse_event_interval_us: Option<u64>,
     pub ws: Option<WsSample>,
     pub grpc: Option<GrpcSample>,
+    pub http3: Option<Http3Sample>,
     pub chaos_fault: Option<crate::chaos::ChaosFault>,
 }
 
@@ -158,6 +161,7 @@ impl RequestMetric {
             sse_event_interval_us: None,
             ws: None,
             grpc: None,
+            http3: None,
             chaos_fault: None,
         }
     }
@@ -279,6 +283,45 @@ impl GrpcSample {
     }
 }
 
+/// Aggregated HTTP/3 (QUIC) congestion-control and connection-migration telemetry.
+#[pyclass(skip_from_py_object)]
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+pub struct Http3Metrics {
+    #[pyo3(get)]
+    pub cwnd_bytes_current: u64,
+    #[pyo3(get)]
+    pub cwnd_bytes_min: u64,
+    #[pyo3(get)]
+    pub cwnd_bytes_max: u64,
+    #[pyo3(get)]
+    pub cwnd_bytes_mean: f64,
+    #[pyo3(get)]
+    pub migrations_attempted_total: u64,
+    #[pyo3(get)]
+    pub migrations_successful_total: u64,
+    #[pyo3(get)]
+    pub migration_success_rate: f64,
+}
+
+/// Per-iteration HTTP/3 sample fed from the protocol engine.
+///
+/// `cwnd_bytes` is an instantaneous QUIC congestion-window sample (from
+/// `Connection::stats().path.cwnd`); migration counters carry per-iteration
+/// deltas from the opt-in rebind harness (zero unless `--http3-migrate` is on).
+#[derive(Debug, Clone, Default)]
+pub struct Http3Sample {
+    pub cwnd_bytes: u64,
+    pub migrations_attempted: u64,
+    pub migrations_successful: u64,
+}
+
+impl Http3Sample {
+    /// True when the sample carries any meaningful HTTP/3 telemetry.
+    pub fn is_significant(&self) -> bool {
+        self.cwnd_bytes > 0 || self.migrations_attempted > 0
+    }
+}
+
 pub struct LiveCounters {
     pub total_requests: AtomicU64,
     pub errors: AtomicU64,
@@ -350,6 +393,8 @@ pub struct TestSummary {
     pub ws: Option<WebsocketMetrics>,
     #[pyo3(get)]
     pub grpc: Option<GrpcMetrics>,
+    #[pyo3(get)]
+    pub http3: Option<Http3Metrics>,
     #[pyo3(get)]
     pub chaos_injected_total: u64,
     #[pyo3(get)]
@@ -469,6 +514,7 @@ pub struct SummaryInput {
     pub sse_metrics: Option<SseMetrics>,
     pub ws_metrics: Option<WebsocketMetrics>,
     pub grpc_metrics: Option<GrpcMetrics>,
+    pub http3_metrics: Option<Http3Metrics>,
     pub chaos_injected_total: u64,
     pub chaos_faults_by_type: HashMap<String, u64>,
     pub resource_samples: Vec<system::ResourceSample>,
@@ -486,6 +532,7 @@ pub async fn finalize_metrics(mut rx: mpsc::Receiver<RequestMetric>) -> Aggregat
     let mut sse_stats = SseMetrics::default();
     let mut ws_stats = WebsocketMetrics::default();
     let mut grpc_stats = GrpcMetrics::default();
+    let mut http3_stats = Http3Metrics::default();
     let mut has_quic = false;
     let mut has_ws = false;
     let mut has_grpc = false;
@@ -495,6 +542,10 @@ pub async fn finalize_metrics(mut rx: mpsc::Receiver<RequestMetric>) -> Aggregat
     let mut grpc_util_count: u64 = 0;
     let mut grpc_capacity_min: u64 = u64::MAX;
     let mut grpc_stall_sum_us: u64 = 0;
+    let mut has_http3 = false;
+    let mut http3_cwnd_sum: u64 = 0;
+    let mut http3_cwnd_count: u64 = 0;
+    let mut http3_cwnd_min: u64 = u64::MAX;
     let mut quic_handshake_sum_us: u64 = 0;
     let mut quic_handshake_count: u64 = 0;
     let mut sse_first_event_sum_us: u64 = 0;
@@ -578,6 +629,25 @@ pub async fn finalize_metrics(mut rx: mpsc::Receiver<RequestMetric>) -> Aggregat
             }
         }
 
+        // HTTP/3 aggregation (O(1) running counters)
+        if let Some(sample) = metric.http3.as_ref()
+            && sample.is_significant()
+        {
+            has_http3 = true;
+            // "current" = last observed sample; min/max/mean over the session.
+            http3_stats.cwnd_bytes_current = sample.cwnd_bytes;
+            if sample.cwnd_bytes > http3_stats.cwnd_bytes_max {
+                http3_stats.cwnd_bytes_max = sample.cwnd_bytes;
+            }
+            if sample.cwnd_bytes < http3_cwnd_min {
+                http3_cwnd_min = sample.cwnd_bytes;
+            }
+            http3_cwnd_sum += sample.cwnd_bytes;
+            http3_cwnd_count += 1;
+            http3_stats.migrations_attempted_total += sample.migrations_attempted;
+            http3_stats.migrations_successful_total += sample.migrations_successful;
+        }
+
         // Chaos aggregation
         if let Some(ref fault) = metric.chaos_fault {
             metrics.chaos_injected_total += 1;
@@ -631,6 +701,23 @@ pub async fn finalize_metrics(mut rx: mpsc::Receiver<RequestMetric>) -> Aggregat
         grpc_capacity_min
     };
 
+    // Compute HTTP/3 cwnd mean/min + migration success rate.
+    if http3_cwnd_count > 0 {
+        http3_stats.cwnd_bytes_mean = http3_cwnd_sum as f64 / http3_cwnd_count as f64;
+    }
+    http3_stats.cwnd_bytes_min = if http3_cwnd_min == u64::MAX {
+        0
+    } else {
+        http3_cwnd_min
+    };
+    http3_stats.migration_success_rate = if http3_stats.migrations_attempted_total == 0 {
+        // Sentinel: no migrations required => trivially successful.
+        1.0
+    } else {
+        http3_stats.migrations_successful_total as f64
+            / http3_stats.migrations_attempted_total as f64
+    };
+
     metrics.quic_metrics = if has_quic { Some(quic_stats) } else { None };
     metrics.sse_metrics = if sse_stats.total_events_received > 0 || sse_first_event_count > 0 {
         Some(sse_stats)
@@ -639,6 +726,7 @@ pub async fn finalize_metrics(mut rx: mpsc::Receiver<RequestMetric>) -> Aggregat
     };
     metrics.ws_metrics = if has_ws { Some(ws_stats) } else { None };
     metrics.grpc_metrics = if has_grpc { Some(grpc_stats) } else { None };
+    metrics.http3_metrics = if has_http3 { Some(http3_stats) } else { None };
 
     metrics
 }
@@ -699,6 +787,7 @@ pub fn calculate_summary(input: SummaryInput) -> TestSummary {
             sse: input.sse_metrics,
             ws: input.ws_metrics,
             grpc: input.grpc_metrics,
+            http3: input.http3_metrics,
             chaos_injected_total: input.chaos_injected_total,
             chaos_faults_by_type: input.chaos_faults_by_type,
             std_dev_latency_ms: 0.0,
@@ -748,6 +837,7 @@ pub fn calculate_summary(input: SummaryInput) -> TestSummary {
         sse: input.sse_metrics,
         ws: input.ws_metrics,
         grpc: input.grpc_metrics,
+        http3: input.http3_metrics,
         chaos_injected_total: input.chaos_injected_total,
         chaos_faults_by_type: input.chaos_faults_by_type,
         std_dev_latency_ms,
@@ -811,6 +901,7 @@ mod tests {
             sse_metrics: None,
             ws_metrics: None,
             grpc_metrics: None,
+            http3_metrics: None,
             chaos_injected_total: 0,
             chaos_faults_by_type: HashMap::new(),
             resource_samples: Vec::new(),
@@ -848,6 +939,7 @@ mod tests {
             sse_metrics: None,
             ws_metrics: None,
             grpc_metrics: None,
+            http3_metrics: None,
             chaos_injected_total: 0,
             chaos_faults_by_type: HashMap::new(),
             resource_samples: Vec::new(),
@@ -886,6 +978,7 @@ mod tests {
             sse_metrics: None,
             ws_metrics: None,
             grpc_metrics: None,
+            http3_metrics: None,
             chaos_injected_total: 0,
             chaos_faults_by_type: HashMap::new(),
             resource_samples: Vec::new(),
@@ -919,6 +1012,7 @@ mod tests {
             sse_metrics: None,
             ws_metrics: None,
             grpc_metrics: None,
+            http3_metrics: None,
             chaos_injected_total: 0,
             chaos_faults_by_type: HashMap::new(),
             resource_samples: Vec::new(),
@@ -953,6 +1047,7 @@ mod tests {
             sse_metrics: None,
             ws_metrics: None,
             grpc_metrics: None,
+            http3_metrics: None,
             chaos_injected_total: 0,
             chaos_faults_by_type: HashMap::new(),
             resource_samples: Vec::new(),
@@ -982,6 +1077,7 @@ mod tests {
             sse_metrics: None,
             ws_metrics: None,
             grpc_metrics: None,
+            http3_metrics: None,
             chaos_injected_total: 0,
             chaos_faults_by_type: HashMap::new(),
             resource_samples: Vec::new(),
@@ -1010,6 +1106,7 @@ mod tests {
             sse_metrics: None,
             ws_metrics: None,
             grpc_metrics: None,
+            http3_metrics: None,
             chaos_injected_total: 0,
             chaos_faults_by_type: HashMap::new(),
             resource_samples: Vec::new(),
@@ -1044,6 +1141,7 @@ mod tests {
             sse_metrics: None,
             ws_metrics: None,
             grpc_metrics: None,
+            http3_metrics: None,
             chaos_injected_total: 0,
             chaos_faults_by_type: HashMap::new(),
             resource_samples: Vec::new(),
@@ -1080,6 +1178,7 @@ mod tests {
             }),
             ws_metrics: None,
             grpc_metrics: None,
+            http3_metrics: None,
             chaos_injected_total: 0,
             chaos_faults_by_type: HashMap::new(),
             resource_samples: Vec::new(),
@@ -1126,6 +1225,7 @@ mod tests {
                 backpressure_threshold_breaches: 3,
             }),
             grpc_metrics: None,
+            http3_metrics: None,
             chaos_injected_total: 0,
             chaos_faults_by_type: HashMap::new(),
             resource_samples: Vec::new(),
@@ -1232,6 +1332,55 @@ mod tests {
         assert_eq!(grpc.send_capacity_min_bytes, 32768);
     }
 
+    #[tokio::test]
+    async fn test_finalize_metrics_aggregates_http3_samples() {
+        let (tx, rx) = tokio::sync::mpsc::channel::<RequestMetric>(8);
+        let s = |cwnd: u64, att: u64, succ: u64| Http3Sample {
+            cwnd_bytes: cwnd,
+            migrations_attempted: att,
+            migrations_successful: succ,
+        };
+        for sample in [s(2000, 0, 0), s(1000, 0, 0), s(4000, 2, 1)] {
+            let mut m = RequestMetric::error(1000);
+            m.http3 = Some(sample);
+            tx.send(m).await.unwrap();
+        }
+        // Insignificant sample must not flip has_http3.
+        let mut none = RequestMetric::error(1000);
+        none.http3 = Some(Http3Sample::default());
+        tx.send(none).await.unwrap();
+        drop(tx);
+
+        let agg = finalize_metrics(rx).await;
+        let h = agg.http3_metrics.expect("http3 metrics present");
+        // current = last significant sample (4000); min/max/mean over 2000,1000,4000.
+        assert_eq!(h.cwnd_bytes_current, 4000);
+        assert_eq!(h.cwnd_bytes_min, 1000);
+        assert_eq!(h.cwnd_bytes_max, 4000);
+        assert!((h.cwnd_bytes_mean - (7000.0 / 3.0)).abs() < 1e-6);
+        assert_eq!(h.migrations_attempted_total, 2);
+        assert_eq!(h.migrations_successful_total, 1);
+        assert!((h.migration_success_rate - 0.5).abs() < 1e-9);
+    }
+
+    #[tokio::test]
+    async fn test_http3_migration_rate_sentinel_no_migrations() {
+        let (tx, rx) = tokio::sync::mpsc::channel::<RequestMetric>(8);
+        let mut m = RequestMetric::error(1000);
+        m.http3 = Some(Http3Sample {
+            cwnd_bytes: 5000,
+            migrations_attempted: 0,
+            migrations_successful: 0,
+        });
+        tx.send(m).await.unwrap();
+        drop(tx);
+        let agg = finalize_metrics(rx).await;
+        let h = agg.http3_metrics.expect("http3 present via cwnd");
+        assert_eq!(h.migrations_attempted_total, 0);
+        // Zero migrations attempted => trivially successful (1.0 sentinel).
+        assert!((h.migration_success_rate - 1.0).abs() < 1e-9);
+    }
+
     #[test]
     fn test_summary_optional_protocol_metrics_defaults() {
         let s = calculate_summary(SummaryInput {
@@ -1249,6 +1398,7 @@ mod tests {
             sse_metrics: None,
             ws_metrics: None,
             grpc_metrics: None,
+            http3_metrics: None,
             chaos_injected_total: 0,
             chaos_faults_by_type: HashMap::new(),
             resource_samples: Vec::new(),
@@ -1261,6 +1411,7 @@ mod tests {
         assert!(s.sse.is_none());
         assert!(s.ws.is_none());
         assert!(s.grpc.is_none());
+        assert!(s.http3.is_none());
         assert_eq!(s.avg_connection_latency_us, 0.0);
     }
 
@@ -1282,6 +1433,7 @@ mod tests {
             sse_metrics: None,
             ws_metrics: None,
             grpc_metrics: None,
+            http3_metrics: None,
             chaos_injected_total: 0,
             chaos_faults_by_type: HashMap::new(),
             resource_samples: Vec::new(),
@@ -1332,6 +1484,7 @@ mod tests {
             sse_metrics: None,
             ws_metrics: None,
             grpc_metrics: None,
+            http3_metrics: None,
             chaos_injected_total: 0,
             chaos_faults_by_type: HashMap::new(),
             resource_samples: Vec::new(),
@@ -1362,6 +1515,7 @@ mod tests {
             sse_metrics: None,
             ws_metrics: None,
             grpc_metrics: None,
+            http3_metrics: None,
             chaos_injected_total: 0,
             chaos_faults_by_type: HashMap::new(),
             resource_samples: Vec::new(),
@@ -1393,6 +1547,7 @@ mod tests {
             sse_metrics: None,
             ws_metrics: None,
             grpc_metrics: None,
+            http3_metrics: None,
             chaos_injected_total: 0,
             chaos_faults_by_type: HashMap::new(),
             resource_samples: Vec::new(),
@@ -1421,6 +1576,7 @@ mod tests {
             sse_metrics: None,
             ws_metrics: None,
             grpc_metrics: None,
+            http3_metrics: None,
             chaos_injected_total: 0,
             chaos_faults_by_type: HashMap::new(),
             resource_samples: Vec::new(),
@@ -1450,6 +1606,7 @@ mod tests {
             sse_metrics: None,
             ws_metrics: None,
             grpc_metrics: None,
+            http3_metrics: None,
             chaos_injected_total: 0,
             chaos_faults_by_type: HashMap::new(),
             resource_samples: Vec::new(),
@@ -1478,6 +1635,7 @@ mod tests {
             sse_metrics: None,
             ws_metrics: None,
             grpc_metrics: None,
+            http3_metrics: None,
             chaos_injected_total: 0,
             chaos_faults_by_type: HashMap::new(),
             resource_samples: Vec::new(),
@@ -1506,6 +1664,7 @@ mod tests {
             sse_metrics: None,
             ws_metrics: None,
             grpc_metrics: None,
+            http3_metrics: None,
             chaos_injected_total: 0,
             chaos_faults_by_type: HashMap::new(),
             resource_samples: Vec::new(),
@@ -1535,6 +1694,7 @@ mod tests {
             sse_metrics: None,
             ws_metrics: None,
             grpc_metrics: None,
+            http3_metrics: None,
             chaos_injected_total: 0,
             chaos_faults_by_type: HashMap::new(),
             resource_samples: Vec::new(),
@@ -1563,6 +1723,7 @@ mod tests {
             sse_metrics: None,
             ws_metrics: None,
             grpc_metrics: None,
+            http3_metrics: None,
             chaos_injected_total: 0,
             chaos_faults_by_type: HashMap::new(),
             resource_samples: Vec::new(),

@@ -151,6 +151,30 @@ Per-iteration fields available in `RequestMetric`:
 | `quic_0rtt_used` | Whether 0-RTT was accepted (persistent sessions) |
 | `quic_retransmits` | Packet retransmission count since last iteration |
 
+### Deep Metrics (congestion window & migration)
+
+Each HTTP/3 iteration also samples the QUIC congestion window, emitted in the
+`http3` artifact block (CLI + HTML panels) when present:
+
+| Field | Description |
+|-------|-------------|
+| `cwnd_bytes_current` | Congestion window at the last sample (`Connection::stats().path.cwnd`) |
+| `cwnd_bytes_min` | Minimum cwnd observed across the run |
+| `cwnd_bytes_max` | Peak cwnd observed |
+| `cwnd_bytes_mean` | Mean cwnd across samples |
+| `migrations_attempted_total` | Connection-migration attempts (opt-in) |
+| `migrations_successful_total` | Migrations whose connection survived the rebind round-trip |
+| `migration_success_rate` | `successful / attempted`; `1.0` sentinel when none attempted |
+
+**Connection migration is opt-in** via `--http3-migrate` (`RequestOptions(http3_migrate=True)`,
+default off), because the default HTTP/3 path never rebinds its socket. When on,
+a persistent session rebinds the endpoint's UDP socket to a fresh local address
+every `--http3-migrate-every` iterations, forcing QUIC path validation
+(`PATH_CHALLENGE`/`PATH_RESPONSE`). quinn exposes no path-validation event, so
+success is inferred: the migration counts as successful when the connection
+survives and the next round-trip completes without a reconnect. `cwnd` is always
+sampled (no flag required).
+
 ## Chaos Testing
 
 HTTP/3 chaos testing applies protocol-agnostic faults from the existing

@@ -48,6 +48,7 @@ These flags appear on all three subcommands (`load`, `stress`, `spike`):
 | `sse` | `total_events_received`, `avg_ttfb_ms` *(SSE only)* |
 | `websocket` | `pings_sent_total`, `pings_received_total`, `pongs_solicited_total`, `pongs_unsolicited_total`, `backpressure_max_bytes`, `backpressure_mean_bytes`, `backpressure_threshold_breaches` *(WebSocket runs with heartbeat/write activity only)* |
 | `grpc` | `active_streams_peak`, `concurrency_utilization_peak`, `concurrency_utilization_mean`, `window_exhaustion_events_total`, `window_stall_duration_ms_total`, `send_capacity_min_bytes` *(multiplexed raw-h2 gRPC runs only)* |
+| `http3` | `cwnd_bytes_current`, `cwnd_bytes_min`, `cwnd_bytes_max`, `cwnd_bytes_mean`, `migrations_attempted_total`, `migrations_successful_total`, `migration_success_rate` *(HTTP/3 runs; migration counters require `--http3-migrate`)* |
 | `chaos_faults` | `injected_total`, `by_type` *(chaos-enabled runs only)* |
 | `system_metrics` | `summary` (peak/avg CPU, memory MB, threads), `samples` (time series) *(when `--sys-sample-interval > 0`)* |
 | `connection_pool` | `socket_creation_rate`, `socket_reuse_rate`, `dns_lookup_ms` *(when requests > 0)* |

@@ -7,6 +7,7 @@ import sys
 from strobengine._strobengine import (
     HISTOGRAM_BUCKET_ORDER,
     GrpcMetrics,
+    Http3Metrics,
     QuicMetrics,
     SseMetrics,
     SystemMetrics,
@@ -236,6 +237,24 @@ def _print_rich(
                 f"Min credit {_format_number(grpc.send_capacity_min_bytes)} B",
             )
 
+    # HTTP/3 congestion window & migration (QUIC runs only)
+    http3 = getattr(summary, "http3", None)
+    if http3 is not None and isinstance(http3, Http3Metrics):
+        table.add_row(
+            "HTTP/3 cwnd",
+            f"Cur {_format_number(http3.cwnd_bytes_current)} B | "
+            f"min {_format_number(http3.cwnd_bytes_min)} / "
+            f"max {_format_number(http3.cwnd_bytes_max)} / "
+            f"mean {http3.cwnd_bytes_mean:.0f} B",
+        )
+        if http3.migrations_attempted_total > 0:
+            table.add_row(
+                "HTTP/3 Migration",
+                f"{_format_number(http3.migrations_attempted_total)} attempted / "
+                f"{_format_number(http3.migrations_successful_total)} successful "
+                f"({http3.migration_success_rate:.0%})",
+            )
+
     console.print()
     console.print(table)
     console.print()
@@ -357,6 +376,22 @@ def _print_plain(
                 f"  gRPC Window:   {_format_number(grpc.window_exhaustion_events_total)} "
                 f"exhaustions, {grpc.window_stall_duration_ms_total:.1f} ms stalled, "
                 f"min credit {_format_number(grpc.send_capacity_min_bytes)} B"
+            )
+
+    # HTTP/3 congestion window & migration (QUIC runs only)
+    http3 = getattr(summary, "http3", None)
+    if http3 is not None and isinstance(http3, Http3Metrics):
+        lines.append(
+            f"  HTTP/3 cwnd:   cur {_format_number(http3.cwnd_bytes_current)} B, "
+            f"min {_format_number(http3.cwnd_bytes_min)} / "
+            f"max {_format_number(http3.cwnd_bytes_max)} / "
+            f"mean {http3.cwnd_bytes_mean:.0f} B"
+        )
+        if http3.migrations_attempted_total > 0:
+            lines.append(
+                f"  HTTP/3 Migr:   {_format_number(http3.migrations_attempted_total)} "
+                f"attempted, {_format_number(http3.migrations_successful_total)} successful "
+                f"({http3.migration_success_rate:.0%})"
             )
 
     lines.append(sep)
@@ -527,6 +562,22 @@ def _format_grpc(summary: TestSummary) -> dict | None:
     }
 
 
+def _format_http3(summary: TestSummary) -> dict | None:
+    """Extract HTTP/3 congestion-window/migration metrics into a JSON-native dict."""
+    h = getattr(summary, "http3", None)
+    if h is None or not isinstance(h, Http3Metrics):
+        return None
+    return {
+        "cwnd_bytes_current": h.cwnd_bytes_current,
+        "cwnd_bytes_min": h.cwnd_bytes_min,
+        "cwnd_bytes_max": h.cwnd_bytes_max,
+        "cwnd_bytes_mean": round(h.cwnd_bytes_mean, 1),
+        "migrations_attempted_total": h.migrations_attempted_total,
+        "migrations_successful_total": h.migrations_successful_total,
+        "migration_success_rate": round(h.migration_success_rate, 4),
+    }
+
+
 def _build_artifact_dict_fallback(summary: TestSummary, config: object) -> dict:
     """Manual construction for RequestOptions when TestConfig is unavailable."""
     successful = summary.total_requests - summary.total_errors
@@ -586,6 +637,7 @@ def _build_artifact_dict_fallback(summary: TestSummary, config: object) -> dict:
         "connection_pool": _format_connection_pool(summary),
         "websocket": _format_ws(summary),
         "grpc": _format_grpc(summary),
+        "http3": _format_http3(summary),
     }
 
 
