@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from xml.etree.ElementTree import Element, SubElement, tostring
 
-from strobengine.reporter import build_artifact_dict
+from strobengine.artifact import build_artifact_dict
 
 
 def generate_junit_report(artifact: dict) -> str:

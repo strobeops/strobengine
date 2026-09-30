@@ -6,7 +6,7 @@ from pathlib import Path
 
 from jinja2 import Template
 
-from strobengine.reporter import build_artifact_dict
+from strobengine.artifact import build_artifact_dict
 
 # Load Chart.js from local asset for 100% offline reports
 _ASSETS_DIR = Path(__file__).parent / "assets"

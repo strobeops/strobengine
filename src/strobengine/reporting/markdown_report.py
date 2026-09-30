@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from strobengine.reporter import build_artifact_dict
+from strobengine.artifact import build_artifact_dict
 from strobengine.reporting import us_to_ms
 
 
