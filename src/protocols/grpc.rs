@@ -140,7 +140,7 @@ pub struct GrpcEngine {
     chaos: ChaosEngine,
     service: String,
     method: String,
-    payload: Vec<u8>,
+    payload: Bytes,
     #[allow(dead_code)] // Stored for post-reflection JSON encoding
     grpc_payload: Option<String>,
     deadline_ms: Option<u64>,
@@ -178,7 +178,7 @@ impl GrpcEngine {
         let svc = service.clone().unwrap_or_default();
         let mth = method.clone().unwrap_or_default();
 
-        let payload = decode_grpc_payload(&grpc_payload, &proto_path, &svc, &mth)?;
+        let payload = Bytes::from(decode_grpc_payload(&grpc_payload, &proto_path, &svc, &mth)?);
 
         Ok(Self {
             endpoint,
@@ -253,9 +253,9 @@ impl ProtocolEngine for GrpcEngine {
             }
             Some(ChaosFault::MetadataCorruption) => {
                 tracing::trace!("grpc chaos: metadata corruption");
-                Bytes::from(self.payload.clone())
+                self.payload.clone()
             }
-            _ => Bytes::from(self.payload.clone()),
+            _ => self.payload.clone(),
         };
 
         // Build gRPC path: /service/method
@@ -414,7 +414,7 @@ mod tests {
             false,
         )
         .unwrap();
-        assert_eq!(engine.payload, b"test");
+        assert_eq!(&engine.payload[..], &b"test"[..]);
     }
 
     #[test]
@@ -454,7 +454,7 @@ mod tests {
             false,
         )
         .unwrap();
-        assert_eq!(engine.payload, vec![0x08, 0x01]);
+        assert_eq!(&engine.payload[..], &[0x08, 0x01][..]);
     }
 
     #[test]
@@ -471,6 +471,6 @@ mod tests {
             false,
         )
         .unwrap();
-        assert_eq!(engine.payload, vec![0xde, 0xad, 0xbe, 0xef]);
+        assert_eq!(&engine.payload[..], &[0xde, 0xad, 0xbe, 0xef][..]);
     }
 }

@@ -8,6 +8,7 @@
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
+use bytes::Bytes;
 use criterion::{BenchmarkId, Criterion, black_box, criterion_group, criterion_main};
 
 use _strobengine::protocols::grpc_h2::build_frame;
@@ -39,5 +40,33 @@ fn bench_active_guard(c: &mut Criterion) {
     group.finish();
 }
 
-criterion_group!(benches, bench_frame, bench_active_guard);
+fn bench_payload_clone(c: &mut Criterion) {
+    // Per-iteration payload copy: Vec<u8>::clone() (alloc + memcpy) vs the
+    // Bytes::clone() we now use (O(1) Arc refcount bump) in the gRPC engines.
+    let mut group = c.benchmark_group("grpc_payload_clone");
+    for size in [16usize, 1024, 65_536] {
+        let v = vec![0u8; size];
+        let b = Bytes::from(v.clone());
+        group.bench_function(BenchmarkId::new("vec_clone", size), |benches| {
+            benches.iter(|| {
+                let clone = black_box(&v).clone();
+                black_box(&clone[..]);
+            })
+        });
+        group.bench_function(BenchmarkId::new("bytes_clone", size), |benches| {
+            benches.iter(|| {
+                let clone = black_box(&b).clone();
+                black_box(&clone[..]);
+            })
+        });
+    }
+    group.finish();
+}
+
+criterion_group!(
+    benches,
+    bench_frame,
+    bench_active_guard,
+    bench_payload_clone
+);
 criterion_main!(benches);
