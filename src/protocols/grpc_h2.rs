@@ -72,7 +72,7 @@ pub struct GrpcH2Engine {
     authority: String,
     service: String,
     method: String,
-    payload: Vec<u8>,
+    payload: Bytes,
     headers: Vec<(String, String)>,
     deadline: Option<Duration>,
     chaos: ChaosEngine,
@@ -108,7 +108,7 @@ impl GrpcH2Engine {
 
         let svc = service.unwrap_or_default();
         let mth = method.unwrap_or_default();
-        let payload = decode_grpc_payload(&grpc_payload, &proto_path, &svc, &mth)?;
+        let payload = Bytes::from(decode_grpc_payload(&grpc_payload, &proto_path, &svc, &mth)?);
 
         Ok(Self {
             authority,
@@ -169,7 +169,7 @@ impl ProtocolEngine for GrpcH2Engine {
         }
 
         let payload_bytes = match fault {
-            Some(ChaosFault::CorruptedPayload) => b"\xff\xfe\xbd\xef".to_vec(),
+            Some(ChaosFault::CorruptedPayload) => Bytes::from_static(b"\xff\xfe\xbd\xef"),
             _ => self.payload.clone(),
         };
 
