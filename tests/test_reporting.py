@@ -266,7 +266,7 @@ class TestRustDictParity:
     def test_ws_report_serialization(self, monkeypatch):
         # Real WebsocketMetrics is a Rust pyclass (not Python-constructible), so
         # swap in a stand-in type for the isinstance guard and assert the shape.
-        import strobengine.reporter as reporter
+        import strobengine.artifact as artifact
 
         class FakeWs:
             pings_sent_total = 8
@@ -277,7 +277,7 @@ class TestRustDictParity:
             backpressure_mean_bytes = 786_432.5
             backpressure_threshold_breaches = 3
 
-        monkeypatch.setattr(reporter, "WebsocketMetrics", FakeWs)
+        monkeypatch.setattr(artifact, "WebsocketMetrics", FakeWs)
         summary = _make_summary()
         summary.ws = FakeWs()
 
@@ -293,7 +293,7 @@ class TestRustDictParity:
         assert ws["backpressure_threshold_breaches"] == 3
 
     def test_grpc_report_serialization(self, monkeypatch):
-        import strobengine.reporter as reporter
+        import strobengine.artifact as artifact
 
         class FakeGrpc:
             active_streams_peak = 6
@@ -303,7 +303,7 @@ class TestRustDictParity:
             window_stall_duration_ms_total = 42.5
             send_capacity_min_bytes = 32768
 
-        monkeypatch.setattr(reporter, "GrpcMetrics", FakeGrpc)
+        monkeypatch.setattr(artifact, "GrpcMetrics", FakeGrpc)
         summary = _make_summary()
         summary.grpc = FakeGrpc()
 
@@ -318,7 +318,7 @@ class TestRustDictParity:
         assert g["send_capacity_min_bytes"] == 32768
 
     def test_http3_report_serialization(self, monkeypatch):
-        import strobengine.reporter as reporter
+        import strobengine.artifact as artifact
 
         class FakeHttp3:
             cwnd_bytes_current = 4000
@@ -329,7 +329,7 @@ class TestRustDictParity:
             migrations_successful_total = 3
             migration_success_rate = 0.75
 
-        monkeypatch.setattr(reporter, "Http3Metrics", FakeHttp3)
+        monkeypatch.setattr(artifact, "Http3Metrics", FakeHttp3)
         summary = _make_summary()
         summary.http3 = FakeHttp3()
 
@@ -626,7 +626,7 @@ class TestHTMLReport:
         assert "WebSocket Deep Metrics" not in html
 
     def test_render_html_contains_websocket_section(self, monkeypatch):
-        import strobengine.reporter as reporter
+        import strobengine.artifact as artifact
 
         class FakeWs:
             pings_sent_total = 5
@@ -637,7 +637,7 @@ class TestHTMLReport:
             backpressure_mean_bytes = 524_288.0
             backpressure_threshold_breaches = 1
 
-        monkeypatch.setattr(reporter, "WebsocketMetrics", FakeWs)
+        monkeypatch.setattr(artifact, "WebsocketMetrics", FakeWs)
         summary = _make_summary()
         summary.ws = FakeWs()
 
@@ -651,7 +651,7 @@ class TestHTMLReport:
         assert "gRPC Stream Concurrency" not in html
 
     def test_render_html_contains_grpc_section(self, monkeypatch):
-        import strobengine.reporter as reporter
+        import strobengine.artifact as artifact
 
         class FakeGrpc:
             active_streams_peak = 6
@@ -661,7 +661,7 @@ class TestHTMLReport:
             window_stall_duration_ms_total = 42.0
             send_capacity_min_bytes = 1_048_576
 
-        monkeypatch.setattr(reporter, "GrpcMetrics", FakeGrpc)
+        monkeypatch.setattr(artifact, "GrpcMetrics", FakeGrpc)
         summary = _make_summary()
         summary.grpc = FakeGrpc()
 
@@ -675,7 +675,7 @@ class TestHTMLReport:
         assert "HTTP/3 Congestion Window" not in html
 
     def test_render_html_contains_http3_section(self, monkeypatch):
-        import strobengine.reporter as reporter
+        import strobengine.artifact as artifact
 
         class FakeHttp3:
             cwnd_bytes_current = 4000
@@ -686,7 +686,7 @@ class TestHTMLReport:
             migrations_successful_total = 3
             migration_success_rate = 0.75
 
-        monkeypatch.setattr(reporter, "Http3Metrics", FakeHttp3)
+        monkeypatch.setattr(artifact, "Http3Metrics", FakeHttp3)
         summary = _make_summary()
         summary.http3 = FakeHttp3()
 
@@ -751,7 +751,7 @@ class TestSaveReportAtomicity:
         out_dir = tmp_path / "reports"
         with (
             patch(
-                "strobengine.reporter.build_artifact_dict",
+                "strobengine.persistence.build_artifact_dict",
                 return_value={"metadata": {}},
             ),
             patch("os.replace", side_effect=OSError("disk full")),
@@ -765,7 +765,7 @@ class TestSaveReportAtomicity:
         out_dir = tmp_path / "reports"
         with (
             patch(
-                "strobengine.reporter.build_artifact_dict",
+                "strobengine.persistence.build_artifact_dict",
                 return_value={"metadata": {}},
             ),
             patch("json.dump", side_effect=KeyboardInterrupt()),
@@ -780,7 +780,7 @@ class TestSaveReportAtomicity:
 
         out_dir = tmp_path / "reports"
         with patch(
-            "strobengine.reporter.build_artifact_dict", return_value={"metadata": {}}
+            "strobengine.persistence.build_artifact_dict", return_value={"metadata": {}}
         ):
             result = save_report(
                 _make_summary(), _make_config(), output_dir=str(out_dir)

@@ -55,6 +55,15 @@ This document outlines the planned trajectory and upcoming feature epics for **s
 
 ---
 
+### Epic: Static Type Safety & Quality Assurance
+*Target Focus: Codebase Maintainability & Developer Ergonomics*
+
+- [ ] Integrate Pyright static type checking into dev workflow (`uv add --dev pyright` / `uv run pyright`).
+- [ ] Configure `pyrightconfig.json` with basic strictness to enforce function signatures and PyO3 interface contracts across Python/Rust boundaries.
+- [ ] Add Pyright validation step to local checks and CI workflow.
+
+---
+
 ## Multi-Target Parallel Execution
 
 ### Epic: Multi-Target Parallel Execution

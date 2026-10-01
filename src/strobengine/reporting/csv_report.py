@@ -6,7 +6,7 @@ import csv
 import io
 from pathlib import Path
 
-from strobengine.reporter import build_artifact_dict
+from strobengine.artifact import build_artifact_dict
 
 
 def generate_csv_report(artifact: dict) -> str:
