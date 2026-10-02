@@ -3,6 +3,7 @@ import shutil
 import socket
 import sys
 import threading
+from collections.abc import Generator
 from pathlib import Path
 
 import pytest
@@ -70,3 +71,39 @@ def _find_cli_bin() -> str:
 @pytest.fixture(scope="session")
 def cli_bin() -> str:
     return _find_cli_bin()
+
+
+@pytest.fixture
+def blackhole_server() -> Generator[str]:
+    """A TCP listener that accepts connections but never responds.
+
+    Reproduces a blackholed target: clients that connect (e.g. a WebSocket
+    handshake) wait forever for a reply that never comes.
+    """
+    srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    srv.bind(("127.0.0.1", 0))
+    srv.listen(16)
+    srv.settimeout(0.5)
+    port = srv.getsockname()[1]
+    stop = threading.Event()
+    held: list[socket.socket] = []
+
+    def _accept_loop() -> None:
+        while not stop.is_set():
+            try:
+                conn, _ = srv.accept()
+                held.append(conn)
+            except TimeoutError:
+                continue
+
+    thread = threading.Thread(target=_accept_loop, daemon=True)
+    thread.start()
+
+    yield f"ws://127.0.0.1:{port}"
+
+    stop.set()
+    thread.join(timeout=5)
+    for conn in held:
+        conn.close()
+    srv.close()
