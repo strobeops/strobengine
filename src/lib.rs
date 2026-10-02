@@ -624,3 +624,107 @@ fn _strobengine(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add("HISTOGRAM_BUCKET_ORDER", metrics::HISTOGRAM_BUCKET_ORDER)?;
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::protocols::WorkerSession;
+
+    /// Engine whose iterations never complete. Used to prove that
+    /// `spawn_worker` bounds every iteration with `timeout_dur`.
+    struct HangingEngine {
+        with_context: bool,
+    }
+
+    #[async_trait::async_trait]
+    impl ProtocolEngine for HangingEngine {
+        async fn execute_iteration(&self, _target_url: &str) -> RequestMetric {
+            std::future::pending::<()>().await;
+            unreachable!()
+        }
+
+        async fn create_worker_context(&self) -> Option<Box<dyn WorkerSession>> {
+            self.with_context
+                .then(|| Box::new(HangSession) as Box<dyn WorkerSession>)
+        }
+
+        async fn execute_iteration_with_context(
+            &self,
+            _target_url: &str,
+            _ctx: &mut dyn WorkerSession,
+        ) -> RequestMetric {
+            std::future::pending::<()>().await;
+            unreachable!()
+        }
+    }
+
+    struct HangSession;
+
+    #[async_trait::async_trait]
+    impl WorkerSession for HangSession {
+        async fn shutdown(&mut self) {}
+
+        fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
+            self
+        }
+    }
+
+    /// Run a hanging worker for 2s with a 1s deadline and collect the metrics
+    /// it produced. The 15s outer guard turns a regression (worker parked
+    /// forever) into a failed assertion instead of a hung test suite.
+    async fn run_hanging_worker(with_context: bool) -> Vec<RequestMetric> {
+        let engine: Arc<dyn ProtocolEngine> = Arc::new(HangingEngine { with_context });
+        let counters = Arc::new(LiveCounters::new());
+        let (tx, mut rx) = tokio::sync::mpsc::channel(16);
+        let token = CancellationToken::new();
+
+        let handle = spawn_worker(
+            engine,
+            "http://127.0.0.1:9/hang".to_string(),
+            counters,
+            tx,
+            token,
+            Duration::from_secs(2),
+            1,
+        );
+
+        tokio::time::timeout(Duration::from_secs(15), handle)
+            .await
+            .expect("worker must finish within the deadline guard")
+            .expect("worker task panicked");
+
+        let mut metrics = Vec::new();
+        while let Some(metric) = rx.recv().await {
+            metrics.push(metric);
+        }
+        metrics
+    }
+
+    #[tokio::test]
+    async fn stateless_iterations_are_bounded_by_timeout() {
+        let metrics = run_hanging_worker(false).await;
+        assert!(
+            (1..=5).contains(&metrics.len()),
+            "expected 1-5 timed-out iterations, got {}",
+            metrics.len()
+        );
+        assert!(
+            metrics.iter().all(|m| m.status_code == 0),
+            "timed-out iterations must be recorded as errors"
+        );
+    }
+
+    #[tokio::test]
+    async fn contextual_iterations_are_bounded_by_timeout() {
+        let metrics = run_hanging_worker(true).await;
+        assert!(
+            (1..=5).contains(&metrics.len()),
+            "expected 1-5 timed-out iterations, got {}",
+            metrics.len()
+        );
+        assert!(
+            metrics.iter().all(|m| m.status_code == 0),
+            "timed-out iterations must be recorded as errors"
+        );
+    }
+}
