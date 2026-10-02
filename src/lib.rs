@@ -171,22 +171,26 @@ fn spawn_worker(
         while start.elapsed() < duration && !token.is_cancelled() {
             counters.total_requests.fetch_add(1, Ordering::Relaxed);
 
-            let metric = if let Some(ref mut ctx) = worker_ctx {
-                tokio::select! {
-                    _ = token.cancelled() => {
-                        tracing::debug!("worker cancelled");
-                        break;
-                    }
-                    m = engine.execute_iteration_with_context(&url, ctx.as_mut()) => m,
+            // Every iteration is bounded by `timeout_dur` so a stalled server
+            // (blackholed connect, dead stream) can never park a worker
+            // forever; Ctrl+C remains a second escape hatch.
+            let metric = tokio::select! {
+                _ = token.cancelled() => {
+                    tracing::debug!("worker cancelled");
+                    break;
                 }
-            } else {
-                tokio::select! {
-                    _ = token.cancelled() => {
-                        tracing::debug!("worker cancelled");
-                        break;
+                outcome = tokio::time::timeout(timeout_dur, async {
+                    match worker_ctx.as_deref_mut() {
+                        Some(ctx) => engine.execute_iteration_with_context(&url, ctx).await,
+                        None => engine.execute_iteration(&url).await,
                     }
-                    m = engine.execute_iteration(&url) => m,
-                }
+                }) => match outcome {
+                    Ok(metric) => metric,
+                    Err(_) => {
+                        tracing::debug!(?timeout_dur, "iteration exceeded deadline");
+                        RequestMetric::error(timeout_dur.as_micros())
+                    }
+                },
             };
 
             counters.completed_requests.fetch_add(1, Ordering::Relaxed);
