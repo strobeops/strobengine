@@ -150,12 +150,28 @@ where
 
 impl<S: Unpin> Unpin for CountingSink<S> {}
 
-/// Result of a bounded read pass over a WebSocket stream: terminal bytes plus the
-/// control frames observed en route.
-#[derive(Debug, Default)]
+/// How a bounded read pass over a WebSocket stream terminated.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ReadStatus {
+    /// A Text or Binary data frame was received.
+    Data,
+    /// A Pong frame was received.
+    Pong,
+    /// The server sent a Close frame without a prior data/pong frame.
+    Close,
+    /// The stream ended cleanly without a terminal frame.
+    Eof,
+    /// The stream yielded a read error.
+    Error,
+    /// The bounded read exceeded the configured timeout.
+    Timeout,
+}
+
+/// Result of a bounded read pass: terminal status plus the frames observed en route.
+#[derive(Debug)]
 struct ReadOutcome {
+    status: ReadStatus,
     bytes: u64,
-    got_pong: bool,
     pings_received: u64,
     pongs_received: u64,
 }
@@ -270,15 +286,25 @@ impl PersistentWsSession {
     }
 
     /// Send a payload and receive a response. Returns the response bytes.
+    ///
+    /// Only a data frame is a success. A `Close`, EOF, or stream error fails
+    /// the iteration and discards the stream so the next iteration reconnects.
+    /// A read timeout fails the iteration but keeps the session: the server may
+    /// simply be slow, and reconnecting would not help.
     pub async fn send_and_receive(&mut self, payload: &[u8]) -> Result<Vec<u8>, EngineError> {
-        let stream = self.stream.as_mut().ok_or(EngineError::NotConnected)?;
-
-        stream
-            .send(Message::Text(
-                String::from_utf8_lossy(payload).into_owned().into(),
-            ))
-            .await
-            .map_err(|e| EngineError::ConnectionFailed(e.to_string()))?;
+        let send_result = {
+            let stream = self.stream.as_mut().ok_or(EngineError::NotConnected)?;
+            stream
+                .send(Message::Text(
+                    String::from_utf8_lossy(payload).into_owned().into(),
+                ))
+                .await
+        };
+        if let Err(e) = send_result {
+            // The connection is unusable; drop it so the next iteration reconnects.
+            self.stream = None;
+            return Err(EngineError::ConnectionFailed(e.to_string()));
+        }
 
         self.messages_sent += 1;
         self.last_pings_received = 0;
@@ -290,35 +316,51 @@ impl PersistentWsSession {
         } else {
             5
         });
-        let read_result = tokio::time::timeout(timeout, async {
-            let mut response_bytes = Vec::new();
-            let mut pings = 0u64;
-            let mut pongs = 0u64;
-            while let Some(Ok(msg)) = stream.next().await {
-                match msg {
-                    Message::Text(text) => {
-                        response_bytes.extend_from_slice(text.as_bytes());
-                        break;
+        let read_result = {
+            let stream = self.stream.as_mut().ok_or(EngineError::NotConnected)?;
+            tokio::time::timeout(timeout, async {
+                let mut response_bytes = Vec::new();
+                let mut pings = 0u64;
+                let mut pongs = 0u64;
+                let status = loop {
+                    match stream.next().await {
+                        Some(Ok(Message::Text(text))) => {
+                            response_bytes.extend_from_slice(text.as_bytes());
+                            break ReadStatus::Data;
+                        }
+                        Some(Ok(Message::Binary(bin))) => {
+                            response_bytes.extend_from_slice(&bin);
+                            break ReadStatus::Data;
+                        }
+                        Some(Ok(Message::Ping(_))) => pings += 1,
+                        Some(Ok(Message::Pong(_))) => pongs += 1,
+                        Some(Ok(Message::Close(_))) => break ReadStatus::Close,
+                        Some(Ok(_)) => {}
+                        Some(Err(_)) => break ReadStatus::Error,
+                        None => break ReadStatus::Eof,
                     }
-                    Message::Binary(bin) => {
-                        response_bytes.extend_from_slice(&bin);
-                        break;
-                    }
-                    Message::Ping(_) => pings += 1,
-                    Message::Pong(_) => pongs += 1,
-                    Message::Close(_) => break,
-                    _ => {}
-                }
-            }
-            (response_bytes, pings, pongs)
-        })
-        .await;
+                };
+                (response_bytes, pings, pongs, status)
+            })
+            .await
+        };
 
         match read_result {
-            Ok((response_bytes, pings, pongs)) => {
+            Ok((response_bytes, pings, pongs, ReadStatus::Data)) => {
                 self.last_pings_received = pings;
                 self.last_pongs_received = pongs;
                 Ok(response_bytes)
+            }
+            Ok((_, pings, pongs, status)) => {
+                self.last_pings_received = pings;
+                self.last_pongs_received = pongs;
+                tracing::debug!(?status, "persistent ws read terminated without data");
+                // The stream is dead or refusing data; discard it so the next
+                // iteration reconnects instead of writing into a corpse.
+                self.stream = None;
+                Err(EngineError::ConnectionFailed(format!(
+                    "read terminated: {status:?}"
+                )))
             }
             Err(_) => Err(EngineError::ConnectionFailed("read timed out".into())),
         }
@@ -451,8 +493,10 @@ impl WebSocketEngine {
     /// Read from WebSocket stream with timeout, tallying control frames.
     ///
     /// Incoming `Ping` frames are counted (tungstenite auto-replies the `Pong` at
-    /// the protocol layer) and the loop keeps reading until a data frame, a `Pong`,
-    /// or close terminates it.
+    /// the protocol layer) and the loop keeps reading until it terminates with an
+    /// explicit [`ReadStatus`]: a data frame, a `Pong`, a `Close`, a clean EOF, a
+    /// stream error, or the read timeout. The status lets callers distinguish a
+    /// verified response from a hang or a dead connection.
     async fn read_with_timeout(
         &self,
         ws_stream: &mut tokio_tungstenite::WebSocketStream<
@@ -461,36 +505,49 @@ impl WebSocketEngine {
     ) -> ReadOutcome {
         let timeout = self.effective_timeout();
         let read_result = tokio::time::timeout(timeout, async {
-            let mut outcome = ReadOutcome::default();
-            while let Some(Ok(msg)) = ws_stream.next().await {
-                match msg {
-                    Message::Text(text) => {
-                        outcome.bytes += text.len() as u64;
-                        break;
+            let mut bytes: u64 = 0;
+            let mut pings_received: u64 = 0;
+            let mut pongs_received: u64 = 0;
+            let status = loop {
+                match ws_stream.next().await {
+                    Some(Ok(Message::Text(text))) => {
+                        bytes += text.len() as u64;
+                        break ReadStatus::Data;
                     }
-                    Message::Binary(bin) => {
-                        outcome.bytes += bin.len() as u64;
-                        break;
+                    Some(Ok(Message::Binary(bin))) => {
+                        bytes += bin.len() as u64;
+                        break ReadStatus::Data;
                     }
-                    Message::Ping(data) => {
-                        outcome.bytes += data.len() as u64;
-                        outcome.pings_received += 1;
+                    Some(Ok(Message::Ping(data))) => {
+                        bytes += data.len() as u64;
+                        pings_received += 1;
                     }
-                    Message::Pong(data) => {
-                        outcome.bytes += data.len() as u64;
-                        outcome.got_pong = true;
-                        outcome.pongs_received += 1;
-                        break;
+                    Some(Ok(Message::Pong(data))) => {
+                        bytes += data.len() as u64;
+                        pongs_received += 1;
+                        break ReadStatus::Pong;
                     }
-                    Message::Close(_) => break,
-                    _ => {}
+                    Some(Ok(Message::Close(_))) => break ReadStatus::Close,
+                    Some(Ok(_)) => {}
+                    Some(Err(_)) => break ReadStatus::Error,
+                    None => break ReadStatus::Eof,
                 }
+            };
+            ReadOutcome {
+                status,
+                bytes,
+                pings_received,
+                pongs_received,
             }
-            outcome
         })
         .await;
 
-        read_result.unwrap_or_default()
+        read_result.unwrap_or(ReadOutcome {
+            status: ReadStatus::Timeout,
+            bytes: 0,
+            pings_received: 0,
+            pongs_received: 0,
+        })
     }
 
     async fn connect_ws(
@@ -805,11 +862,12 @@ impl ProtocolEngine for WebSocketEngine {
                             .await;
                         let outcome = self.read_with_timeout(&mut ws_stream).await;
                         let _ = ws_stream.close(None).await;
-                        (
-                            200,
-                            outcome.bytes,
-                            ws_sample(0, outcome.pings_received, 0, outcome.pongs_received),
-                        )
+                        let ws = ws_sample(0, outcome.pings_received, 0, outcome.pongs_received);
+                        if matches!(outcome.status, ReadStatus::Data | ReadStatus::Pong) {
+                            (200, outcome.bytes, ws)
+                        } else {
+                            (0, 0, ws)
+                        }
                     }
                     _ => {
                         // Normal execution (LatencySpike already applied, or no fault)
@@ -834,7 +892,7 @@ impl ProtocolEngine for WebSocketEngine {
                                     pongs_solicited,
                                     pongs_unsolicited,
                                 );
-                                if outcome.got_pong {
+                                if outcome.status == ReadStatus::Pong {
                                     (200, outcome.bytes, ws)
                                 } else {
                                     (0, 0, ws)
@@ -847,7 +905,11 @@ impl ProtocolEngine for WebSocketEngine {
                                 let _ = ws_stream.close(None).await;
                                 let ws =
                                     ws_sample(0, outcome.pings_received, 0, outcome.pongs_received);
-                                (200, outcome.bytes, ws)
+                                if matches!(outcome.status, ReadStatus::Data | ReadStatus::Pong) {
+                                    (200, outcome.bytes, ws)
+                                } else {
+                                    (0, 0, ws)
+                                }
                             }
                         }
                     }
