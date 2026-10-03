@@ -146,7 +146,11 @@ pub struct RequestMetric {
 }
 
 impl RequestMetric {
-    pub fn error(latency_micros: u128) -> Self {
+    /// Error metric (`status_code == 0`) carrying the chaos fault selected for
+    /// this iteration, so injected-but-failed iterations still count toward
+    /// `chaos_injected_total`. Pass `None` when no fault was selected (chaos
+    /// disabled, rate not met, or a failure before fault selection).
+    pub fn error(latency_micros: u128, chaos_fault: Option<crate::chaos::ChaosFault>) -> Self {
         Self {
             latency_micros,
             status_code: 0,
@@ -162,7 +166,7 @@ impl RequestMetric {
             ws: None,
             grpc: None,
             http3: None,
-            chaos_fault: None,
+            chaos_fault,
         }
     }
 }
@@ -1259,16 +1263,16 @@ mod tests {
             threshold_breaches: breaches,
         };
 
-        let mut first = RequestMetric::error(1000);
+        let mut first = RequestMetric::error(1000, None);
         first.ws = Some(sample(1, 0, 1, 0, 1000, 1000, 1, 0));
         tx.send(first).await.unwrap();
 
-        let mut second = RequestMetric::error(1000);
+        let mut second = RequestMetric::error(1000, None);
         second.ws = Some(sample(0, 0, 0, 0, 2000, 3000, 2, 1));
         tx.send(second).await.unwrap();
 
         // Insignificant samples must not flip `has_ws`.
-        let mut third = RequestMetric::error(1000);
+        let mut third = RequestMetric::error(1000, None);
         third.ws = Some(WsSample::default());
         tx.send(third).await.unwrap();
 
@@ -1289,7 +1293,7 @@ mod tests {
     async fn test_finalize_metrics_aggregates_grpc_samples() {
         let (tx, rx) = tokio::sync::mpsc::channel::<RequestMetric>(8);
 
-        let mut first = RequestMetric::error(1000);
+        let mut first = RequestMetric::error(1000, None);
         first.grpc = Some(GrpcSample {
             active_streams: 4,
             max_concurrent_streams: 100,
@@ -1301,7 +1305,7 @@ mod tests {
         });
         tx.send(first).await.unwrap();
 
-        let mut second = RequestMetric::error(1000);
+        let mut second = RequestMetric::error(1000, None);
         second.grpc = Some(GrpcSample {
             active_streams: 6,
             max_concurrent_streams: 100,
@@ -1314,7 +1318,7 @@ mod tests {
         tx.send(second).await.unwrap();
 
         // Insignificant sample must not flip `has_grpc`.
-        let mut third = RequestMetric::error(1000);
+        let mut third = RequestMetric::error(1000, None);
         third.grpc = Some(GrpcSample::default());
         tx.send(third).await.unwrap();
 
@@ -1341,12 +1345,12 @@ mod tests {
             migrations_successful: succ,
         };
         for sample in [s(2000, 0, 0), s(1000, 0, 0), s(4000, 2, 1)] {
-            let mut m = RequestMetric::error(1000);
+            let mut m = RequestMetric::error(1000, None);
             m.http3 = Some(sample);
             tx.send(m).await.unwrap();
         }
         // Insignificant sample must not flip has_http3.
-        let mut none = RequestMetric::error(1000);
+        let mut none = RequestMetric::error(1000, None);
         none.http3 = Some(Http3Sample::default());
         tx.send(none).await.unwrap();
         drop(tx);
@@ -1366,7 +1370,7 @@ mod tests {
     #[tokio::test]
     async fn test_http3_migration_rate_sentinel_no_migrations() {
         let (tx, rx) = tokio::sync::mpsc::channel::<RequestMetric>(8);
-        let mut m = RequestMetric::error(1000);
+        let mut m = RequestMetric::error(1000, None);
         m.http3 = Some(Http3Sample {
             cwnd_bytes: 5000,
             migrations_attempted: 0,

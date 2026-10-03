@@ -76,7 +76,7 @@ impl ProtocolEngine for HttpEngine {
             Ok(u) => u,
             Err(e) => {
                 tracing::error!(error = %e, "failed to parse URL");
-                return RequestMetric::error(req_start.elapsed().as_micros());
+                return RequestMetric::error(req_start.elapsed().as_micros(), None);
             }
         };
 

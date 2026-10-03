@@ -227,7 +227,7 @@ impl ProtocolEngine for GrpcEngine {
         if let Some(ChaosFault::ConnectionDrop) = fault {
             tracing::trace!("grpc chaos: connection drop");
             let _ = tokio::time::timeout(Duration::from_nanos(1), self.endpoint.connect()).await;
-            return RequestMetric::error(req_start.elapsed().as_micros());
+            return RequestMetric::error(req_start.elapsed().as_micros(), fault);
         }
 
         // LatencySpike: sleep before connecting
@@ -241,7 +241,7 @@ impl ProtocolEngine for GrpcEngine {
             Ok(ch) => ch,
             Err(e) => {
                 tracing::debug!(error = %e, "gRPC connection failed");
-                return RequestMetric::error(req_start.elapsed().as_micros());
+                return RequestMetric::error(req_start.elapsed().as_micros(), fault);
             }
         };
 
@@ -266,7 +266,7 @@ impl ProtocolEngine for GrpcEngine {
             Ok(p) => p,
             Err(e) => {
                 tracing::debug!(error = %e, "invalid gRPC path");
-                return RequestMetric::error(req_start.elapsed().as_micros());
+                return RequestMetric::error(req_start.elapsed().as_micros(), fault);
             }
         };
 
@@ -290,7 +290,7 @@ impl ProtocolEngine for GrpcEngine {
                 Ok(result) => result,
                 Err(_) => {
                     tracing::debug!("gRPC call timed out");
-                    return RequestMetric::error(req_start.elapsed().as_micros());
+                    return RequestMetric::error(req_start.elapsed().as_micros(), fault);
                 }
             }
         } else {

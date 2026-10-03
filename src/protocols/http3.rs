@@ -357,7 +357,7 @@ impl ProtocolEngine for Http3Engine {
 
         if let Some(ChaosFault::ConnectionDrop) = fault {
             tracing::trace!("http3 chaos: connection drop");
-            return RequestMetric::error(req_start.elapsed().as_micros());
+            return RequestMetric::error(req_start.elapsed().as_micros(), fault);
         }
 
         if let Some(ChaosFault::LatencySpike { duration_ms }) = fault {
@@ -371,7 +371,7 @@ impl ProtocolEngine for Http3Engine {
             Ok(c) => c,
             Err(e) => {
                 tracing::debug!(error = %e, "QUIC connection failed");
-                return RequestMetric::error(req_start.elapsed().as_micros());
+                return RequestMetric::error(req_start.elapsed().as_micros(), fault);
             }
         };
         let connection_latency_us = connect_start.elapsed().as_micros();
@@ -382,7 +382,7 @@ impl ProtocolEngine for Http3Engine {
             Err(e) => {
                 tracing::debug!(error = %e, "H3 setup failed");
                 connection.close(0u32.into(), b"");
-                return RequestMetric::error(req_start.elapsed().as_micros());
+                return RequestMetric::error(req_start.elapsed().as_micros(), fault);
             }
         };
 
@@ -472,7 +472,7 @@ impl ProtocolEngine for Http3Engine {
 
         let session = match ctx.as_any_mut().downcast_mut::<Http3Session>() {
             Some(s) => s,
-            None => return RequestMetric::error(req_start.elapsed().as_micros()),
+            None => return RequestMetric::error(req_start.elapsed().as_micros(), None),
         };
 
         // Apply chaos
@@ -480,7 +480,7 @@ impl ProtocolEngine for Http3Engine {
 
         if let Some(ChaosFault::ConnectionDrop) = fault {
             tracing::trace!("http3 chaos: connection drop (persistent)");
-            return RequestMetric::error(req_start.elapsed().as_micros());
+            return RequestMetric::error(req_start.elapsed().as_micros(), fault);
         }
 
         if let Some(ChaosFault::LatencySpike { duration_ms }) = fault {

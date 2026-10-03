@@ -207,13 +207,14 @@ impl SseEngine {
         req.send().await
     }
 
-    /// Apply chaos fault and return early if connection should be dropped.
-    async fn maybe_inject_chaos(&self) -> Option<RequestMetric> {
-        let fault = self.chaos.select_fault();
+    /// Apply a selected chaos fault and return early if the connection should be
+    /// dropped. The fault itself stays with the caller so every metric this
+    /// iteration returns can report it to the chaos aggregation.
+    async fn apply_chaos(&self, fault: Option<ChaosFault>) -> Option<RequestMetric> {
         match fault {
             Some(ChaosFault::ConnectionDrop) => {
                 tracing::trace!("sse chaos: connection drop");
-                Some(RequestMetric::error(0))
+                Some(RequestMetric::error(0, fault))
             }
             Some(ChaosFault::LatencySpike { duration_ms }) => {
                 tracing::trace!(duration_ms, "sse chaos: latency spike");
@@ -231,7 +232,8 @@ impl ProtocolEngine for SseEngine {
     async fn execute_iteration(&self, target_url: &str) -> RequestMetric {
         let req_start = Instant::now();
 
-        if let Some(mut metric) = self.maybe_inject_chaos().await {
+        let fault = self.chaos.select_fault();
+        if let Some(mut metric) = self.apply_chaos(fault).await {
             metric.latency_micros = req_start.elapsed().as_micros();
             return metric;
         }
@@ -240,7 +242,7 @@ impl ProtocolEngine for SseEngine {
             Ok(resp) => resp,
             Err(e) => {
                 tracing::debug!(error = %e, "sse connection failed");
-                return RequestMetric::error(req_start.elapsed().as_micros());
+                return RequestMetric::error(req_start.elapsed().as_micros(), fault);
             }
         };
 
@@ -268,7 +270,7 @@ impl ProtocolEngine for SseEngine {
                 ws: None,
                 grpc: None,
                 http3: None,
-                chaos_fault: None,
+                chaos_fault: fault,
             };
         }
 
@@ -306,13 +308,13 @@ impl ProtocolEngine for SseEngine {
                             ws: None,
                             grpc: None,
                             http3: None,
-                            chaos_fault: None,
+                            chaos_fault: fault,
                         };
                     }
                 }
                 Err(e) => {
                     tracing::debug!(error = %e, "sse stream read failed");
-                    return RequestMetric::error(req_start.elapsed().as_micros());
+                    return RequestMetric::error(req_start.elapsed().as_micros(), fault);
                 }
             }
         }
@@ -340,7 +342,7 @@ impl ProtocolEngine for SseEngine {
             ws: None,
             grpc: None,
             http3: None,
-            chaos_fault: None,
+            chaos_fault: fault,
         }
     }
 
@@ -357,7 +359,7 @@ impl ProtocolEngine for SseEngine {
     ) -> RequestMetric {
         let session = match ctx.as_any_mut().downcast_mut::<SseSession>() {
             Some(s) => s,
-            None => return RequestMetric::error(0),
+            None => return RequestMetric::error(0, None),
         };
 
         // Track whether connection existed before this iteration (reuse detection)
@@ -398,11 +400,16 @@ impl ProtocolEngine for SseEngine {
             };
         }
 
+        // Chaos is selected only when (re)connecting: read iterations over an
+        // established stream inject nothing, so `fault` stays `None` there.
+        let mut fault: Option<ChaosFault> = None;
+
         // Lazy connect on first call or after the previous stream ended
         if session.stream.is_none() {
             let req_start = Instant::now();
 
-            if let Some(mut metric) = self.maybe_inject_chaos().await {
+            fault = self.chaos.select_fault();
+            if let Some(mut metric) = self.apply_chaos(fault).await {
                 metric.latency_micros = req_start.elapsed().as_micros();
                 return metric;
             }
@@ -416,7 +423,7 @@ impl ProtocolEngine for SseEngine {
                 }
                 Err(e) => {
                     tracing::debug!(error = %e, "sse persistent connect failed");
-                    return RequestMetric::error(req_start.elapsed().as_micros());
+                    return RequestMetric::error(req_start.elapsed().as_micros(), fault);
                 }
             }
         }
@@ -427,7 +434,7 @@ impl ProtocolEngine for SseEngine {
 
         // Stream the next frame
         let Some(stream) = session.stream.as_mut() else {
-            return RequestMetric::error(req_start.elapsed().as_micros());
+            return RequestMetric::error(req_start.elapsed().as_micros(), fault);
         };
         let mut read_error = false;
         while let Some(chunk_result) = stream.next().await {
@@ -476,7 +483,7 @@ impl ProtocolEngine for SseEngine {
                             ws: None,
                             grpc: None,
                             http3: None,
-                            chaos_fault: None,
+                            chaos_fault: fault,
                         };
                     }
                 }
@@ -497,7 +504,7 @@ impl ProtocolEngine for SseEngine {
         session.buffer.clear();
 
         if read_error {
-            return RequestMetric::error(req_start.elapsed().as_micros());
+            return RequestMetric::error(req_start.elapsed().as_micros(), fault);
         }
 
         // Stream EOF: server closed the connection; the next iteration reconnects.
@@ -525,7 +532,7 @@ impl ProtocolEngine for SseEngine {
             ws: None,
             grpc: None,
             http3: None,
-            chaos_fault: None,
+            chaos_fault: fault,
         }
     }
 }
