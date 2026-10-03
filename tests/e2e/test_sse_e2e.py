@@ -106,3 +106,31 @@ class TestSseE2E:
         assert json_data["sse"]["total_events_received"] > 0
         assert "avg_connection_latency_us" in json_data
         assert json_data["quic"] is None
+
+    async def test_sse_stream_error_counts_as_error(self, sse_short_body_server):
+        engine = StrobEngine(
+            url=sse_short_body_server.url,
+            concurrency=1,
+            duration=2,
+            options=RequestOptions(no_progress=True, sse_enabled=True, timeout=1),
+        )
+        summary = await asyncio.wait_for(engine.run_async(), timeout=10.0)
+
+        assert summary.total_requests > 0
+        assert summary.total_errors > 0
+        assert summary.status_codes.get(0, 0) > 0
+
+    async def test_sse_reconnects_after_server_closes(self, sse_eof_server):
+        engine = StrobEngine(
+            url=sse_eof_server.url,
+            concurrency=1,
+            duration=3,
+            options=RequestOptions(no_progress=True, sse_enabled=True, timeout=1),
+        )
+        summary = await asyncio.wait_for(engine.run_async(), timeout=15.0)
+
+        assert summary.total_requests > 0
+        assert summary.total_errors == 0
+        assert sse_eof_server.accepts >= 2, (
+            "session must reconnect after the server closes the stream"
+        )

@@ -312,7 +312,7 @@ impl ProtocolEngine for SseEngine {
                 }
                 Err(e) => {
                     tracing::debug!(error = %e, "sse stream read failed");
-                    break;
+                    return RequestMetric::error(req_start.elapsed().as_micros());
                 }
             }
         }
@@ -363,28 +363,8 @@ impl ProtocolEngine for SseEngine {
         // Track whether connection existed before this iteration (reuse detection)
         let was_connected = session.stream.is_some();
 
-        // Lazy connect on first call: consume response to get owned stream
-        if session.stream.is_none() {
-            let req_start = Instant::now();
-
-            if let Some(mut metric) = self.maybe_inject_chaos().await {
-                metric.latency_micros = req_start.elapsed().as_micros();
-                return metric;
-            }
-
-            match self.connect(target_url).await {
-                Ok(resp) => {
-                    session.status_code = resp.status().as_u16();
-                    session.stream = Some(Box::pin(resp.bytes_stream()));
-                }
-                Err(e) => {
-                    tracing::debug!(error = %e, "sse persistent connect failed");
-                    return RequestMetric::error(req_start.elapsed().as_micros());
-                }
-            }
-        }
-
-        // Check max events
+        // Check max events before (re)connecting so a budget-spent session
+        // never reopens a connection just to be capped again.
         if session.is_max_reached() {
             tracing::trace!(
                 events = session.events_received,
@@ -418,6 +398,29 @@ impl ProtocolEngine for SseEngine {
             };
         }
 
+        // Lazy connect on first call or after the previous stream ended
+        if session.stream.is_none() {
+            let req_start = Instant::now();
+
+            if let Some(mut metric) = self.maybe_inject_chaos().await {
+                metric.latency_micros = req_start.elapsed().as_micros();
+                return metric;
+            }
+
+            match self.connect(target_url).await {
+                Ok(resp) => {
+                    session.status_code = resp.status().as_u16();
+                    // `--sse-max-events` caps events per connection.
+                    session.events_received = 0;
+                    session.stream = Some(Box::pin(resp.bytes_stream()));
+                }
+                Err(e) => {
+                    tracing::debug!(error = %e, "sse persistent connect failed");
+                    return RequestMetric::error(req_start.elapsed().as_micros());
+                }
+            }
+        }
+
         let req_start = Instant::now();
         let status_code = session.status_code;
         let mut total_bytes: u64 = 0;
@@ -426,6 +429,7 @@ impl ProtocolEngine for SseEngine {
         let Some(stream) = session.stream.as_mut() else {
             return RequestMetric::error(req_start.elapsed().as_micros());
         };
+        let mut read_error = false;
         while let Some(chunk_result) = stream.next().await {
             match chunk_result {
                 Ok(chunk) => {
@@ -478,12 +482,25 @@ impl ProtocolEngine for SseEngine {
                 }
                 Err(e) => {
                     tracing::debug!(error = %e, "sse persistent stream read failed");
+                    read_error = true;
                     break;
                 }
             }
         }
 
-        // Stream EOF
+        // The stream finished (EOF or error): drop it so the next iteration
+        // reconnects instead of reading an exhausted stream forever.
+        // `session.status_code` is intentionally kept: it describes the last
+        // (now closed) connection, and `0` would falsely count a
+        // budget-completed session as a network error.
+        session.stream = None;
+        session.buffer.clear();
+
+        if read_error {
+            return RequestMetric::error(req_start.elapsed().as_micros());
+        }
+
+        // Stream EOF: server closed the connection; the next iteration reconnects.
         let latency_micros = req_start.elapsed().as_micros();
         RequestMetric {
             latency_micros,
@@ -635,5 +652,146 @@ mod tests {
         assert_eq!(events2.len(), 2);
         assert_eq!(events2[0].data, "x");
         assert_eq!(events2[1].data, "y");
+    }
+
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::net::TcpListener;
+
+    /// Raw local SSE server. Reads each request fully (so close sends FIN,
+    /// not RST), responds per `mode`, then closes the connection.
+    ///
+    /// - `"eof"`: valid SSE response with one event, then clean close.
+    /// - `"short_body"`: `Content-Length: 1000` with no body, then clean
+    ///   close -- hyper reports a premature-close error with zero events.
+    async fn spawn_raw_sse_server(mode: &'static str) -> (String, Arc<AtomicUsize>) {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let accepts = Arc::new(AtomicUsize::new(0));
+        let counter = Arc::clone(&accepts);
+
+        tokio::spawn(async move {
+            loop {
+                let Ok((mut socket, _)) = listener.accept().await else {
+                    break;
+                };
+                counter.fetch_add(1, Ordering::Relaxed);
+
+                // Drain request headers so the later close is a clean FIN.
+                let mut buf = [0u8; 4096];
+                let mut seen = 0usize;
+                while !buf[..seen].windows(4).any(|w| w == b"\r\n\r\n") {
+                    if seen == buf.len() {
+                        break;
+                    }
+                    match socket.read(&mut buf[seen..]).await {
+                        Ok(0) | Err(_) => break,
+                        Ok(n) => seen += n,
+                    }
+                }
+
+                let response = match mode {
+                    "short_body" => "HTTP/1.1 200 OK\r\nContent-Length: 1000\r\n\r\n",
+                    _ => {
+                        "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\n\
+                          Connection: close\r\n\r\ndata: e1\n\n"
+                    }
+                };
+                let _ = socket.write_all(response.as_bytes()).await;
+                let _ = socket.flush().await;
+                // socket dropped here -> FIN
+            }
+        });
+
+        (format!("http://{addr}"), accepts)
+    }
+
+    fn test_engine(max_events: Option<u64>) -> SseEngine {
+        SseEngine::new(Vec::new(), ChaosEngine::new(false, 0.0), max_events)
+    }
+
+    #[tokio::test]
+    async fn stateless_read_error_is_status_zero() {
+        let (url, _accepts) = spawn_raw_sse_server("short_body").await;
+        let engine = test_engine(None);
+
+        let metric = engine.execute_iteration(&url).await;
+
+        assert_eq!(metric.status_code, 0);
+    }
+
+    #[tokio::test]
+    async fn persistent_read_error_is_status_zero_and_resets_stream() {
+        let (url, _accepts) = spawn_raw_sse_server("short_body").await;
+        let engine = test_engine(None);
+        let mut ctx = engine.create_worker_context().await.unwrap();
+
+        let metric = engine
+            .execute_iteration_with_context(&url, ctx.as_mut())
+            .await;
+
+        assert_eq!(metric.status_code, 0);
+        let session = ctx.as_any_mut().downcast_mut::<SseSession>().unwrap();
+        assert!(session.stream.is_none(), "failed stream must be discarded");
+    }
+
+    #[tokio::test]
+    async fn persistent_eof_reconnects_next_iteration() {
+        let (url, accepts) = spawn_raw_sse_server("eof").await;
+        let engine = test_engine(None);
+        let mut ctx = engine.create_worker_context().await.unwrap();
+
+        for _ in 0..4 {
+            let metric = engine
+                .execute_iteration_with_context(&url, ctx.as_mut())
+                .await;
+            assert_eq!(metric.status_code, 200, "clean EOF is a success");
+        }
+
+        assert!(
+            accepts.load(Ordering::Relaxed) >= 2,
+            "session must reconnect after EOF"
+        );
+        let session = ctx.as_any_mut().downcast_mut::<SseSession>().unwrap();
+        assert!(session.stream.is_none());
+    }
+
+    #[tokio::test]
+    async fn max_events_resets_per_connection() {
+        let (url, accepts) = spawn_raw_sse_server("eof").await;
+        let engine = test_engine(Some(2));
+        let mut ctx = engine.create_worker_context().await.unwrap();
+
+        for _ in 0..6 {
+            let _ = engine
+                .execute_iteration_with_context(&url, ctx.as_mut())
+                .await;
+        }
+
+        assert!(
+            accepts.load(Ordering::Relaxed) >= 3,
+            "per-connection budget must allow reconnects below the cap"
+        );
+    }
+
+    #[tokio::test]
+    async fn max_events_early_return_reports_last_status() {
+        let (url, _accepts) = spawn_raw_sse_server("eof").await;
+        let engine = test_engine(Some(1));
+        let mut ctx = engine.create_worker_context().await.unwrap();
+
+        let first = engine
+            .execute_iteration_with_context(&url, ctx.as_mut())
+            .await;
+        assert_eq!(first.status_code, 200);
+
+        let capped = engine
+            .execute_iteration_with_context(&url, ctx.as_mut())
+            .await;
+        assert_eq!(capped.status_code, 200, "budget completion is not an error");
+        assert_eq!(capped.sse_events_received, Some(1));
+        assert_eq!(capped.latency_micros, 0);
     }
 }
