@@ -27,6 +27,7 @@ class TestSseE2E:
                 no_progress=True,
                 sse_enabled=True,
                 chaos=True,
+                chaos_rate=1.0,
                 timeout=1,
             ),
         )
@@ -35,6 +36,10 @@ class TestSseE2E:
         # Chaos may cause errors but engine should not crash
         assert summary.total_requests > 0
         assert summary.duration_secs >= 2.5
+        # Every iteration selects a fault at rate 1.0, and each SSE return
+        # path must report it to the chaos aggregation.
+        assert summary.chaos_injected_total > 0
+        assert len(summary.chaos_faults_by_type) > 0
 
     async def test_sse_custom_headers(self, mock_server: str):
         engine = StrobEngine(
