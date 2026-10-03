@@ -706,4 +706,45 @@ mod tests {
         assert_eq!(capped.sse_events_received, Some(1));
         assert_eq!(capped.latency_micros, 0);
     }
+
+    #[tokio::test]
+    async fn chaos_fault_is_carried_on_every_return_path() {
+        let (url, _accepts) = spawn_raw_sse_server("eof").await;
+
+        // Stateless: the fault is selected at the top of every iteration, so
+        // both the ConnectionDrop early return and the frame/EOF returns below
+        // must carry it -- otherwise it never reaches `chaos_injected_total`.
+        let engine = SseEngine::new(Vec::new(), ChaosEngine::new(true, 1.0), None);
+        for i in 0..8 {
+            let metric = engine.execute_iteration(&url).await;
+            assert!(
+                metric.chaos_fault.is_some(),
+                "stateless iteration {i} dropped its selected chaos fault"
+            );
+        }
+
+        // Persistent: the fault is selected when an iteration starts without a
+        // stream (initial connect or post-EOF reconnect). Read iterations over
+        // an established stream select nothing, so only reconnect iterations
+        // are required to carry a fault.
+        let engine = SseEngine::new(Vec::new(), ChaosEngine::new(true, 1.0), None);
+        let mut ctx = engine.create_worker_context().await.unwrap();
+        let mut faulted_reconnects = 0;
+        for i in 0..8 {
+            let metric = engine
+                .execute_iteration_with_context(&url, ctx.as_mut())
+                .await;
+            if !metric.connection.is_socket_reused {
+                assert!(
+                    metric.chaos_fault.is_some(),
+                    "reconnect iteration {i} dropped its selected chaos fault"
+                );
+                faulted_reconnects += 1;
+            }
+        }
+        assert!(
+            faulted_reconnects >= 2,
+            "expected repeated (re)connect iterations, got {faulted_reconnects}"
+        );
+    }
 }

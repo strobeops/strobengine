@@ -1470,6 +1470,40 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_finalize_metrics_counts_chaos_faults() {
+        use crate::chaos::ChaosFault;
+
+        let (tx, rx) = tokio::sync::mpsc::channel::<RequestMetric>(8);
+
+        // A fault counts whether the iteration succeeded or failed...
+        tx.send(
+            RequestMetric::builder(1000, Some(ChaosFault::ConnectionDrop))
+                .status(200)
+                .build(),
+        )
+        .await
+        .unwrap();
+        tx.send(RequestMetric::error(1000, Some(ChaosFault::ConnectionDrop)))
+            .await
+            .unwrap();
+        tx.send(RequestMetric::error(
+            1000,
+            Some(ChaosFault::LatencySpike { duration_ms: 150 }),
+        ))
+        .await
+        .unwrap();
+        // ...but an iteration without a fault must not be counted.
+        tx.send(RequestMetric::error(1000, None)).await.unwrap();
+        drop(tx);
+
+        let agg = finalize_metrics(rx).await;
+        assert_eq!(agg.chaos_injected_total, 3);
+        assert_eq!(agg.chaos_faults_by_type.get("ConnectionDrop"), Some(&2));
+        assert_eq!(agg.chaos_faults_by_type.get("LatencySpike"), Some(&1));
+        assert_eq!(agg.chaos_faults_by_type.len(), 2);
+    }
+
+    #[tokio::test]
     async fn test_http3_migration_rate_sentinel_no_migrations() {
         let (tx, rx) = tokio::sync::mpsc::channel::<RequestMetric>(8);
         let mut m = RequestMetric::error(1000, None);

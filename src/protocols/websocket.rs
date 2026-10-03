@@ -1734,4 +1734,51 @@ mod tests {
             "session must reconnect after EOF: accepts={accepts:?} statuses={statuses:?}"
         );
     }
+
+    #[tokio::test]
+    async fn chaos_fault_is_reported_on_every_stateless_iteration() {
+        // Echo server accepting repeatedly: with chaos at rate 1.0 every
+        // iteration selects a fault, and each return path (success, or the
+        // ConnectionDrop early error) must carry it to the aggregation.
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let local_addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            while let Ok((stream, _)) = listener.accept().await {
+                tokio::spawn(async move {
+                    if let Ok(mut ws_stream) = accept_async(stream).await {
+                        while let Some(Ok(msg)) = ws_stream.next().await {
+                            match msg {
+                                Message::Close(_) => break,
+                                // Echo every payload (including the corrupted
+                                // bytes) so no iteration waits on the read timeout.
+                                other => {
+                                    let _ = ws_stream.send(other).await;
+                                }
+                            }
+                        }
+                    }
+                });
+            }
+        });
+
+        let ws_url = format!("ws://{}", local_addr);
+        let engine = WebSocketEngine::new(
+            vec![],
+            WsMode::Stream,
+            Some("ping".to_string()),
+            ChaosEngine::new(true, 1.0),
+            5,
+            false,
+            None,
+            None,
+        );
+
+        for i in 0..20 {
+            let metric = engine.execute_iteration(&ws_url).await;
+            assert!(
+                metric.chaos_fault.is_some(),
+                "iteration {i} dropped its selected chaos fault"
+            );
+        }
+    }
 }
