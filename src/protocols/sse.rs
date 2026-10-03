@@ -312,7 +312,7 @@ impl ProtocolEngine for SseEngine {
                 }
                 Err(e) => {
                     tracing::debug!(error = %e, "sse stream read failed");
-                    break;
+                    return RequestMetric::error(req_start.elapsed().as_micros());
                 }
             }
         }
@@ -363,28 +363,8 @@ impl ProtocolEngine for SseEngine {
         // Track whether connection existed before this iteration (reuse detection)
         let was_connected = session.stream.is_some();
 
-        // Lazy connect on first call: consume response to get owned stream
-        if session.stream.is_none() {
-            let req_start = Instant::now();
-
-            if let Some(mut metric) = self.maybe_inject_chaos().await {
-                metric.latency_micros = req_start.elapsed().as_micros();
-                return metric;
-            }
-
-            match self.connect(target_url).await {
-                Ok(resp) => {
-                    session.status_code = resp.status().as_u16();
-                    session.stream = Some(Box::pin(resp.bytes_stream()));
-                }
-                Err(e) => {
-                    tracing::debug!(error = %e, "sse persistent connect failed");
-                    return RequestMetric::error(req_start.elapsed().as_micros());
-                }
-            }
-        }
-
-        // Check max events
+        // Check max events before (re)connecting so a budget-spent session
+        // never reopens a connection just to be capped again.
         if session.is_max_reached() {
             tracing::trace!(
                 events = session.events_received,
@@ -418,6 +398,29 @@ impl ProtocolEngine for SseEngine {
             };
         }
 
+        // Lazy connect on first call or after the previous stream ended
+        if session.stream.is_none() {
+            let req_start = Instant::now();
+
+            if let Some(mut metric) = self.maybe_inject_chaos().await {
+                metric.latency_micros = req_start.elapsed().as_micros();
+                return metric;
+            }
+
+            match self.connect(target_url).await {
+                Ok(resp) => {
+                    session.status_code = resp.status().as_u16();
+                    // `--sse-max-events` caps events per connection.
+                    session.events_received = 0;
+                    session.stream = Some(Box::pin(resp.bytes_stream()));
+                }
+                Err(e) => {
+                    tracing::debug!(error = %e, "sse persistent connect failed");
+                    return RequestMetric::error(req_start.elapsed().as_micros());
+                }
+            }
+        }
+
         let req_start = Instant::now();
         let status_code = session.status_code;
         let mut total_bytes: u64 = 0;
@@ -426,6 +429,7 @@ impl ProtocolEngine for SseEngine {
         let Some(stream) = session.stream.as_mut() else {
             return RequestMetric::error(req_start.elapsed().as_micros());
         };
+        let mut read_error = false;
         while let Some(chunk_result) = stream.next().await {
             match chunk_result {
                 Ok(chunk) => {
@@ -478,12 +482,25 @@ impl ProtocolEngine for SseEngine {
                 }
                 Err(e) => {
                     tracing::debug!(error = %e, "sse persistent stream read failed");
+                    read_error = true;
                     break;
                 }
             }
         }
 
-        // Stream EOF
+        // The stream finished (EOF or error): drop it so the next iteration
+        // reconnects instead of reading an exhausted stream forever.
+        // `session.status_code` is intentionally kept: it describes the last
+        // (now closed) connection, and `0` would falsely count a
+        // budget-completed session as a network error.
+        session.stream = None;
+        session.buffer.clear();
+
+        if read_error {
+            return RequestMetric::error(req_start.elapsed().as_micros());
+        }
+
+        // Stream EOF: server closed the connection; the next iteration reconnects.
         let latency_micros = req_start.elapsed().as_micros();
         RequestMetric {
             latency_micros,
