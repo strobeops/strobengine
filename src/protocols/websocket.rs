@@ -1111,6 +1111,8 @@ impl ProtocolEngine for WebSocketEngine {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
     use tokio::net::TcpListener;
     use tokio_tungstenite::accept_async;
 
@@ -1591,5 +1593,228 @@ mod tests {
         assert_eq!(metric.status_code, 200);
         assert!(metric.bytes_received > 0);
         assert!(metric.connection.e2e_latency_us.is_some());
+    }
+
+    #[tokio::test]
+    async fn stream_hang_timeout_is_error() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let local_addr = listener.local_addr().unwrap();
+
+        tokio::spawn(async move {
+            if let Ok((stream, _)) = listener.accept().await
+                && let Ok(_ws_stream) = accept_async(stream).await
+            {
+                // Complete the handshake, then go silent without ever polling
+                // for frames: the client's read must hit its timeout.
+                tokio::time::sleep(Duration::from_secs(3600)).await;
+            }
+        });
+
+        let engine = WebSocketEngine::new(
+            vec![],
+            WsMode::Stream,
+            Some("ping".to_string()),
+            ChaosEngine::default(),
+            1,
+            false,
+            None,
+            None,
+        );
+        let metric = engine
+            .execute_iteration(&format!("ws://{}", local_addr))
+            .await;
+
+        assert_eq!(metric.status_code, 0, "a hung read must not report success");
+    }
+
+    #[tokio::test]
+    async fn stream_close_without_response_is_error() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let local_addr = listener.local_addr().unwrap();
+
+        tokio::spawn(async move {
+            if let Ok((stream, _)) = listener.accept().await
+                && let Ok(mut ws_stream) = accept_async(stream).await
+            {
+                let _ = ws_stream.next().await; // consume the client's text frame
+                let _ = ws_stream.close(None).await;
+            }
+        });
+
+        let engine = WebSocketEngine::new(
+            vec![],
+            WsMode::Stream,
+            Some("ping".to_string()),
+            ChaosEngine::default(),
+            5,
+            false,
+            None,
+            None,
+        );
+        let metric = engine
+            .execute_iteration(&format!("ws://{}", local_addr))
+            .await;
+
+        assert_eq!(
+            metric.status_code, 0,
+            "close without a response is a failure"
+        );
+        assert_eq!(metric.bytes_received, 0);
+    }
+
+    #[tokio::test]
+    async fn stream_eof_without_response_is_error() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let local_addr = listener.local_addr().unwrap();
+
+        tokio::spawn(async move {
+            if let Ok((stream, _)) = listener.accept().await
+                && let Ok(mut ws_stream) = accept_async(stream).await
+            {
+                let _ = ws_stream.next().await; // consume the client's text frame
+                // Drop without a Close frame: the client sees EOF or a protocol error.
+            }
+        });
+
+        let engine = WebSocketEngine::new(
+            vec![],
+            WsMode::Stream,
+            Some("ping".to_string()),
+            ChaosEngine::default(),
+            5,
+            false,
+            None,
+            None,
+        );
+        let metric = engine
+            .execute_iteration(&format!("ws://{}", local_addr))
+            .await;
+
+        assert_eq!(metric.status_code, 0, "server vanishing is a failure");
+    }
+
+    #[tokio::test]
+    async fn ping_pong_hang_is_error() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let local_addr = listener.local_addr().unwrap();
+
+        tokio::spawn(async move {
+            if let Ok((stream, _)) = listener.accept().await
+                && let Ok(_ws_stream) = accept_async(stream).await
+            {
+                // Never poll the stream so no Pong is ever produced.
+                tokio::time::sleep(Duration::from_secs(3600)).await;
+            }
+        });
+
+        let engine = WebSocketEngine::new(
+            vec![],
+            WsMode::PingPong,
+            None,
+            ChaosEngine::default(),
+            1,
+            false,
+            None,
+            None,
+        );
+        let metric = engine
+            .execute_iteration(&format!("ws://{}", local_addr))
+            .await;
+
+        assert_eq!(
+            metric.status_code, 0,
+            "missing pong must not report success"
+        );
+    }
+
+    #[tokio::test]
+    async fn persistent_close_reports_error_and_discards_stream() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let local_addr = listener.local_addr().unwrap();
+
+        tokio::spawn(async move {
+            if let Ok((stream, _)) = listener.accept().await
+                && let Ok(mut ws_stream) = accept_async(stream).await
+            {
+                let _ = ws_stream.next().await; // consume the client's text frame
+                let _ = ws_stream.close(None).await;
+            }
+        });
+
+        let engine = WebSocketEngine::new(
+            vec![],
+            WsMode::Stream,
+            Some("ping".to_string()),
+            ChaosEngine::default(),
+            5,
+            true,
+            None,
+            None,
+        );
+        let mut ctx = engine.create_worker_context().await.unwrap();
+        let metric = engine
+            .execute_iteration_with_context(&format!("ws://{}", local_addr), ctx.as_mut())
+            .await;
+
+        assert_eq!(metric.status_code, 0, "server close is not a success");
+        let session = ctx
+            .as_any_mut()
+            .downcast_mut::<PersistentWsSession>()
+            .unwrap();
+        assert!(session.stream.is_none(), "dead stream must be discarded");
+    }
+
+    #[tokio::test]
+    async fn persistent_eof_reconnects_next_iteration() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let local_addr = listener.local_addr().unwrap();
+        let accepts = Arc::new(AtomicUsize::new(0));
+        let counter = Arc::clone(&accepts);
+
+        tokio::spawn(async move {
+            while let Ok((stream, _)) = listener.accept().await {
+                counter.fetch_add(1, Ordering::Relaxed);
+                let Ok(mut ws_stream) = accept_async(stream).await else {
+                    break;
+                };
+                // Echo exactly one data frame per connection, then close.
+                if let Some(Ok(msg)) = ws_stream.next().await
+                    && matches!(msg, Message::Text(_) | Message::Binary(_))
+                {
+                    let _ = ws_stream.send(msg).await;
+                }
+                let _ = ws_stream.close(None).await;
+            }
+        });
+
+        let engine = WebSocketEngine::new(
+            vec![],
+            WsMode::Stream,
+            Some("ping".to_string()),
+            ChaosEngine::default(),
+            5,
+            true,
+            None,
+            None,
+        );
+        let mut ctx = engine.create_worker_context().await.unwrap();
+
+        let mut statuses = Vec::new();
+        for _ in 0..4 {
+            let metric = engine
+                .execute_iteration_with_context(&format!("ws://{}", local_addr), ctx.as_mut())
+                .await;
+            statuses.push(metric.status_code);
+        }
+
+        assert_eq!(statuses[0], 200, "first echo succeeds");
+        assert!(
+            statuses.contains(&0),
+            "iterations after the server closes must fail: {statuses:?}"
+        );
+        assert!(
+            accepts.load(Ordering::Relaxed) >= 2,
+            "session must reconnect after EOF: accepts={accepts:?} statuses={statuses:?}"
+        );
     }
 }
