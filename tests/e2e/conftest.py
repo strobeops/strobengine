@@ -107,3 +107,82 @@ def blackhole_server() -> Generator[str]:
     for conn in held:
         conn.close()
     srv.close()
+
+
+class RawSseServer:
+    """Raw local SSE server for connection-behavior tests.
+
+    Reads each request fully (so the close sends a clean FIN, not an RST),
+    writes one response per connection, then closes the connection.
+
+    Modes:
+        "eof":         valid SSE response with one event, then clean close.
+        "short_body":  Content-Length: 1000 with no body, then clean close
+                       -- HTTP clients report a premature-close error with
+                       zero events delivered.
+    """
+
+    def __init__(self, mode: str) -> None:
+        self.mode = mode
+        self.accepts = 0
+        self._stop = threading.Event()
+        self._srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self._srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        self._srv.bind(("127.0.0.1", 0))
+        self._srv.listen(64)
+        self._srv.settimeout(0.5)
+        port = self._srv.getsockname()[1]
+        self.url = f"http://127.0.0.1:{port}/sse"
+        self._thread = threading.Thread(target=self._run, daemon=True)
+        self._thread.start()
+
+    def _run(self) -> None:
+        while not self._stop.is_set():
+            try:
+                conn, _ = self._srv.accept()
+            except TimeoutError:
+                continue
+            self.accepts += 1
+            try:
+                self._handle(conn)
+            except OSError:
+                pass
+            finally:
+                conn.close()
+
+    def _handle(self, conn: socket.socket) -> None:
+        conn.settimeout(2.0)
+        data = b""
+        while b"\r\n\r\n" not in data:
+            chunk = conn.recv(4096)
+            if not chunk:
+                return
+            data += chunk
+        if self.mode == "short_body":
+            conn.sendall(b"HTTP/1.1 200 OK\r\nContent-Length: 1000\r\n\r\n")
+        else:
+            conn.sendall(
+                b"HTTP/1.1 200 OK\r\n"
+                b"Content-Type: text/event-stream\r\n"
+                b"Connection: close\r\n\r\n"
+                b"data: e1\n\n"
+            )
+
+    def close(self) -> None:
+        self._stop.set()
+        self._thread.join(timeout=5)
+        self._srv.close()
+
+
+@pytest.fixture
+def sse_eof_server() -> Generator[RawSseServer]:
+    server = RawSseServer("eof")
+    yield server
+    server.close()
+
+
+@pytest.fixture
+def sse_short_body_server() -> Generator[RawSseServer]:
+    server = RawSseServer("short_body")
+    yield server
+    server.close()
