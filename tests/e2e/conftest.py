@@ -1,4 +1,7 @@
 import asyncio
+import base64
+import contextlib
+import hashlib
 import shutil
 import socket
 import sys
@@ -184,5 +187,115 @@ def sse_eof_server() -> Generator[RawSseServer]:
 @pytest.fixture
 def sse_short_body_server() -> Generator[RawSseServer]:
     server = RawSseServer("short_body")
+    yield server
+    server.close()
+
+
+_WS_GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
+
+
+class RawWsServer:
+    """Raw local WebSocket server for read-behavior tests.
+
+    Performs the HTTP upgrade handshake (computing `Sec-WebSocket-Accept`),
+    then behaves per `mode`:
+
+        "hang":  complete the handshake and never produce a frame, so the
+                 client's bounded read hits its timeout.
+        "close": drain the client's first frame, then close the connection
+                 cleanly without sending any data frame.
+
+    Each connection is handled on its own thread so the accept loop keeps
+    accepting while earlier connections are hanging.
+    """
+
+    def __init__(self, mode: str) -> None:
+        self.mode = mode
+        self.accepts = 0
+        self._stop = threading.Event()
+        self._srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self._srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        self._srv.bind(("127.0.0.1", 0))
+        self._srv.listen(64)
+        self._srv.settimeout(0.5)
+        port = self._srv.getsockname()[1]
+        self.url = f"ws://127.0.0.1:{port}/ws"
+        self._thread = threading.Thread(target=self._accept_loop, daemon=True)
+        self._thread.start()
+
+    def _accept_loop(self) -> None:
+        while not self._stop.is_set():
+            try:
+                conn, _ = self._srv.accept()
+            except TimeoutError:
+                continue
+            self.accepts += 1
+            threading.Thread(
+                target=self._handle_safe, args=(conn,), daemon=True
+            ).start()
+
+    def _handle_safe(self, conn: socket.socket) -> None:
+        try:
+            self._handle(conn)
+        except OSError:
+            pass
+        finally:
+            with contextlib.suppress(OSError):
+                conn.close()
+
+    def _handle(self, conn: socket.socket) -> None:
+        conn.settimeout(5.0)
+        data = b""
+        while b"\r\n\r\n" not in data:
+            chunk = conn.recv(4096)
+            if not chunk:
+                return
+            data += chunk
+        key = self._extract_key(data)
+        if key is None:
+            return
+        accept = base64.b64encode(
+            hashlib.sha1((key + _WS_GUID).encode()).digest()
+        ).decode()
+        conn.sendall(
+            (
+                "HTTP/1.1 101 Switching Protocols\r\n"
+                "Upgrade: websocket\r\n"
+                "Connection: Upgrade\r\n"
+                f"Sec-WebSocket-Accept: {accept}\r\n"
+                "\r\n"
+            ).encode()
+        )
+        if self.mode == "hang":
+            # Hold the connection open without ever producing a frame.
+            self._stop.wait()
+            return
+        conn.settimeout(2.0)
+        with contextlib.suppress(TimeoutError):
+            conn.recv(4096)  # drain the client's first frame
+
+    @staticmethod
+    def _extract_key(request: bytes) -> str | None:
+        for line in request.split(b"\r\n"):
+            if line.lower().startswith(b"sec-websocket-key:"):
+                return line.split(b":", 1)[1].strip().decode()
+        return None
+
+    def close(self) -> None:
+        self._stop.set()
+        self._thread.join(timeout=5)
+        self._srv.close()
+
+
+@pytest.fixture
+def ws_hang_server() -> Generator[RawWsServer]:
+    server = RawWsServer("hang")
+    yield server
+    server.close()
+
+
+@pytest.fixture
+def ws_close_server() -> Generator[RawWsServer]:
+    server = RawWsServer("close")
     yield server
     server.close()

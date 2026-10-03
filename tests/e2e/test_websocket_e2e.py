@@ -209,3 +209,55 @@ class TestWebSocketLoadTest:
         summary = await asyncio.wait_for(engine.run_async(), timeout=15.0)
 
         assert summary.total_requests > 0
+
+    async def test_websocket_stream_timeout_reports_error(self, ws_hang_server):
+        engine = StrobEngine(
+            url=ws_hang_server.url,
+            concurrency=1,
+            duration=2,
+            options=RequestOptions(
+                no_progress=True,
+                ws_mode="stream",
+                timeout=1,
+            ),
+        )
+        summary = await asyncio.wait_for(engine.run_async(), timeout=15.0)
+
+        assert summary.total_requests > 0
+        assert summary.total_errors > 0
+        assert summary.status_codes.get(0, 0) > 0
+
+    async def test_websocket_stream_server_close_reports_error(self, ws_close_server):
+        engine = StrobEngine(
+            url=ws_close_server.url,
+            concurrency=1,
+            duration=2,
+            options=RequestOptions(no_progress=True, ws_mode="stream", timeout=1),
+        )
+        summary = await asyncio.wait_for(engine.run_async(), timeout=15.0)
+
+        assert summary.total_requests > 0
+        assert summary.total_errors > 0
+        assert summary.status_codes.get(0, 0) > 0
+
+    async def test_websocket_persistent_reconnects_after_server_close(
+        self, ws_close_server
+    ):
+        engine = StrobEngine(
+            url=ws_close_server.url,
+            concurrency=1,
+            duration=2,
+            options=RequestOptions(
+                no_progress=True,
+                ws_mode="stream",
+                ws_persistent=True,
+                timeout=1,
+            ),
+        )
+        summary = await asyncio.wait_for(engine.run_async(), timeout=15.0)
+
+        assert summary.total_requests > 0
+        assert summary.total_errors > 0
+        assert ws_close_server.accepts >= 2, (
+            "session must reconnect after the server closes the stream"
+        )
