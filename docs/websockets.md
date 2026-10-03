@@ -8,8 +8,8 @@ modes for handshake, ping-pong, and message streaming scenarios.
 | Mode | Description |
 |------|-------------|
 | `handshake` | Connect and immediately close (default) |
-| `ping_pong` | Send Ping frame, wait for Pong, then close |
-| `stream` | Send a text payload, await response frame, then close |
+| `ping_pong` | Send Ping frame, wait for Pong, then close; a missing Pong (timeout or dead connection) counts as an error |
+| `stream` | Send a text payload, await a response frame (Text/Binary/Pong); no response within the timeout — including a server Close or dropped connection — counts as an error |
 
 ## Python API
 
@@ -149,7 +149,7 @@ WebSocket load tests produce the same `TestSummary` metrics as HTTP:
 | Metric | Description |
 |--------|-------------|
 | `total_requests` | Total connection attempts |
-| `total_errors` | Failed handshakes or connections |
+| `total_errors` | Failed handshakes, connections, or reads |
 | `average_latency_ms` | Mean connection/round-trip latency |
 | `p95_latency_ms` | 95th percentile latency |
 | `p99_latency_ms` | 99th percentile latency |
