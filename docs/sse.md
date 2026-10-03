@@ -200,5 +200,7 @@ handles split `\r\n\r\n` delimiters gracefully.
   to reconnection logic.
 - **Event types** -- The `event:` field is captured but does not
   influence routing or filtering.
-- **No reconnection** -- If the stream drops, the iteration returns
-  an error. Automatic reconnection is not implemented.
+- **Stream errors vs. EOF** -- A stream read error is reported as a
+  failed iteration (status `0`, counted in `total_errors`). After a
+  clean server close (`EOF`), the iteration succeeds and the next one
+  reconnects with a fresh HTTP request.
