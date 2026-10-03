@@ -9,7 +9,7 @@ use tonic::codec::{Codec, DecodeBuf, Encoder};
 use tonic::transport::Endpoint;
 
 use crate::chaos::{ChaosEngine, ChaosFault};
-use crate::metrics::{ConnectionMetrics, RequestMetric};
+use crate::metrics::RequestMetric;
 
 use super::ProtocolEngine;
 
@@ -325,31 +325,12 @@ impl ProtocolEngine for GrpcEngine {
             );
         }
 
-        RequestMetric {
-            latency_micros,
-            status_code,
-            bytes_received,
-            is_reconnect: false,
-            connection: ConnectionMetrics {
-                // tonic/hyper handles DNS internally; each iteration creates a
-                // fresh channel so is_socket_reused is always false.
-                connection_latency_us: None,
-                timestamp_sent_ns: None,
-                e2e_latency_us: None,
-                dns_resolution_us: None,
-                is_socket_reused: false,
-            },
-            quic_handshake_us: None,
-            quic_0rtt_used: false,
-            quic_retransmits: None,
-            sse_events_received: None,
-            sse_first_event_us: None,
-            sse_event_interval_us: None,
-            ws: None,
-            grpc: None,
-            http3: None,
-            chaos_fault: fault,
-        }
+        // tonic/hyper handles DNS internally; each iteration creates a
+        // fresh channel so is_socket_reused is always false.
+        RequestMetric::builder(latency_micros, fault)
+            .status(status_code)
+            .bytes(bytes_received)
+            .build()
     }
 }
 

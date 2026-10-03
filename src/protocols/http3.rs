@@ -9,7 +9,7 @@ use quinn::{ClientConfig, Endpoint, TokioRuntime, TransportConfig};
 use tokio::sync::OnceCell;
 
 use crate::chaos::{ChaosEngine, ChaosFault};
-use crate::metrics::{ConnectionMetrics, Http3Sample, RequestMetric};
+use crate::metrics::{Http3Sample, RequestMetric};
 
 use super::ProtocolEngine;
 
@@ -419,33 +419,17 @@ impl ProtocolEngine for Http3Engine {
 
         let latency_micros = req_start.elapsed().as_micros();
 
-        RequestMetric {
-            latency_micros,
-            status_code: result.0,
-            bytes_received: result.1,
-            is_reconnect: false,
-            connection: ConnectionMetrics {
-                connection_latency_us: Some(connection_latency_us),
-                timestamp_sent_ns: None,
-                e2e_latency_us: None,
-                dns_resolution_us: Some(dns_us),
-                is_socket_reused: false,
-            },
-            quic_handshake_us: None,
-            quic_0rtt_used: false,
-            quic_retransmits: None,
-            sse_events_received: None,
-            sse_first_event_us: None,
-            sse_event_interval_us: None,
-            ws: None,
-            grpc: None,
-            http3: Some(Http3Sample {
+        RequestMetric::builder(latency_micros, fault)
+            .status(result.0)
+            .bytes(result.1)
+            .connection_latency_us(Some(connection_latency_us))
+            .dns_resolution_us(Some(dns_us))
+            .http3(Some(Http3Sample {
                 cwnd_bytes,
                 migrations_attempted: 0,
                 migrations_successful: 0,
-            }),
-            chaos_fault: fault,
-        }
+            }))
+            .build()
     }
 
     async fn create_worker_context(&self) -> Option<Box<dyn super::WorkerSession>> {
@@ -567,34 +551,20 @@ impl ProtocolEngine for Http3Engine {
 
         let latency_micros = req_start.elapsed().as_micros();
 
-        RequestMetric {
-            latency_micros,
-            status_code: result.0,
-            bytes_received: result.1,
-            is_reconnect,
-            connection: ConnectionMetrics {
-                connection_latency_us: None,
-                timestamp_sent_ns: None,
-                e2e_latency_us: None,
-                // DNS was measured once during create_worker_context; not per-iteration
-                dns_resolution_us: None,
-                is_socket_reused: !is_reconnect,
-            },
-            quic_handshake_us: handshake_us,
-            quic_0rtt_used: used_0rtt,
-            quic_retransmits: Some(retransmits),
-            sse_events_received: None,
-            sse_first_event_us: None,
-            sse_event_interval_us: None,
-            ws: None,
-            grpc: None,
-            http3: Some(Http3Sample {
+        // dns_resolution_us stays None: DNS was measured once during
+        // create_worker_context, not per iteration.
+        RequestMetric::builder(latency_micros, fault)
+            .status(result.0)
+            .bytes(result.1)
+            .reconnect(is_reconnect)
+            .socket_reused(!is_reconnect)
+            .quic(handshake_us, used_0rtt, Some(retransmits))
+            .http3(Some(Http3Sample {
                 cwnd_bytes,
                 migrations_attempted: mig_att,
                 migrations_successful: mig_succ,
-            }),
-            chaos_fault: fault,
-        }
+            }))
+            .build()
     }
 }
 

@@ -29,7 +29,7 @@ use tokio::net::TcpStream;
 use tokio::sync::OnceCell;
 
 use crate::chaos::{ChaosEngine, ChaosFault};
-use crate::metrics::{ConnectionMetrics, GrpcSample, RequestMetric};
+use crate::metrics::{GrpcSample, RequestMetric};
 use crate::protocols::grpc_parser::ProtoError;
 
 use super::ProtocolEngine;
@@ -258,33 +258,17 @@ impl ProtocolEngine for GrpcH2Engine {
 
         let latency_micros = req_start.elapsed().as_micros();
 
-        RequestMetric {
-            latency_micros,
-            status_code,
-            bytes_received: body_len,
-            is_reconnect: false,
-            connection: ConnectionMetrics {
-                connection_latency_us: if conn_us > 0 {
-                    Some(conn_us as u128)
-                } else {
-                    None
-                },
-                timestamp_sent_ns: None,
-                e2e_latency_us: None,
-                dns_resolution_us: None,
-                is_socket_reused: reused,
-            },
-            quic_handshake_us: None,
-            quic_0rtt_used: false,
-            quic_retransmits: None,
-            sse_events_received: None,
-            sse_first_event_us: None,
-            sse_event_interval_us: None,
-            ws: None,
-            grpc: Some(ws_sample),
-            http3: None,
-            chaos_fault: fault,
-        }
+        RequestMetric::builder(latency_micros, fault)
+            .status(status_code)
+            .bytes(body_len)
+            .connection_latency_us(if conn_us > 0 {
+                Some(conn_us as u128)
+            } else {
+                None
+            })
+            .socket_reused(reused)
+            .grpc(Some(ws_sample))
+            .build()
     }
 }
 

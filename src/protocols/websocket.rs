@@ -13,8 +13,7 @@ use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use crate::chaos::{ChaosEngine, ChaosFault};
 use crate::config::WsMode;
 use crate::metrics::{
-    ConnectionMetrics, RequestMetric, WsSample, create_pubsub_payload, parse_pubsub_payload,
-    wallclock_ns,
+    RequestMetric, WsSample, create_pubsub_payload, parse_pubsub_payload, wallclock_ns,
 };
 
 use super::ProtocolEngine;
@@ -648,29 +647,13 @@ impl WebSocketEngine {
                     backpressure_sample_count: 1,
                     threshold_breaches: if depth_breach { 1 } else { 0 },
                 });
-                RequestMetric {
-                    latency_micros,
-                    status_code: 200,
-                    bytes_received: payload_len,
-                    is_reconnect: false,
-                    connection: ConnectionMetrics {
-                        connection_latency_us: None,
-                        timestamp_sent_ns: Some(wallclock_ns()),
-                        e2e_latency_us: None,
-                        dns_resolution_us: None,
-                        is_socket_reused: session.write.is_some(),
-                    },
-                    quic_handshake_us: None,
-                    quic_0rtt_used: false,
-                    quic_retransmits: None,
-                    sse_events_received: None,
-                    sse_first_event_us: None,
-                    sse_event_interval_us: None,
-                    ws,
-                    grpc: None,
-                    http3: None,
-                    chaos_fault: fault,
-                }
+                RequestMetric::builder(latency_micros, fault)
+                    .status(200)
+                    .bytes(payload_len)
+                    .timestamp_sent_ns(Some(wallclock_ns()))
+                    .socket_reused(session.write.is_some())
+                    .ws(ws)
+                    .build()
             }
             Err(e) => {
                 tracing::debug!(error = %e, "publisher send failed");
@@ -774,29 +757,13 @@ impl WebSocketEngine {
                     None
                 };
 
-                RequestMetric {
-                    latency_micros,
-                    status_code: 200,
-                    bytes_received: bytes,
-                    is_reconnect: false,
-                    connection: ConnectionMetrics {
-                        connection_latency_us: None,
-                        timestamp_sent_ns: None,
-                        e2e_latency_us,
-                        dns_resolution_us: None,
-                        is_socket_reused: session.read.is_some(),
-                    },
-                    quic_handshake_us: None,
-                    quic_0rtt_used: false,
-                    quic_retransmits: None,
-                    sse_events_received: None,
-                    sse_first_event_us: None,
-                    sse_event_interval_us: None,
-                    ws,
-                    grpc: None,
-                    http3: None,
-                    chaos_fault: fault,
-                }
+                RequestMetric::builder(latency_micros, fault)
+                    .status(200)
+                    .bytes(bytes)
+                    .e2e_latency_us(e2e_latency_us)
+                    .socket_reused(session.read.is_some())
+                    .ws(ws)
+                    .build()
             }
             Ok(None) => RequestMetric::error(latency_micros, fault),
             Err(_) => {
@@ -931,29 +898,11 @@ impl ProtocolEngine for WebSocketEngine {
             );
         }
 
-        RequestMetric {
-            latency_micros,
-            status_code,
-            bytes_received,
-            is_reconnect: false,
-            connection: ConnectionMetrics {
-                connection_latency_us: None,
-                timestamp_sent_ns: None,
-                e2e_latency_us: None,
-                dns_resolution_us: None,
-                is_socket_reused: false,
-            },
-            quic_handshake_us: None,
-            quic_0rtt_used: false,
-            quic_retransmits: None,
-            sse_events_received: None,
-            sse_first_event_us: None,
-            sse_event_interval_us: None,
-            ws,
-            grpc: None,
-            http3: None,
-            chaos_fault: fault,
-        }
+        RequestMetric::builder(latency_micros, fault)
+            .status(status_code)
+            .bytes(bytes_received)
+            .ws(ws)
+            .build()
     }
 
     async fn create_worker_context(&self) -> Option<Box<dyn super::WorkerSession>> {
@@ -1049,29 +998,14 @@ impl ProtocolEngine for WebSocketEngine {
                     0,
                     session.last_pongs_received,
                 );
-                RequestMetric {
-                    latency_micros: frame_latency,
-                    status_code: 200,
-                    bytes_received: response_bytes.len() as u64,
-                    is_reconnect: connection_latency_us > 0,
-                    connection: ConnectionMetrics {
-                        connection_latency_us: Some(connection_latency_us),
-                        timestamp_sent_ns: None,
-                        e2e_latency_us: None,
-                        dns_resolution_us: None,
-                        is_socket_reused: connection_latency_us == 0,
-                    },
-                    quic_handshake_us: None,
-                    quic_0rtt_used: false,
-                    quic_retransmits: None,
-                    sse_events_received: None,
-                    sse_first_event_us: None,
-                    sse_event_interval_us: None,
-                    ws,
-                    grpc: None,
-                    http3: None,
-                    chaos_fault: fault,
-                }
+                RequestMetric::builder(frame_latency, fault)
+                    .status(200)
+                    .bytes(response_bytes.len() as u64)
+                    .reconnect(connection_latency_us > 0)
+                    .connection_latency_us(Some(connection_latency_us))
+                    .socket_reused(connection_latency_us == 0)
+                    .ws(ws)
+                    .build()
             }
             Err(_) => {
                 let ws = ws_sample(
@@ -1080,29 +1014,12 @@ impl ProtocolEngine for WebSocketEngine {
                     0,
                     session.last_pongs_received,
                 );
-                RequestMetric {
-                    latency_micros: req_start.elapsed().as_micros(),
-                    status_code: 0,
-                    bytes_received: 0,
-                    is_reconnect: connection_latency_us > 0,
-                    connection: ConnectionMetrics {
-                        connection_latency_us: Some(connection_latency_us),
-                        timestamp_sent_ns: None,
-                        e2e_latency_us: None,
-                        dns_resolution_us: None,
-                        is_socket_reused: connection_latency_us == 0,
-                    },
-                    quic_handshake_us: None,
-                    quic_0rtt_used: false,
-                    quic_retransmits: None,
-                    sse_events_received: None,
-                    sse_first_event_us: None,
-                    sse_event_interval_us: None,
-                    ws,
-                    grpc: None,
-                    http3: None,
-                    chaos_fault: fault,
-                }
+                RequestMetric::builder(req_start.elapsed().as_micros(), fault)
+                    .reconnect(connection_latency_us > 0)
+                    .connection_latency_us(Some(connection_latency_us))
+                    .socket_reused(connection_latency_us == 0)
+                    .ws(ws)
+                    .build()
             }
         }
     }

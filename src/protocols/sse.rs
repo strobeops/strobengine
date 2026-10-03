@@ -7,7 +7,7 @@ use futures_util::StreamExt;
 use futures_util::stream::Stream;
 
 use crate::chaos::{ChaosEngine, ChaosFault};
-use crate::metrics::{ConnectionMetrics, RequestMetric};
+use crate::metrics::RequestMetric;
 
 use super::ProtocolEngine;
 
@@ -249,29 +249,10 @@ impl ProtocolEngine for SseEngine {
         let status_code = response.status().as_u16();
         if response.status().is_server_error() || response.status().is_client_error() {
             let latency_micros = req_start.elapsed().as_micros();
-            return RequestMetric {
-                latency_micros,
-                status_code,
-                bytes_received: 0,
-                is_reconnect: false,
-                connection: ConnectionMetrics {
-                    connection_latency_us: None,
-                    timestamp_sent_ns: None,
-                    e2e_latency_us: None,
-                    dns_resolution_us: None,
-                    is_socket_reused: false,
-                },
-                quic_handshake_us: None,
-                quic_0rtt_used: false,
-                quic_retransmits: None,
-                sse_events_received: Some(0),
-                sse_first_event_us: None,
-                sse_event_interval_us: None,
-                ws: None,
-                grpc: None,
-                http3: None,
-                chaos_fault: fault,
-            };
+            return RequestMetric::builder(latency_micros, fault)
+                .status(status_code)
+                .sse_events(Some(0), None, None)
+                .build();
         }
 
         // Read one frame from the stream
@@ -287,29 +268,15 @@ impl ProtocolEngine for SseEngine {
                     let events = parse_sse_chunk(&mut buffer, &chunk_str);
                     if !events.is_empty() {
                         let latency_micros = req_start.elapsed().as_micros();
-                        return RequestMetric {
-                            latency_micros,
-                            status_code,
-                            bytes_received: total_bytes,
-                            is_reconnect: false,
-                            connection: ConnectionMetrics {
-                                connection_latency_us: None,
-                                timestamp_sent_ns: None,
-                                e2e_latency_us: None,
-                                dns_resolution_us: None,
-                                is_socket_reused: false,
-                            },
-                            quic_handshake_us: None,
-                            quic_0rtt_used: false,
-                            quic_retransmits: None,
-                            sse_events_received: Some(events.len() as u64),
-                            sse_first_event_us: Some(latency_micros as u64),
-                            sse_event_interval_us: None,
-                            ws: None,
-                            grpc: None,
-                            http3: None,
-                            chaos_fault: fault,
-                        };
+                        return RequestMetric::builder(latency_micros, fault)
+                            .status(status_code)
+                            .bytes(total_bytes)
+                            .sse_events(
+                                Some(events.len() as u64),
+                                Some(latency_micros as u64),
+                                None,
+                            )
+                            .build();
                     }
                 }
                 Err(e) => {
@@ -321,29 +288,11 @@ impl ProtocolEngine for SseEngine {
 
         // Stream ended without yielding a frame
         let latency_micros = req_start.elapsed().as_micros();
-        RequestMetric {
-            latency_micros,
-            status_code,
-            bytes_received: total_bytes,
-            is_reconnect: false,
-            connection: ConnectionMetrics {
-                connection_latency_us: None,
-                timestamp_sent_ns: None,
-                e2e_latency_us: None,
-                dns_resolution_us: None,
-                is_socket_reused: false,
-            },
-            quic_handshake_us: None,
-            quic_0rtt_used: false,
-            quic_retransmits: None,
-            sse_events_received: Some(0),
-            sse_first_event_us: None,
-            sse_event_interval_us: None,
-            ws: None,
-            grpc: None,
-            http3: None,
-            chaos_fault: fault,
-        }
+        RequestMetric::builder(latency_micros, fault)
+            .status(status_code)
+            .bytes(total_bytes)
+            .sse_events(Some(0), None, None)
+            .build()
     }
 
     /// Persistent mode: return a session for subsequent lazy-connect reads.
@@ -373,31 +322,17 @@ impl ProtocolEngine for SseEngine {
                 max = ?session.max_events,
                 "sse max events reached"
             );
-            return RequestMetric {
-                latency_micros: 0,
-                status_code: session.status_code,
-                bytes_received: 0,
-                is_reconnect: false,
-                connection: ConnectionMetrics {
-                    connection_latency_us: None,
-                    timestamp_sent_ns: None,
-                    e2e_latency_us: None,
-                    dns_resolution_us: None,
-                    is_socket_reused: was_connected,
-                },
-                quic_handshake_us: None,
-                quic_0rtt_used: false,
-                quic_retransmits: None,
-                sse_events_received: Some(session.events_received),
-                sse_first_event_us: session
-                    .first_event_time
-                    .map(|t| t.elapsed().as_micros() as u64),
-                sse_event_interval_us: None,
-                ws: None,
-                grpc: None,
-                http3: None,
-                chaos_fault: None,
-            };
+            return RequestMetric::builder(0, None)
+                .status(session.status_code)
+                .socket_reused(was_connected)
+                .sse_events(
+                    Some(session.events_received),
+                    session
+                        .first_event_time
+                        .map(|t| t.elapsed().as_micros() as u64),
+                    None,
+                )
+                .build();
         }
 
         // Chaos is selected only when (re)connecting: read iterations over an
@@ -462,29 +397,12 @@ impl ProtocolEngine for SseEngine {
                             .first_event_time
                             .map(|t| t.elapsed().as_micros() as u64);
 
-                        return RequestMetric {
-                            latency_micros,
-                            status_code,
-                            bytes_received: total_bytes,
-                            is_reconnect: false,
-                            connection: ConnectionMetrics {
-                                connection_latency_us: None,
-                                timestamp_sent_ns: None,
-                                e2e_latency_us: None,
-                                dns_resolution_us: None,
-                                is_socket_reused: was_connected,
-                            },
-                            quic_handshake_us: None,
-                            quic_0rtt_used: false,
-                            quic_retransmits: None,
-                            sse_events_received: Some(session.events_received),
-                            sse_first_event_us: first_event_us,
-                            sse_event_interval_us: interval_us,
-                            ws: None,
-                            grpc: None,
-                            http3: None,
-                            chaos_fault: fault,
-                        };
+                        return RequestMetric::builder(latency_micros, fault)
+                            .status(status_code)
+                            .bytes(total_bytes)
+                            .socket_reused(was_connected)
+                            .sse_events(Some(session.events_received), first_event_us, interval_us)
+                            .build();
                     }
                 }
                 Err(e) => {
@@ -509,31 +427,18 @@ impl ProtocolEngine for SseEngine {
 
         // Stream EOF: server closed the connection; the next iteration reconnects.
         let latency_micros = req_start.elapsed().as_micros();
-        RequestMetric {
-            latency_micros,
-            status_code,
-            bytes_received: total_bytes,
-            is_reconnect: false,
-            connection: ConnectionMetrics {
-                connection_latency_us: None,
-                timestamp_sent_ns: None,
-                e2e_latency_us: None,
-                dns_resolution_us: None,
-                is_socket_reused: was_connected,
-            },
-            quic_handshake_us: None,
-            quic_0rtt_used: false,
-            quic_retransmits: None,
-            sse_events_received: Some(session.events_received),
-            sse_first_event_us: session
-                .first_event_time
-                .map(|t| t.elapsed().as_micros() as u64),
-            sse_event_interval_us: None,
-            ws: None,
-            grpc: None,
-            http3: None,
-            chaos_fault: fault,
-        }
+        RequestMetric::builder(latency_micros, fault)
+            .status(status_code)
+            .bytes(total_bytes)
+            .socket_reused(was_connected)
+            .sse_events(
+                Some(session.events_received),
+                session
+                    .first_event_time
+                    .map(|t| t.elapsed().as_micros() as u64),
+                None,
+            )
+            .build()
     }
 }
 
