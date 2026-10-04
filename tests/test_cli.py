@@ -1,5 +1,6 @@
 import json
 from pathlib import Path
+from unittest import mock
 
 import pytest
 from typer.testing import CliRunner
@@ -208,16 +209,54 @@ class TestCLIVersion:
 
 class TestCLIVerbosity:
     def test_verbose_flag(self, local_server: str) -> None:
-        result = runner.invoke(app, ["load", "-v", local_server, "-c", "2", "-d", "1"])
+        with mock.patch("strobengine.cli._configure_logging") as cfg:
+            result = runner.invoke(
+                app, ["load", "-v", local_server, "-c", "2", "-d", "1"]
+            )
         assert result.exit_code == 0
+        assert cfg.call_args.args[0] == "info"
 
     def test_double_verbose(self, local_server: str) -> None:
-        result = runner.invoke(app, ["load", "-vv", local_server, "-c", "2", "-d", "1"])
+        with mock.patch("strobengine.cli._configure_logging") as cfg:
+            result = runner.invoke(
+                app, ["load", "-vv", local_server, "-c", "2", "-d", "1"]
+            )
         assert result.exit_code == 0
+        assert cfg.call_args.args[0] == "debug"
+
+    def test_triple_verbose(self, local_server: str) -> None:
+        with mock.patch("strobengine.cli._configure_logging") as cfg:
+            result = runner.invoke(
+                app, ["load", "-vvv", local_server, "-c", "2", "-d", "1"]
+            )
+        assert result.exit_code == 0
+        assert cfg.call_args.args[0] == "trace"
 
     def test_quiet_flag(self, local_server: str) -> None:
-        result = runner.invoke(app, ["load", "-q", local_server, "-c", "2", "-d", "1"])
+        with mock.patch("strobengine.cli._configure_logging") as cfg:
+            result = runner.invoke(
+                app, ["load", "-q", local_server, "-c", "2", "-d", "1"]
+            )
         assert result.exit_code == 0
+        assert cfg.call_args.args[0] == "off"
+
+    def test_no_progress_keeps_default_log_level(self, local_server: str) -> None:
+        # --no-progress is a display flag, not a verbosity flag: it must not
+        # raise the log level (True == 1 previously resolved to "info").
+        with mock.patch("strobengine.cli._configure_logging") as cfg:
+            result = runner.invoke(
+                app, ["load", "--no-progress", local_server, "-c", "2", "-d", "1"]
+            )
+        assert result.exit_code == 0
+        assert cfg.call_args.args[0] == "warn"
+
+    def test_json_output_overrides_verbosity(self, local_server: str) -> None:
+        with mock.patch("strobengine.cli._configure_logging") as cfg:
+            result = runner.invoke(
+                app, ["load", "--json", "-v", local_server, "-c", "2", "-d", "1"]
+            )
+        assert result.exit_code == 0
+        assert cfg.call_args.args[0] == "off"
 
     def test_log_file_flag(self, local_server: str, tmp_path: Path) -> None:
         log_file = str(tmp_path / "test.log")
