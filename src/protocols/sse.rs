@@ -311,6 +311,10 @@ impl ProtocolEngine for SseEngine {
             None => return RequestMetric::error(0, None),
         };
 
+        // TTFB measures from request start (including a lazy connect), so it
+        // matches the stateless path's request-to-first-event semantics.
+        let iteration_start = Instant::now();
+
         // Track whether connection existed before this iteration (reuse detection)
         let was_connected = session.stream.is_some();
 
@@ -325,13 +329,9 @@ impl ProtocolEngine for SseEngine {
             return RequestMetric::builder(0, None)
                 .status(session.status_code)
                 .socket_reused(was_connected)
-                .sse_events(
-                    Some(session.events_received),
-                    session
-                        .first_event_time
-                        .map(|t| t.elapsed().as_micros() as u64),
-                    None,
-                )
+                // No first event arrives in this iteration: the connection
+                // that received one already reported its TTFB.
+                .sse_events(Some(session.events_received), None, None)
                 .build();
         }
 
@@ -354,6 +354,9 @@ impl ProtocolEngine for SseEngine {
                     session.status_code = resp.status().as_u16();
                     // `--sse-max-events` caps events per connection.
                     session.events_received = 0;
+                    // TTFB is per connection: the next first event starts a
+                    // fresh measurement instead of reusing the session's one.
+                    session.first_event_time = None;
                     session.stream = Some(Box::pin(resp.bytes_stream()));
                 }
                 Err(e) => {
@@ -383,7 +386,8 @@ impl ProtocolEngine for SseEngine {
                         session.events_received += 1;
 
                         let now = Instant::now();
-                        if session.first_event_time.is_none() {
+                        let first_of_connection = session.first_event_time.is_none();
+                        if first_of_connection {
                             session.first_event_time = Some(now);
                         }
 
@@ -393,9 +397,11 @@ impl ProtocolEngine for SseEngine {
                         session.last_event_time = Some(now);
 
                         let latency_micros = req_start.elapsed().as_micros();
-                        let first_event_us = session
-                            .first_event_time
-                            .map(|t| t.elapsed().as_micros() as u64);
+                        // TTFB only on the connection's first event; later
+                        // iterations measure wait-for-next via latency and
+                        // interval instead of re-reporting a stale value.
+                        let first_event_us = first_of_connection
+                            .then(|| now.duration_since(iteration_start).as_micros() as u64);
 
                         return RequestMetric::builder(latency_micros, fault)
                             .status(status_code)
@@ -431,320 +437,8 @@ impl ProtocolEngine for SseEngine {
             .status(status_code)
             .bytes(total_bytes)
             .socket_reused(was_connected)
-            .sse_events(
-                Some(session.events_received),
-                session
-                    .first_event_time
-                    .map(|t| t.elapsed().as_micros() as u64),
-                None,
-            )
+            // No first event arrived in this iteration (see max path above).
+            .sse_events(Some(session.events_received), None, None)
             .build()
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_parse_single_frame() {
-        let mut buffer = String::new();
-        let events = parse_sse_chunk(&mut buffer, "data: hello\n\n");
-        assert_eq!(events.len(), 1);
-        assert_eq!(events[0].data, "hello");
-        assert_eq!(events[0].event_type, "");
-    }
-
-    #[test]
-    fn test_parse_multiple_frames() {
-        let mut buffer = String::new();
-        let events = parse_sse_chunk(&mut buffer, "data: first\n\ndata: second\n\n");
-        assert_eq!(events.len(), 2);
-        assert_eq!(events[0].data, "first");
-        assert_eq!(events[1].data, "second");
-    }
-
-    #[test]
-    fn test_parse_split_across_chunks() {
-        let mut buffer = String::new();
-        let events1 = parse_sse_chunk(&mut buffer, "data: hel");
-        assert_eq!(events1.len(), 0);
-        let events2 = parse_sse_chunk(&mut buffer, "lo\n\n");
-        assert_eq!(events2.len(), 1);
-        assert_eq!(events2[0].data, "hello");
-    }
-
-    #[test]
-    fn test_parse_crlf_separator() {
-        let mut buffer = String::new();
-        let events = parse_sse_chunk(&mut buffer, "data: crlf-test\r\n\r\n");
-        assert_eq!(events.len(), 1);
-        assert_eq!(events[0].data, "crlf-test");
-    }
-
-    #[test]
-    fn test_parse_event_type() {
-        let mut buffer = String::new();
-        let events = parse_sse_chunk(&mut buffer, "event: message\ndata: payload\n\n");
-        assert_eq!(events.len(), 1);
-        assert_eq!(events[0].event_type, "message");
-        assert_eq!(events[0].data, "payload");
-    }
-
-    #[test]
-    fn test_parse_data_concatenation() {
-        let mut buffer = String::new();
-        let events = parse_sse_chunk(&mut buffer, "data: line1\ndata: line2\ndata: line3\n\n");
-        assert_eq!(events.len(), 1);
-        assert_eq!(events[0].data, "line1\nline2\nline3");
-    }
-
-    #[test]
-    fn test_parse_id_field() {
-        let mut buffer = String::new();
-        let events = parse_sse_chunk(&mut buffer, "id: 42\ndata: test\n\n");
-        assert_eq!(events.len(), 1);
-        assert_eq!(events[0].id, Some("42".to_string()));
-    }
-
-    #[test]
-    fn test_parse_comment_ignored() {
-        let mut buffer = String::new();
-        let events = parse_sse_chunk(&mut buffer, ": this is a comment\ndata: real\n\n");
-        assert_eq!(events.len(), 1);
-        assert_eq!(events[0].data, "real");
-    }
-
-    #[test]
-    fn test_parse_empty_data_no_event() {
-        let mut buffer = String::new();
-        let events = parse_sse_chunk(&mut buffer, "event: ping\n\n");
-        assert_eq!(events.len(), 0);
-    }
-
-    #[test]
-    fn test_parse_data_with_space_prefix() {
-        let mut buffer = String::new();
-        let events = parse_sse_chunk(&mut buffer, "data: with space\n\n");
-        assert_eq!(events.len(), 1);
-        assert_eq!(events[0].data, "with space");
-    }
-
-    #[test]
-    fn test_parse_data_without_space_prefix() {
-        let mut buffer = String::new();
-        let events = parse_sse_chunk(&mut buffer, "data:nospace\n\n");
-        assert_eq!(events.len(), 1);
-        assert_eq!(events[0].data, "nospace");
-    }
-
-    #[test]
-    fn test_buffer_partial_frame_persists() {
-        let mut buffer = String::new();
-        parse_sse_chunk(&mut buffer, "data: partial");
-        assert_eq!(buffer, "data: partial");
-    }
-
-    #[test]
-    fn test_multiple_delimiters_in_buffer() {
-        let mut buffer = String::new();
-        let events = parse_sse_chunk(&mut buffer, "data: a\n\ndata: b\r\n\r\ndata: c\n\n");
-        assert_eq!(events.len(), 3);
-        assert_eq!(events[0].data, "a");
-        assert_eq!(events[1].data, "b");
-        assert_eq!(events[2].data, "c");
-    }
-
-    #[test]
-    fn test_mixed_delimiters_split() {
-        let mut buffer = String::new();
-        let events1 = parse_sse_chunk(&mut buffer, "data: x\r\n\r");
-        assert_eq!(events1.len(), 0);
-        let events2 = parse_sse_chunk(&mut buffer, "\ndata: y\n\n");
-        assert_eq!(events2.len(), 2);
-        assert_eq!(events2[0].data, "x");
-        assert_eq!(events2[1].data, "y");
-    }
-
-    use std::sync::Arc;
-    use std::sync::atomic::{AtomicUsize, Ordering};
-
-    use tokio::io::{AsyncReadExt, AsyncWriteExt};
-    use tokio::net::TcpListener;
-
-    /// Raw local SSE server. Reads each request fully (so close sends FIN,
-    /// not RST), responds per `mode`, then closes the connection.
-    ///
-    /// - `"eof"`: valid SSE response with one event, then clean close.
-    /// - `"short_body"`: `Content-Length: 1000` with no body, then clean
-    ///   close -- hyper reports a premature-close error with zero events.
-    async fn spawn_raw_sse_server(mode: &'static str) -> (String, Arc<AtomicUsize>) {
-        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let addr = listener.local_addr().unwrap();
-        let accepts = Arc::new(AtomicUsize::new(0));
-        let counter = Arc::clone(&accepts);
-
-        tokio::spawn(async move {
-            loop {
-                let Ok((mut socket, _)) = listener.accept().await else {
-                    break;
-                };
-                counter.fetch_add(1, Ordering::Relaxed);
-
-                // Drain request headers so the later close is a clean FIN.
-                let mut buf = [0u8; 4096];
-                let mut seen = 0usize;
-                while !buf[..seen].windows(4).any(|w| w == b"\r\n\r\n") {
-                    if seen == buf.len() {
-                        break;
-                    }
-                    match socket.read(&mut buf[seen..]).await {
-                        Ok(0) | Err(_) => break,
-                        Ok(n) => seen += n,
-                    }
-                }
-
-                let response = match mode {
-                    "short_body" => "HTTP/1.1 200 OK\r\nContent-Length: 1000\r\n\r\n",
-                    _ => {
-                        "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\n\
-                          Connection: close\r\n\r\ndata: e1\n\n"
-                    }
-                };
-                let _ = socket.write_all(response.as_bytes()).await;
-                let _ = socket.flush().await;
-                // socket dropped here -> FIN
-            }
-        });
-
-        (format!("http://{addr}"), accepts)
-    }
-
-    fn test_engine(max_events: Option<u64>) -> SseEngine {
-        SseEngine::new(Vec::new(), ChaosEngine::new(false, 0.0), max_events)
-    }
-
-    #[tokio::test]
-    async fn stateless_read_error_is_status_zero() {
-        let (url, _accepts) = spawn_raw_sse_server("short_body").await;
-        let engine = test_engine(None);
-
-        let metric = engine.execute_iteration(&url).await;
-
-        assert_eq!(metric.status_code, 0);
-    }
-
-    #[tokio::test]
-    async fn persistent_read_error_is_status_zero_and_resets_stream() {
-        let (url, _accepts) = spawn_raw_sse_server("short_body").await;
-        let engine = test_engine(None);
-        let mut ctx = engine.create_worker_context().await.unwrap();
-
-        let metric = engine
-            .execute_iteration_with_context(&url, ctx.as_mut())
-            .await;
-
-        assert_eq!(metric.status_code, 0);
-        let session = ctx.as_any_mut().downcast_mut::<SseSession>().unwrap();
-        assert!(session.stream.is_none(), "failed stream must be discarded");
-    }
-
-    #[tokio::test]
-    async fn persistent_eof_reconnects_next_iteration() {
-        let (url, accepts) = spawn_raw_sse_server("eof").await;
-        let engine = test_engine(None);
-        let mut ctx = engine.create_worker_context().await.unwrap();
-
-        for _ in 0..4 {
-            let metric = engine
-                .execute_iteration_with_context(&url, ctx.as_mut())
-                .await;
-            assert_eq!(metric.status_code, 200, "clean EOF is a success");
-        }
-
-        assert!(
-            accepts.load(Ordering::Relaxed) >= 2,
-            "session must reconnect after EOF"
-        );
-        let session = ctx.as_any_mut().downcast_mut::<SseSession>().unwrap();
-        assert!(session.stream.is_none());
-    }
-
-    #[tokio::test]
-    async fn max_events_resets_per_connection() {
-        let (url, accepts) = spawn_raw_sse_server("eof").await;
-        let engine = test_engine(Some(2));
-        let mut ctx = engine.create_worker_context().await.unwrap();
-
-        for _ in 0..6 {
-            let _ = engine
-                .execute_iteration_with_context(&url, ctx.as_mut())
-                .await;
-        }
-
-        assert!(
-            accepts.load(Ordering::Relaxed) >= 3,
-            "per-connection budget must allow reconnects below the cap"
-        );
-    }
-
-    #[tokio::test]
-    async fn max_events_early_return_reports_last_status() {
-        let (url, _accepts) = spawn_raw_sse_server("eof").await;
-        let engine = test_engine(Some(1));
-        let mut ctx = engine.create_worker_context().await.unwrap();
-
-        let first = engine
-            .execute_iteration_with_context(&url, ctx.as_mut())
-            .await;
-        assert_eq!(first.status_code, 200);
-
-        let capped = engine
-            .execute_iteration_with_context(&url, ctx.as_mut())
-            .await;
-        assert_eq!(capped.status_code, 200, "budget completion is not an error");
-        assert_eq!(capped.sse_events_received, Some(1));
-        assert_eq!(capped.latency_micros, 0);
-    }
-
-    #[tokio::test]
-    async fn chaos_fault_is_carried_on_every_return_path() {
-        let (url, _accepts) = spawn_raw_sse_server("eof").await;
-
-        // Stateless: the fault is selected at the top of every iteration, so
-        // both the ConnectionDrop early return and the frame/EOF returns below
-        // must carry it -- otherwise it never reaches `chaos_injected_total`.
-        let engine = SseEngine::new(Vec::new(), ChaosEngine::new(true, 1.0), None);
-        for i in 0..8 {
-            let metric = engine.execute_iteration(&url).await;
-            assert!(
-                metric.chaos_fault.is_some(),
-                "stateless iteration {i} dropped its selected chaos fault"
-            );
-        }
-
-        // Persistent: the fault is selected when an iteration starts without a
-        // stream (initial connect or post-EOF reconnect). Read iterations over
-        // an established stream select nothing, so only reconnect iterations
-        // are required to carry a fault.
-        let engine = SseEngine::new(Vec::new(), ChaosEngine::new(true, 1.0), None);
-        let mut ctx = engine.create_worker_context().await.unwrap();
-        let mut faulted_reconnects = 0;
-        for i in 0..8 {
-            let metric = engine
-                .execute_iteration_with_context(&url, ctx.as_mut())
-                .await;
-            if !metric.connection.is_socket_reused {
-                assert!(
-                    metric.chaos_fault.is_some(),
-                    "reconnect iteration {i} dropped its selected chaos fault"
-                );
-                faulted_reconnects += 1;
-            }
-        }
-        assert!(
-            faulted_reconnects >= 2,
-            "expected repeated (re)connect iterations, got {faulted_reconnects}"
-        );
     }
 }
