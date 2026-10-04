@@ -311,6 +311,10 @@ impl ProtocolEngine for SseEngine {
             None => return RequestMetric::error(0, None),
         };
 
+        // TTFB measures from request start (including a lazy connect), so it
+        // matches the stateless path's request-to-first-event semantics.
+        let iteration_start = Instant::now();
+
         // Track whether connection existed before this iteration (reuse detection)
         let was_connected = session.stream.is_some();
 
@@ -325,13 +329,9 @@ impl ProtocolEngine for SseEngine {
             return RequestMetric::builder(0, None)
                 .status(session.status_code)
                 .socket_reused(was_connected)
-                .sse_events(
-                    Some(session.events_received),
-                    session
-                        .first_event_time
-                        .map(|t| t.elapsed().as_micros() as u64),
-                    None,
-                )
+                // No first event arrives in this iteration: the connection
+                // that received one already reported its TTFB.
+                .sse_events(Some(session.events_received), None, None)
                 .build();
         }
 
@@ -354,6 +354,9 @@ impl ProtocolEngine for SseEngine {
                     session.status_code = resp.status().as_u16();
                     // `--sse-max-events` caps events per connection.
                     session.events_received = 0;
+                    // TTFB is per connection: the next first event starts a
+                    // fresh measurement instead of reusing the session's one.
+                    session.first_event_time = None;
                     session.stream = Some(Box::pin(resp.bytes_stream()));
                 }
                 Err(e) => {
@@ -383,7 +386,8 @@ impl ProtocolEngine for SseEngine {
                         session.events_received += 1;
 
                         let now = Instant::now();
-                        if session.first_event_time.is_none() {
+                        let first_of_connection = session.first_event_time.is_none();
+                        if first_of_connection {
                             session.first_event_time = Some(now);
                         }
 
@@ -393,9 +397,11 @@ impl ProtocolEngine for SseEngine {
                         session.last_event_time = Some(now);
 
                         let latency_micros = req_start.elapsed().as_micros();
-                        let first_event_us = session
-                            .first_event_time
-                            .map(|t| t.elapsed().as_micros() as u64);
+                        // TTFB only on the connection's first event; later
+                        // iterations measure wait-for-next via latency and
+                        // interval instead of re-reporting a stale value.
+                        let first_event_us = first_of_connection
+                            .then(|| now.duration_since(iteration_start).as_micros() as u64);
 
                         return RequestMetric::builder(latency_micros, fault)
                             .status(status_code)
@@ -431,13 +437,8 @@ impl ProtocolEngine for SseEngine {
             .status(status_code)
             .bytes(total_bytes)
             .socket_reused(was_connected)
-            .sse_events(
-                Some(session.events_received),
-                session
-                    .first_event_time
-                    .map(|t| t.elapsed().as_micros() as u64),
-                None,
-            )
+            // No first event arrived in this iteration (see max path above).
+            .sse_events(Some(session.events_received), None, None)
             .build()
     }
 }
@@ -578,6 +579,10 @@ mod tests {
     /// - `"eof"`: valid SSE response with one event, then clean close.
     /// - `"short_body"`: `Content-Length: 1000` with no body, then clean
     ///   close -- hyper reports a premature-close error with zero events.
+    /// - `"delayed_first"`: valid SSE response whose first event is withheld
+    ///   for 60ms, then clean close.
+    /// - `"two_events"`: valid SSE response with one event now and a second
+    ///   after a 100ms delay, then clean close.
     async fn spawn_raw_sse_server(mode: &'static str) -> (String, Arc<AtomicUsize>) {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
@@ -604,15 +609,37 @@ mod tests {
                     }
                 }
 
-                let response = match mode {
-                    "short_body" => "HTTP/1.1 200 OK\r\nContent-Length: 1000\r\n\r\n",
-                    _ => {
-                        "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\n\
-                          Connection: close\r\n\r\ndata: e1\n\n"
+                const SSE_HEAD: &str = "HTTP/1.1 200 OK\r\n\
+                    Content-Type: text/event-stream\r\n\
+                    Connection: close\r\n\r\n";
+
+                match mode {
+                    "short_body" => {
+                        let response = "HTTP/1.1 200 OK\r\nContent-Length: 1000\r\n\r\n";
+                        let _ = socket.write_all(response.as_bytes()).await;
+                        let _ = socket.flush().await;
                     }
-                };
-                let _ = socket.write_all(response.as_bytes()).await;
-                let _ = socket.flush().await;
+                    "delayed_first" => {
+                        let _ = socket.write_all(SSE_HEAD.as_bytes()).await;
+                        let _ = socket.flush().await;
+                        tokio::time::sleep(Duration::from_millis(60)).await;
+                        let _ = socket.write_all(b"data: e1\n\n").await;
+                        let _ = socket.flush().await;
+                    }
+                    "two_events" => {
+                        let response = format!("{SSE_HEAD}data: e1\n\n");
+                        let _ = socket.write_all(response.as_bytes()).await;
+                        let _ = socket.flush().await;
+                        tokio::time::sleep(Duration::from_millis(100)).await;
+                        let _ = socket.write_all(b"data: e2\n\n").await;
+                        let _ = socket.flush().await;
+                    }
+                    _ => {
+                        let response = format!("{SSE_HEAD}data: e1\n\n");
+                        let _ = socket.write_all(response.as_bytes()).await;
+                        let _ = socket.flush().await;
+                    }
+                }
                 // socket dropped here -> FIN
             }
         });
@@ -745,6 +772,74 @@ mod tests {
         assert!(
             faulted_reconnects >= 2,
             "expected repeated (re)connect iterations, got {faulted_reconnects}"
+        );
+    }
+
+    #[tokio::test]
+    async fn persistent_ttfb_measures_request_start_to_first_event() {
+        let (url, _accepts) = spawn_raw_sse_server("delayed_first").await;
+        let engine = test_engine(None);
+        let mut ctx = engine.create_worker_context().await.unwrap();
+
+        let metric = engine
+            .execute_iteration_with_context(&url, ctx.as_mut())
+            .await;
+
+        assert_eq!(metric.status_code, 200);
+        let ttfb = metric
+            .sse_first_event_us
+            .expect("the connection's first event must report a TTFB");
+        assert!(
+            ttfb >= 60_000,
+            "TTFB must include the 60ms server delay, got {ttfb}us"
+        );
+    }
+
+    #[tokio::test]
+    async fn persistent_later_iterations_report_no_ttfb() {
+        let (url, _accepts) = spawn_raw_sse_server("two_events").await;
+        let engine = test_engine(None);
+        let mut ctx = engine.create_worker_context().await.unwrap();
+
+        let first = engine
+            .execute_iteration_with_context(&url, ctx.as_mut())
+            .await;
+        assert!(first.sse_first_event_us.is_some());
+
+        let second = engine
+            .execute_iteration_with_context(&url, ctx.as_mut())
+            .await;
+        assert_eq!(second.status_code, 200);
+        assert!(
+            second.sse_first_event_us.is_none(),
+            "only the connection's first event carries a TTFB sample"
+        );
+    }
+
+    #[tokio::test]
+    async fn persistent_ttfb_resets_on_reconnect() {
+        let (url, _accepts) = spawn_raw_sse_server("eof").await;
+        let engine = test_engine(None);
+        let mut ctx = engine.create_worker_context().await.unwrap();
+
+        let first = engine
+            .execute_iteration_with_context(&url, ctx.as_mut())
+            .await;
+        assert!(first.sse_first_event_us.is_some());
+
+        // EOF: the stream is dropped so the next iteration reconnects.
+        let eof = engine
+            .execute_iteration_with_context(&url, ctx.as_mut())
+            .await;
+        assert!(eof.sse_first_event_us.is_none());
+
+        let after_reconnect = engine
+            .execute_iteration_with_context(&url, ctx.as_mut())
+            .await;
+        assert_eq!(after_reconnect.status_code, 200);
+        assert!(
+            after_reconnect.sse_first_event_us.is_some(),
+            "a reconnect must produce a fresh TTFB sample"
         );
     }
 }
