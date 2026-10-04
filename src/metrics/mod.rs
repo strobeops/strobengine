@@ -146,8 +146,17 @@ pub struct RequestMetric {
 }
 
 impl RequestMetric {
-    pub fn error(latency_micros: u128) -> Self {
-        Self {
+    /// Seed a metric for one iteration: its latency and the chaos fault selected
+    /// for that iteration (`None` when chaos did not fire, or the failure happened
+    /// before fault selection — e.g. a URL parse error or an outer deadline).
+    ///
+    /// Defaults describe an error metric (`status_code == 0`, no samples);
+    /// success paths layer the actual fields on top through the returned builder.
+    pub fn builder(
+        latency_micros: u128,
+        chaos_fault: Option<crate::chaos::ChaosFault>,
+    ) -> RequestMetricBuilder {
+        RequestMetricBuilder(Self {
             latency_micros,
             status_code: 0,
             bytes_received: 0,
@@ -162,8 +171,105 @@ impl RequestMetric {
             ws: None,
             grpc: None,
             http3: None,
-            chaos_fault: None,
-        }
+            chaos_fault,
+        })
+    }
+
+    /// Error metric (`status_code == 0`) carrying the chaos fault selected for
+    /// this iteration, so injected-but-failed iterations still count toward
+    /// `chaos_injected_total`. Pass `None` when no fault was selected (chaos
+    /// disabled, rate not met, or a failure before fault selection).
+    pub fn error(latency_micros: u128, chaos_fault: Option<crate::chaos::ChaosFault>) -> Self {
+        Self::builder(latency_micros, chaos_fault).build()
+    }
+}
+
+/// Fluent builder over [`RequestMetric`]: call sites state only the fields that
+/// differ from the error defaults instead of repeating all sixteen of them.
+pub struct RequestMetricBuilder(RequestMetric);
+
+impl RequestMetricBuilder {
+    pub fn status(mut self, status_code: u16) -> Self {
+        self.0.status_code = status_code;
+        self
+    }
+
+    pub fn bytes(mut self, bytes_received: u64) -> Self {
+        self.0.bytes_received = bytes_received;
+        self
+    }
+
+    pub fn reconnect(mut self, is_reconnect: bool) -> Self {
+        self.0.is_reconnect = is_reconnect;
+        self
+    }
+
+    pub fn connection_latency_us(mut self, us: Option<u128>) -> Self {
+        self.0.connection.connection_latency_us = us;
+        self
+    }
+
+    pub fn timestamp_sent_ns(mut self, ns: Option<u128>) -> Self {
+        self.0.connection.timestamp_sent_ns = ns;
+        self
+    }
+
+    pub fn e2e_latency_us(mut self, us: Option<u128>) -> Self {
+        self.0.connection.e2e_latency_us = us;
+        self
+    }
+
+    pub fn dns_resolution_us(mut self, us: Option<u64>) -> Self {
+        self.0.connection.dns_resolution_us = us;
+        self
+    }
+
+    pub fn socket_reused(mut self, is_socket_reused: bool) -> Self {
+        self.0.connection.is_socket_reused = is_socket_reused;
+        self
+    }
+
+    pub fn quic(
+        mut self,
+        handshake_us: Option<u64>,
+        used_0rtt: bool,
+        retransmits: Option<u64>,
+    ) -> Self {
+        self.0.quic_handshake_us = handshake_us;
+        self.0.quic_0rtt_used = used_0rtt;
+        self.0.quic_retransmits = retransmits;
+        self
+    }
+
+    pub fn sse_events(
+        mut self,
+        events: Option<u64>,
+        first_event_us: Option<u64>,
+        event_interval_us: Option<u64>,
+    ) -> Self {
+        self.0.sse_events_received = events;
+        self.0.sse_first_event_us = first_event_us;
+        self.0.sse_event_interval_us = event_interval_us;
+        self
+    }
+
+    pub fn ws(mut self, sample: Option<WsSample>) -> Self {
+        self.0.ws = sample;
+        self
+    }
+
+    pub fn grpc(mut self, sample: Option<GrpcSample>) -> Self {
+        self.0.grpc = sample;
+        self
+    }
+
+    pub fn http3(mut self, sample: Option<Http3Sample>) -> Self {
+        self.0.http3 = sample;
+        self
+    }
+
+    pub fn build(self) -> RequestMetric {
+        self.0
     }
 }
 
@@ -1259,16 +1365,16 @@ mod tests {
             threshold_breaches: breaches,
         };
 
-        let mut first = RequestMetric::error(1000);
+        let mut first = RequestMetric::error(1000, None);
         first.ws = Some(sample(1, 0, 1, 0, 1000, 1000, 1, 0));
         tx.send(first).await.unwrap();
 
-        let mut second = RequestMetric::error(1000);
+        let mut second = RequestMetric::error(1000, None);
         second.ws = Some(sample(0, 0, 0, 0, 2000, 3000, 2, 1));
         tx.send(second).await.unwrap();
 
         // Insignificant samples must not flip `has_ws`.
-        let mut third = RequestMetric::error(1000);
+        let mut third = RequestMetric::error(1000, None);
         third.ws = Some(WsSample::default());
         tx.send(third).await.unwrap();
 
@@ -1289,7 +1395,7 @@ mod tests {
     async fn test_finalize_metrics_aggregates_grpc_samples() {
         let (tx, rx) = tokio::sync::mpsc::channel::<RequestMetric>(8);
 
-        let mut first = RequestMetric::error(1000);
+        let mut first = RequestMetric::error(1000, None);
         first.grpc = Some(GrpcSample {
             active_streams: 4,
             max_concurrent_streams: 100,
@@ -1301,7 +1407,7 @@ mod tests {
         });
         tx.send(first).await.unwrap();
 
-        let mut second = RequestMetric::error(1000);
+        let mut second = RequestMetric::error(1000, None);
         second.grpc = Some(GrpcSample {
             active_streams: 6,
             max_concurrent_streams: 100,
@@ -1314,7 +1420,7 @@ mod tests {
         tx.send(second).await.unwrap();
 
         // Insignificant sample must not flip `has_grpc`.
-        let mut third = RequestMetric::error(1000);
+        let mut third = RequestMetric::error(1000, None);
         third.grpc = Some(GrpcSample::default());
         tx.send(third).await.unwrap();
 
@@ -1341,12 +1447,12 @@ mod tests {
             migrations_successful: succ,
         };
         for sample in [s(2000, 0, 0), s(1000, 0, 0), s(4000, 2, 1)] {
-            let mut m = RequestMetric::error(1000);
+            let mut m = RequestMetric::error(1000, None);
             m.http3 = Some(sample);
             tx.send(m).await.unwrap();
         }
         // Insignificant sample must not flip has_http3.
-        let mut none = RequestMetric::error(1000);
+        let mut none = RequestMetric::error(1000, None);
         none.http3 = Some(Http3Sample::default());
         tx.send(none).await.unwrap();
         drop(tx);
@@ -1364,9 +1470,43 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_finalize_metrics_counts_chaos_faults() {
+        use crate::chaos::ChaosFault;
+
+        let (tx, rx) = tokio::sync::mpsc::channel::<RequestMetric>(8);
+
+        // A fault counts whether the iteration succeeded or failed...
+        tx.send(
+            RequestMetric::builder(1000, Some(ChaosFault::ConnectionDrop))
+                .status(200)
+                .build(),
+        )
+        .await
+        .unwrap();
+        tx.send(RequestMetric::error(1000, Some(ChaosFault::ConnectionDrop)))
+            .await
+            .unwrap();
+        tx.send(RequestMetric::error(
+            1000,
+            Some(ChaosFault::LatencySpike { duration_ms: 150 }),
+        ))
+        .await
+        .unwrap();
+        // ...but an iteration without a fault must not be counted.
+        tx.send(RequestMetric::error(1000, None)).await.unwrap();
+        drop(tx);
+
+        let agg = finalize_metrics(rx).await;
+        assert_eq!(agg.chaos_injected_total, 3);
+        assert_eq!(agg.chaos_faults_by_type.get("ConnectionDrop"), Some(&2));
+        assert_eq!(agg.chaos_faults_by_type.get("LatencySpike"), Some(&1));
+        assert_eq!(agg.chaos_faults_by_type.len(), 2);
+    }
+
+    #[tokio::test]
     async fn test_http3_migration_rate_sentinel_no_migrations() {
         let (tx, rx) = tokio::sync::mpsc::channel::<RequestMetric>(8);
-        let mut m = RequestMetric::error(1000);
+        let mut m = RequestMetric::error(1000, None);
         m.http3 = Some(Http3Sample {
             cwnd_bytes: 5000,
             migrations_attempted: 0,

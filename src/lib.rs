@@ -188,7 +188,7 @@ fn spawn_worker(
                     Ok(metric) => metric,
                     Err(_) => {
                         tracing::debug!(?timeout_dur, "iteration exceeded deadline");
-                        RequestMetric::error(timeout_dur.as_micros())
+                        RequestMetric::error(timeout_dur.as_micros(), None)
                     }
                 },
             };

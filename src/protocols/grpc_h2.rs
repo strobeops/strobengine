@@ -29,7 +29,7 @@ use tokio::net::TcpStream;
 use tokio::sync::OnceCell;
 
 use crate::chaos::{ChaosEngine, ChaosFault};
-use crate::metrics::{ConnectionMetrics, GrpcSample, RequestMetric};
+use crate::metrics::{GrpcSample, RequestMetric};
 use crate::protocols::grpc_parser::ProtoError;
 
 use super::ProtocolEngine;
@@ -162,7 +162,7 @@ impl ProtocolEngine for GrpcH2Engine {
         let fault = self.chaos.select_fault();
         if let Some(ChaosFault::ConnectionDrop) = fault {
             tracing::trace!("grpc-h2 chaos: connection drop");
-            return RequestMetric::error(req_start.elapsed().as_micros());
+            return RequestMetric::error(req_start.elapsed().as_micros(), fault);
         }
         if let Some(ChaosFault::LatencySpike { duration_ms }) = fault {
             tokio::time::sleep(Duration::from_millis(duration_ms)).await;
@@ -175,13 +175,13 @@ impl ProtocolEngine for GrpcH2Engine {
 
         let (mut send, conn_us, reused) = match self.get_send().await {
             Ok(v) => v,
-            Err(_) => return RequestMetric::error(req_start.elapsed().as_micros()),
+            Err(_) => return RequestMetric::error(req_start.elapsed().as_micros(), fault),
         };
 
         // Gate on stream capacity: `poll_ready` blocks when the peer's
         // SETTINGS_MAX_CONCURRENT_STREAMS is saturated (multiplexing headroom).
         if poll_fn(|cx| send.poll_ready(cx)).await.is_err() {
-            return RequestMetric::error(req_start.elapsed().as_micros());
+            return RequestMetric::error(req_start.elapsed().as_micros(), fault);
         }
 
         // Build the gRPC request (:path = /<service>/<method>).
@@ -205,12 +205,12 @@ impl ProtocolEngine for GrpcH2Engine {
         }
         let req = match builder.body(()) {
             Ok(r) => r,
-            Err(_) => return RequestMetric::error(req_start.elapsed().as_micros()),
+            Err(_) => return RequestMetric::error(req_start.elapsed().as_micros(), fault),
         };
 
         let (resp_fut, mut send_stream) = match send.send_request(req, false) {
             Ok(v) => v,
-            Err(_) => return RequestMetric::error(req_start.elapsed().as_micros()),
+            Err(_) => return RequestMetric::error(req_start.elapsed().as_micros(), fault),
         };
 
         // Snapshot multiplexing state immediately after opening our stream.
@@ -230,7 +230,7 @@ impl ProtocolEngine for GrpcH2Engine {
         let (events, stall_us, cap_min, has_cap) = match drive_send(&mut send_stream, &frame).await
         {
             Ok(m) => m,
-            Err(_) => return RequestMetric::error(req_start.elapsed().as_micros()),
+            Err(_) => return RequestMetric::error(req_start.elapsed().as_micros(), fault),
         };
 
         // Read the response (optional deadline).
@@ -242,7 +242,7 @@ impl ProtocolEngine for GrpcH2Engine {
 
         let (grpc_status, body_len) = match outcome {
             Some(v) => v,
-            None => return RequestMetric::error(req_start.elapsed().as_micros()),
+            None => return RequestMetric::error(req_start.elapsed().as_micros(), fault),
         };
         let status_code = grpc_to_http_status(grpc_status);
 
@@ -258,33 +258,17 @@ impl ProtocolEngine for GrpcH2Engine {
 
         let latency_micros = req_start.elapsed().as_micros();
 
-        RequestMetric {
-            latency_micros,
-            status_code,
-            bytes_received: body_len,
-            is_reconnect: false,
-            connection: ConnectionMetrics {
-                connection_latency_us: if conn_us > 0 {
-                    Some(conn_us as u128)
-                } else {
-                    None
-                },
-                timestamp_sent_ns: None,
-                e2e_latency_us: None,
-                dns_resolution_us: None,
-                is_socket_reused: reused,
-            },
-            quic_handshake_us: None,
-            quic_0rtt_used: false,
-            quic_retransmits: None,
-            sse_events_received: None,
-            sse_first_event_us: None,
-            sse_event_interval_us: None,
-            ws: None,
-            grpc: Some(ws_sample),
-            http3: None,
-            chaos_fault: fault,
-        }
+        RequestMetric::builder(latency_micros, fault)
+            .status(status_code)
+            .bytes(body_len)
+            .connection_latency_us(if conn_us > 0 {
+                Some(conn_us as u128)
+            } else {
+                None
+            })
+            .socket_reused(reused)
+            .grpc(Some(ws_sample))
+            .build()
     }
 }
 

@@ -13,8 +13,7 @@ use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use crate::chaos::{ChaosEngine, ChaosFault};
 use crate::config::WsMode;
 use crate::metrics::{
-    ConnectionMetrics, RequestMetric, WsSample, create_pubsub_payload, parse_pubsub_payload,
-    wallclock_ns,
+    RequestMetric, WsSample, create_pubsub_payload, parse_pubsub_payload, wallclock_ns,
 };
 
 use super::ProtocolEngine;
@@ -596,7 +595,7 @@ impl WebSocketEngine {
                     session.write = Some(CountingSink::new(write, self.warn_bytes()));
                 }
                 Err(_) => {
-                    return RequestMetric::error(req_start.elapsed().as_micros());
+                    return RequestMetric::error(req_start.elapsed().as_micros(), None);
                 }
             }
         }
@@ -606,7 +605,7 @@ impl WebSocketEngine {
 
         if let Some(ChaosFault::ConnectionDrop) = fault {
             tracing::trace!("ws chaos: connection drop (publisher)");
-            return RequestMetric::error(req_start.elapsed().as_micros());
+            return RequestMetric::error(req_start.elapsed().as_micros(), fault);
         }
 
         if let Some(ChaosFault::LatencySpike { duration_ms }) = fault {
@@ -621,7 +620,7 @@ impl WebSocketEngine {
 
         let write = match session.write.as_mut() {
             Some(w) => w,
-            None => return RequestMetric::error(req_start.elapsed().as_micros()),
+            None => return RequestMetric::error(req_start.elapsed().as_micros(), fault),
         };
         let payload_len = payload_bytes.len() as u64;
 
@@ -648,33 +647,17 @@ impl WebSocketEngine {
                     backpressure_sample_count: 1,
                     threshold_breaches: if depth_breach { 1 } else { 0 },
                 });
-                RequestMetric {
-                    latency_micros,
-                    status_code: 200,
-                    bytes_received: payload_len,
-                    is_reconnect: false,
-                    connection: ConnectionMetrics {
-                        connection_latency_us: None,
-                        timestamp_sent_ns: Some(wallclock_ns()),
-                        e2e_latency_us: None,
-                        dns_resolution_us: None,
-                        is_socket_reused: session.write.is_some(),
-                    },
-                    quic_handshake_us: None,
-                    quic_0rtt_used: false,
-                    quic_retransmits: None,
-                    sse_events_received: None,
-                    sse_first_event_us: None,
-                    sse_event_interval_us: None,
-                    ws,
-                    grpc: None,
-                    http3: None,
-                    chaos_fault: fault,
-                }
+                RequestMetric::builder(latency_micros, fault)
+                    .status(200)
+                    .bytes(payload_len)
+                    .timestamp_sent_ns(Some(wallclock_ns()))
+                    .socket_reused(session.write.is_some())
+                    .ws(ws)
+                    .build()
             }
             Err(e) => {
                 tracing::debug!(error = %e, "publisher send failed");
-                RequestMetric::error(latency_micros)
+                RequestMetric::error(latency_micros, fault)
             }
         }
     }
@@ -693,7 +676,7 @@ impl WebSocketEngine {
                     session.read = Some(read);
                 }
                 Err(_) => {
-                    return RequestMetric::error(req_start.elapsed().as_micros());
+                    return RequestMetric::error(req_start.elapsed().as_micros(), None);
                 }
             }
         }
@@ -703,7 +686,7 @@ impl WebSocketEngine {
 
         if let Some(ChaosFault::ConnectionDrop) = fault {
             tracing::trace!("ws chaos: connection drop (subscriber)");
-            return RequestMetric::error(req_start.elapsed().as_micros());
+            return RequestMetric::error(req_start.elapsed().as_micros(), fault);
         }
 
         if let Some(ChaosFault::LatencySpike { duration_ms }) = fault {
@@ -713,7 +696,7 @@ impl WebSocketEngine {
 
         let read = match session.read.as_mut() {
             Some(r) => r,
-            None => return RequestMetric::error(req_start.elapsed().as_micros()),
+            None => return RequestMetric::error(req_start.elapsed().as_micros(), fault),
         };
 
         let timeout = self.effective_timeout();
@@ -774,34 +757,18 @@ impl WebSocketEngine {
                     None
                 };
 
-                RequestMetric {
-                    latency_micros,
-                    status_code: 200,
-                    bytes_received: bytes,
-                    is_reconnect: false,
-                    connection: ConnectionMetrics {
-                        connection_latency_us: None,
-                        timestamp_sent_ns: None,
-                        e2e_latency_us,
-                        dns_resolution_us: None,
-                        is_socket_reused: session.read.is_some(),
-                    },
-                    quic_handshake_us: None,
-                    quic_0rtt_used: false,
-                    quic_retransmits: None,
-                    sse_events_received: None,
-                    sse_first_event_us: None,
-                    sse_event_interval_us: None,
-                    ws,
-                    grpc: None,
-                    http3: None,
-                    chaos_fault: fault,
-                }
+                RequestMetric::builder(latency_micros, fault)
+                    .status(200)
+                    .bytes(bytes)
+                    .e2e_latency_us(e2e_latency_us)
+                    .socket_reused(session.read.is_some())
+                    .ws(ws)
+                    .build()
             }
-            Ok(None) => RequestMetric::error(latency_micros),
+            Ok(None) => RequestMetric::error(latency_micros, fault),
             Err(_) => {
                 tracing::debug!("subscriber receive timed out");
-                RequestMetric::error(latency_micros)
+                RequestMetric::error(latency_micros, fault)
             }
         }
     }
@@ -822,7 +789,7 @@ impl ProtocolEngine for WebSocketEngine {
                 let _ = target_url.into_client_request();
             })
             .await;
-            return RequestMetric::error(req_start.elapsed().as_micros());
+            return RequestMetric::error(req_start.elapsed().as_micros(), fault);
         }
 
         // LatencySpike: sleep before connecting
@@ -836,7 +803,7 @@ impl ProtocolEngine for WebSocketEngine {
             Ok(r) => r,
             Err(e) => {
                 tracing::debug!(error = %e, "invalid WebSocket URL");
-                return RequestMetric::error(req_start.elapsed().as_micros());
+                return RequestMetric::error(req_start.elapsed().as_micros(), fault);
             }
         };
 
@@ -931,29 +898,11 @@ impl ProtocolEngine for WebSocketEngine {
             );
         }
 
-        RequestMetric {
-            latency_micros,
-            status_code,
-            bytes_received,
-            is_reconnect: false,
-            connection: ConnectionMetrics {
-                connection_latency_us: None,
-                timestamp_sent_ns: None,
-                e2e_latency_us: None,
-                dns_resolution_us: None,
-                is_socket_reused: false,
-            },
-            quic_handshake_us: None,
-            quic_0rtt_used: false,
-            quic_retransmits: None,
-            sse_events_received: None,
-            sse_first_event_us: None,
-            sse_event_interval_us: None,
-            ws,
-            grpc: None,
-            http3: None,
-            chaos_fault: fault,
-        }
+        RequestMetric::builder(latency_micros, fault)
+            .status(status_code)
+            .bytes(bytes_received)
+            .ws(ws)
+            .build()
     }
 
     async fn create_worker_context(&self) -> Option<Box<dyn super::WorkerSession>> {
@@ -1005,7 +954,7 @@ impl ProtocolEngine for WebSocketEngine {
 
         let session = match ctx.as_any_mut().downcast_mut::<PersistentWsSession>() {
             Some(s) => s,
-            None => return RequestMetric::error(req_start.elapsed().as_micros()),
+            None => return RequestMetric::error(req_start.elapsed().as_micros(), None),
         };
 
         // Apply pre-connection chaos (LatencySpike)
@@ -1013,7 +962,7 @@ impl ProtocolEngine for WebSocketEngine {
 
         if let Some(ChaosFault::ConnectionDrop) = fault {
             tracing::trace!("ws chaos: connection drop");
-            return RequestMetric::error(req_start.elapsed().as_micros());
+            return RequestMetric::error(req_start.elapsed().as_micros(), fault);
         }
 
         if let Some(ChaosFault::LatencySpike { duration_ms }) = fault {
@@ -1025,7 +974,7 @@ impl ProtocolEngine for WebSocketEngine {
         let connection_latency_us = match session.ensure_connected(target_url).await {
             Ok(lat) => lat,
             Err(_) => {
-                return RequestMetric::error(0);
+                return RequestMetric::error(0, fault);
             }
         };
 
@@ -1049,29 +998,14 @@ impl ProtocolEngine for WebSocketEngine {
                     0,
                     session.last_pongs_received,
                 );
-                RequestMetric {
-                    latency_micros: frame_latency,
-                    status_code: 200,
-                    bytes_received: response_bytes.len() as u64,
-                    is_reconnect: connection_latency_us > 0,
-                    connection: ConnectionMetrics {
-                        connection_latency_us: Some(connection_latency_us),
-                        timestamp_sent_ns: None,
-                        e2e_latency_us: None,
-                        dns_resolution_us: None,
-                        is_socket_reused: connection_latency_us == 0,
-                    },
-                    quic_handshake_us: None,
-                    quic_0rtt_used: false,
-                    quic_retransmits: None,
-                    sse_events_received: None,
-                    sse_first_event_us: None,
-                    sse_event_interval_us: None,
-                    ws,
-                    grpc: None,
-                    http3: None,
-                    chaos_fault: fault,
-                }
+                RequestMetric::builder(frame_latency, fault)
+                    .status(200)
+                    .bytes(response_bytes.len() as u64)
+                    .reconnect(connection_latency_us > 0)
+                    .connection_latency_us(Some(connection_latency_us))
+                    .socket_reused(connection_latency_us == 0)
+                    .ws(ws)
+                    .build()
             }
             Err(_) => {
                 let ws = ws_sample(
@@ -1080,29 +1014,12 @@ impl ProtocolEngine for WebSocketEngine {
                     0,
                     session.last_pongs_received,
                 );
-                RequestMetric {
-                    latency_micros: req_start.elapsed().as_micros(),
-                    status_code: 0,
-                    bytes_received: 0,
-                    is_reconnect: connection_latency_us > 0,
-                    connection: ConnectionMetrics {
-                        connection_latency_us: Some(connection_latency_us),
-                        timestamp_sent_ns: None,
-                        e2e_latency_us: None,
-                        dns_resolution_us: None,
-                        is_socket_reused: connection_latency_us == 0,
-                    },
-                    quic_handshake_us: None,
-                    quic_0rtt_used: false,
-                    quic_retransmits: None,
-                    sse_events_received: None,
-                    sse_first_event_us: None,
-                    sse_event_interval_us: None,
-                    ws,
-                    grpc: None,
-                    http3: None,
-                    chaos_fault: fault,
-                }
+                RequestMetric::builder(req_start.elapsed().as_micros(), fault)
+                    .reconnect(connection_latency_us > 0)
+                    .connection_latency_us(Some(connection_latency_us))
+                    .socket_reused(connection_latency_us == 0)
+                    .ws(ws)
+                    .build()
             }
         }
     }
@@ -1816,5 +1733,52 @@ mod tests {
             accepts.load(Ordering::Relaxed) >= 2,
             "session must reconnect after EOF: accepts={accepts:?} statuses={statuses:?}"
         );
+    }
+
+    #[tokio::test]
+    async fn chaos_fault_is_reported_on_every_stateless_iteration() {
+        // Echo server accepting repeatedly: with chaos at rate 1.0 every
+        // iteration selects a fault, and each return path (success, or the
+        // ConnectionDrop early error) must carry it to the aggregation.
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let local_addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            while let Ok((stream, _)) = listener.accept().await {
+                tokio::spawn(async move {
+                    if let Ok(mut ws_stream) = accept_async(stream).await {
+                        while let Some(Ok(msg)) = ws_stream.next().await {
+                            match msg {
+                                Message::Close(_) => break,
+                                // Echo every payload (including the corrupted
+                                // bytes) so no iteration waits on the read timeout.
+                                other => {
+                                    let _ = ws_stream.send(other).await;
+                                }
+                            }
+                        }
+                    }
+                });
+            }
+        });
+
+        let ws_url = format!("ws://{}", local_addr);
+        let engine = WebSocketEngine::new(
+            vec![],
+            WsMode::Stream,
+            Some("ping".to_string()),
+            ChaosEngine::new(true, 1.0),
+            5,
+            false,
+            None,
+            None,
+        );
+
+        for i in 0..20 {
+            let metric = engine.execute_iteration(&ws_url).await;
+            assert!(
+                metric.chaos_fault.is_some(),
+                "iteration {i} dropped its selected chaos fault"
+            );
+        }
     }
 }

@@ -138,6 +138,7 @@ class TestWebSocketLoadTest:
                 ws_mode="stream",
                 ws_payload="hello",
                 chaos=True,
+                chaos_rate=1.0,
             ),
         )
         summary = await asyncio.wait_for(engine.run_async(), timeout=15.0)
@@ -146,13 +147,11 @@ class TestWebSocketLoadTest:
         assert summary.total_requests > 0
         assert summary.duration_secs >= 2.5
         # Assert chaos caused errors (ConnectionDrop or CorruptedPayload)
-        assert summary.total_errors > 0
-        # Assert status codes include chaos-related codes
-        assert 0 in summary.status_codes or any(k >= 400 for k in summary.status_codes)
-        # Assert chaos fault tracking
-        assert summary.chaos_injected_total >= 0
-        if summary.chaos_injected_total > 0:
-            assert len(summary.chaos_faults_by_type) > 0
+        assert summary.status_codes.get(0, 0) > 0
+        # Every iteration selects a fault at rate 1.0, and the
+        # ConnectionDrop early-return must be counted like any other fault.
+        assert summary.chaos_injected_total > 0
+        assert "ConnectionDrop" in summary.chaos_faults_by_type
 
     async def test_websocket_continuous_streaming(self, mock_server: str):
         ws_url = mock_server.replace("http://", "ws://") + "/ws"

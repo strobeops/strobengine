@@ -33,6 +33,7 @@ class TestGrpcE2E:
                 grpc_service="test.Service",
                 grpc_method="TestMethod",
                 chaos=True,
+                chaos_rate=1.0,
             ),
         )
         summary = await asyncio.wait_for(engine.run_async(), timeout=5.0)
@@ -40,10 +41,10 @@ class TestGrpcE2E:
         assert summary.total_requests > 0
         assert summary.total_errors > 0
         assert summary.duration_secs >= 1.5
-        # Assert chaos fault tracking
-        assert summary.chaos_injected_total >= 0
-        if summary.chaos_injected_total > 0:
-            assert len(summary.chaos_faults_by_type) > 0
+        # Every iteration selects a fault at rate 1.0, and connect failures
+        # after the selection must still be counted as injected faults.
+        assert summary.chaos_injected_total > 0
+        assert "ConnectionDrop" in summary.chaos_faults_by_type
 
     async def test_grpc_custom_headers(self):
         engine = StrobEngine(
