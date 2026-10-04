@@ -103,6 +103,10 @@ class TestSseE2E:
         assert summary.sse is not None
         assert summary.sse.total_events_received > 0
         assert summary.sse.avg_ttfb_ms is not None
+        # TTFB is request-start-to-first-event per connection (single-digit ms
+        # locally); stale time-since-first-event values would scale with the
+        # run duration and land near duration/2 (~1500ms here).
+        assert summary.sse.avg_ttfb_ms < 500
         assert summary.quic is None
 
         # JSON report export output
