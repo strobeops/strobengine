@@ -2,6 +2,7 @@ use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
 use bytes::Bytes;
+use futures_util::StreamExt;
 use http::Method;
 use reqwest::Url;
 
@@ -66,6 +67,24 @@ impl HttpEngine {
     }
 }
 
+/// Read the response body to EOF, counting the bytes actually received.
+///
+/// Draining is what returns the connection to the reqwest pool: dropping a
+/// response with its body unread makes hyper discard the socket, silently
+/// defeating keep-alive. On a mid-body error the bytes counted so far are
+/// returned alongside the error so the metric still accounts for them.
+async fn drain_body(response: reqwest::Response) -> (u64, Option<reqwest::Error>) {
+    let mut stream = response.bytes_stream();
+    let mut total_bytes = 0u64;
+    while let Some(chunk) = stream.next().await {
+        match chunk {
+            Ok(chunk) => total_bytes += chunk.len() as u64,
+            Err(e) => return (total_bytes, Some(e)),
+        }
+    }
+    (total_bytes, None)
+}
+
 #[async_trait]
 impl ProtocolEngine for HttpEngine {
     async fn execute_iteration(&self, target_url: &str) -> RequestMetric {
@@ -113,34 +132,43 @@ impl ProtocolEngine for HttpEngine {
             None => base_request(),
         };
 
-        let (status_code, bytes_received) = match request.send().await {
+        let metric = match request.send().await {
             Ok(response) => {
-                let code = response.status().as_u16();
-                let bytes = response.content_length().unwrap_or(0);
-                (code, bytes)
+                let status_code = response.status().as_u16();
+                let (bytes_received, body_error) = drain_body(response).await;
+                if let Some(ref e) = body_error {
+                    tracing::debug!(error = %e, bytes_received, "response body read failed");
+                    // A truncated body is a failed request: report status 0
+                    // with the bytes actually transferred before the failure.
+                    RequestMetric::builder(req_start.elapsed().as_micros(), chaos_fault)
+                        .status(0)
+                        .bytes(bytes_received)
+                        .build()
+                } else {
+                    RequestMetric::builder(req_start.elapsed().as_micros(), chaos_fault)
+                        .status(status_code)
+                        .bytes(bytes_received)
+                        .build()
+                }
             }
             Err(e) => {
                 tracing::debug!(error = %e, "request failed");
-                (0, 0)
+                RequestMetric::error(req_start.elapsed().as_micros(), chaos_fault)
             }
         };
 
-        let latency_micros = req_start.elapsed().as_micros();
-
         if tracing::enabled!(tracing::Level::TRACE) {
             tracing::trace!(
-                status = status_code,
-                latency_us = latency_micros,
+                status = metric.status_code,
+                latency_us = metric.latency_micros,
                 "request completed"
             );
         }
 
         // reqwest handles DNS and connection pooling internally;
         // dns_resolution_us and is_socket_reused are not extractable
-        // without hyper-level access.
-        RequestMetric::builder(latency_micros, chaos_fault)
-            .status(status_code)
-            .bytes(bytes_received)
-            .build()
+        // without hyper-level access. Fully draining the body (drain_body)
+        // is what lets hyper return the socket to the keep-alive pool.
+        metric
     }
 }
