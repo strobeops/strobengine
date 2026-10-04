@@ -31,7 +31,7 @@ pub struct ReportArtifact {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub latency_histogram: Option<HashMap<String, u64>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub system_metrics: Option<crate::metrics::system::SystemMetrics>,
+    pub system_metrics: Option<SystemMetricsDisplay>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub connection_pool: Option<ConnectionPoolMetrics>,
 }
@@ -42,6 +42,63 @@ pub struct ConnectionPoolMetrics {
     pub socket_creation_rate: f64,
     pub socket_reuse_rate: f64,
     pub dns_lookup_ms: f64,
+}
+
+/// Client resource footprint in the documented report display shape.
+///
+/// Mirrors `_format_system_metrics` in `src/strobengine/artifact.py` and the
+/// schema in `docs/reports.md` (`summary` + `samples`). The raw `SystemMetrics`
+/// (flat `peak_*` / `time_series`) is intentionally not serialized here: the
+/// HTML template probes `system_metrics.summary.*` and `system_metrics.samples`.
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub struct SystemMetricsDisplay {
+    pub summary: SystemSummaryDisplay,
+    pub samples: Vec<SystemSampleDisplay>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub struct SystemSummaryDisplay {
+    pub peak_cpu_percent: f64,
+    pub avg_cpu_percent: f64,
+    pub peak_memory_mb: f64,
+    pub avg_memory_mb: f64,
+    pub peak_threads: usize,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub struct SystemSampleDisplay {
+    pub elapsed_sec: f64,
+    pub cpu_percent: f64,
+    pub memory_mb: f64,
+    pub threads: usize,
+}
+
+fn round1(v: f64) -> f64 {
+    (v * 10.0).round() / 10.0
+}
+
+impl From<&crate::metrics::system::SystemMetrics> for SystemMetricsDisplay {
+    fn from(sm: &crate::metrics::system::SystemMetrics) -> Self {
+        Self {
+            summary: SystemSummaryDisplay {
+                peak_cpu_percent: f64::from(sm.peak_cpu_percent),
+                avg_cpu_percent: f64::from(sm.avg_cpu_percent),
+                peak_memory_mb: round1(sm.peak_memory_rss_bytes as f64 / (1024.0 * 1024.0)),
+                avg_memory_mb: round1(sm.avg_memory_rss_bytes as f64 / (1024.0 * 1024.0)),
+                peak_threads: sm.peak_thread_count,
+            },
+            samples: sm
+                .time_series
+                .iter()
+                .map(|s| SystemSampleDisplay {
+                    elapsed_sec: round1(s.timestamp_us as f64 / 1_000_000.0),
+                    cpu_percent: f64::from(s.cpu_usage_percent),
+                    memory_mb: round1(s.memory_rss_bytes as f64 / (1024.0 * 1024.0)),
+                    threads: s.thread_count,
+                })
+                .collect(),
+        }
+    }
 }
 
 /// Test run metadata including configuration and system information.
@@ -190,7 +247,10 @@ impl ReportArtifact {
                 None
             },
             latency_histogram: Some(summary.latency_histogram.clone()),
-            system_metrics: summary.system_metrics.clone(),
+            system_metrics: summary
+                .system_metrics
+                .as_ref()
+                .map(SystemMetricsDisplay::from),
             connection_pool: if summary.total_requests > 0 {
                 Some(ConnectionPoolMetrics {
                     socket_creation_rate: 1.0 - summary.connection_reuse_ratio,
