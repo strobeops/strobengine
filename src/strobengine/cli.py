@@ -179,6 +179,8 @@ def _run_load_test(
     duration: int,
     json_output: bool = False,
     log_file: str | None = None,
+    verbose: int = 0,
+    quiet: bool = False,
     html_output: str | None = None,
     compare_to: str | None = None,
     export_markdown: str | None = None,
@@ -190,7 +192,7 @@ def _run_load_test(
     if json_output:
         _configure_logging("off", log_file)
     else:
-        _configure_logging(_resolve_log_level(options.no_progress, False), log_file)
+        _configure_logging(_resolve_log_level(verbose, quiet), log_file)
 
     # engine_factory may raise config-validation errors and engine.run() may
     # surface FFI errors as ValueError/RuntimeError; present them cleanly
@@ -287,6 +289,8 @@ def load(
         duration=duration,
         json_output=json_output,
         log_file=log_file,
+        verbose=verbose,
+        quiet=quiet,
         html_output=html_output,
         compare_to=compare_to,
         export_markdown=export_markdown,
@@ -361,6 +365,8 @@ def stress(
         duration=ramp + hold,
         json_output=json_output,
         log_file=log_file,
+        verbose=verbose,
+        quiet=quiet,
         html_output=html_output,
         compare_to=compare_to,
         export_markdown=export_markdown,
@@ -437,6 +443,8 @@ def spike(
         duration=pre_spike + spike_duration + post_spike,
         json_output=json_output,
         log_file=log_file,
+        verbose=verbose,
+        quiet=quiet,
         html_output=html_output,
         compare_to=compare_to,
         export_markdown=export_markdown,
