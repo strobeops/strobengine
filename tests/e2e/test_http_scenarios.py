@@ -102,3 +102,20 @@ class TestConnectionPoolMetrics:
         assert summary.connection_reuse_ratio >= 0.0
         assert summary.connection_reuse_ratio <= 1.0
         assert summary.avg_dns_resolution_ms >= 0.0
+
+
+class TestBodyAccounting:
+    async def test_chunked_body_bytes_counted(self, mock_server: str):
+        """Chunked responses carry no Content-Length, so bytes_received must
+        come from the drained body -- a header guess would report 0."""
+        engine = StrobEngine.load_test(
+            url=f"{mock_server}/sse?count=10",
+            concurrency=2,
+            duration=3,
+            options=RequestOptions(no_progress=True),
+        )
+        summary = await engine.run_async()
+
+        assert summary.total_requests > 0
+        assert summary.total_errors == 0
+        assert summary.total_bytes_received > 0
