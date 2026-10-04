@@ -660,4 +660,132 @@ mod tests {
         assert!(artifact.latency_histogram.is_some());
         assert!(artifact.latency_histogram.unwrap().is_empty());
     }
+
+    #[test]
+    fn system_metrics_serializes_to_display_shape() {
+        use crate::config::{TestConfig, WsMode};
+        use crate::metrics::TestSummary;
+        use crate::metrics::system::{ResourceSample, SystemMetrics};
+
+        let mut status_codes = std::collections::HashMap::new();
+        status_codes.insert(200, 100u64);
+
+        let system_metrics = SystemMetrics::from_samples(&[
+            ResourceSample {
+                timestamp_us: 1_000_000,
+                cpu_usage_percent: 45.0,
+                memory_rss_bytes: 67_633_152, // 64.5 MiB
+                thread_count: 4,
+                open_fds: None,
+            },
+            ResourceSample {
+                timestamp_us: 1_500_000,
+                cpu_usage_percent: 20.0,
+                memory_rss_bytes: 33_554_432, // 32 MiB
+                thread_count: 8,
+                open_fds: None,
+            },
+        ]);
+
+        let summary = TestSummary {
+            url: "http://localhost:8080".to_string(),
+            total_requests: 100,
+            total_errors: 0,
+            average_latency_ms: 12.5,
+            p95_latency_ms: 25.0,
+            p99_latency_ms: 50.0,
+            min_latency_ms: 1.0,
+            p50_latency_ms: 10.0,
+            p90_latency_ms: 20.0,
+            max_latency_ms: 100.0,
+            total_bytes_received: 1024,
+            duration_secs: 10.0,
+            workers: 5,
+            timestamp: "2026-08-28T10:00:00Z".to_string(),
+            raw_command: None,
+            status_codes,
+            avg_e2e_latency_us: 0.0,
+            avg_connection_latency_us: 0.0,
+            quic: None,
+            sse: None,
+            ws: None,
+            grpc: None,
+            http3: None,
+            chaos_injected_total: 0,
+            chaos_faults_by_type: std::collections::HashMap::new(),
+            std_dev_latency_ms: 0.0,
+            p99_99_latency_ms: 0.0,
+            latency_histogram: std::collections::HashMap::new(),
+            system_metrics: Some(system_metrics),
+            connection_reuse_ratio: 0.0,
+            avg_dns_resolution_ms: 0.0,
+        };
+
+        let config = TestConfig::new(
+            "http://localhost:8080".into(),
+            10,
+            10,
+            10,
+            false,
+            0.1,
+            false,
+            "GET",
+            None,
+            None,
+            None,
+            WsMode::Handshake,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            false,
+            false,
+            None,
+            None,
+            None,
+            None,
+            None,
+            false,
+            false,
+            None,
+            false,
+            None,
+            None,
+            false,
+            1000u64,
+            1_048_576u64,
+            0.8f32,
+            false,
+            false,
+            50u64,
+        );
+
+        let artifact = ReportArtifact::from_summary_and_config(&summary, &config);
+        let value = serde_json::to_value(&artifact).expect("artifact serializes");
+        let sm = &value["system_metrics"];
+
+        // Documented display shape (docs/reports.md): summary + samples.
+        assert_eq!(sm["summary"]["peak_cpu_percent"], 45.0);
+        assert_eq!(sm["summary"]["avg_cpu_percent"], 32.5);
+        assert_eq!(sm["summary"]["peak_memory_mb"], 64.5);
+        assert_eq!(sm["summary"]["avg_memory_mb"], 48.3);
+        assert_eq!(sm["summary"]["peak_threads"], 8);
+
+        assert_eq!(sm["samples"].as_array().map(Vec::len), Some(2));
+        assert_eq!(sm["samples"][0]["elapsed_sec"], 1.0);
+        assert_eq!(sm["samples"][0]["cpu_percent"], 45.0);
+        assert_eq!(sm["samples"][0]["memory_mb"], 64.5);
+        assert_eq!(sm["samples"][0]["threads"], 4);
+        assert_eq!(sm["samples"][1]["elapsed_sec"], 1.5);
+        assert_eq!(sm["samples"][1]["cpu_percent"], 20.0);
+        assert_eq!(sm["samples"][1]["memory_mb"], 32.0);
+        assert_eq!(sm["samples"][1]["threads"], 8);
+
+        // The raw flat SystemMetrics shape must never leak into the artifact.
+        assert!(sm.get("time_series").is_none());
+        assert!(sm.get("peak_cpu_percent").is_none());
+        assert!(sm["summary"].get("peak_memory_rss_bytes").is_none());
+    }
 }
