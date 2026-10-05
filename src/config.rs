@@ -3,6 +3,9 @@ use std::time::Duration;
 use crate::chaos::DEFAULT_CHAOS_RATE;
 use pyo3::prelude::*;
 
+// Keep in sync with MAX_CONCURRENCY in src/strobengine/constants.py.
+pub const MAX_CONCURRENCY: usize = 10_000;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 #[pyclass(from_py_object)]
 pub enum WsMode {
@@ -678,6 +681,28 @@ impl LoadProfile {
                     *baseline_concurrency
                 }
             }
+        }
+    }
+}
+
+impl LoadProfile {
+    /// Highest concurrency this profile can request at any point in time.
+    ///
+    /// Unlike [`LoadProfile::max_concurrency`], this also accounts for ramp
+    /// starts above their target and spike baselines above their peak.
+    pub fn concurrency_upper_bound(&self) -> usize {
+        match self {
+            LoadProfile::Constant { concurrency, .. } => *concurrency,
+            LoadProfile::Ramp {
+                start_concurrency,
+                target_concurrency,
+                ..
+            } => (*start_concurrency).max(*target_concurrency),
+            LoadProfile::Spike {
+                baseline_concurrency,
+                peak_concurrency,
+                ..
+            } => (*baseline_concurrency).max(*peak_concurrency),
         }
     }
 }
