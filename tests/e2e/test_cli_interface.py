@@ -1,5 +1,7 @@
 import json
+import re
 import subprocess
+from pathlib import Path
 
 import pytest
 
@@ -147,3 +149,32 @@ class TestJsonOutput:
         assert result.returncode == 0
         assert json.loads(result.stdout)
         assert not result.stderr.strip(), f"Unexpected stderr output:\n{result.stderr}"
+
+
+class TestHtmlReport:
+    def test_system_panel_present(self, cli_bin: str, mock_server: str, tmp_path: Path):
+        report = tmp_path / "report.html"
+        result = _run_cli(
+            cli_bin,
+            [
+                "load",
+                f"{mock_server}/status/200",
+                "-c",
+                "2",
+                "-d",
+                "3",
+                "--no-progress",
+                "--html",
+                str(report),
+            ],
+        )
+        assert result.returncode == 0, f"Process failed with stderr:\n{result.stderr}"
+        html = report.read_text()
+        # All three live inside the Jinja probe
+        # `{% if system_metrics and system_metrics.samples %}`, so they prove the
+        # Rust artifact path feeds the template the documented display shape.
+        assert "Client Resource Footprint" in html
+        assert "resourceChart" in html
+        # At least one chart tick label from a non-empty samples[] array
+        # (default --sys-sample-interval=1000 over -d 3 => samples at ~1.0s, ~2.0s).
+        assert re.search(r"'\d+\.\d+s'", html)

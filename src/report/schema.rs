@@ -31,7 +31,7 @@ pub struct ReportArtifact {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub latency_histogram: Option<HashMap<String, u64>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub system_metrics: Option<crate::metrics::system::SystemMetrics>,
+    pub system_metrics: Option<SystemMetricsDisplay>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub connection_pool: Option<ConnectionPoolMetrics>,
 }
@@ -42,6 +42,63 @@ pub struct ConnectionPoolMetrics {
     pub socket_creation_rate: f64,
     pub socket_reuse_rate: f64,
     pub dns_lookup_ms: f64,
+}
+
+/// Client resource footprint in the documented report display shape.
+///
+/// Mirrors `_format_system_metrics` in `src/strobengine/artifact.py` and the
+/// schema in `docs/reports.md` (`summary` + `samples`). The raw `SystemMetrics`
+/// (flat `peak_*` / `time_series`) is intentionally not serialized here: the
+/// HTML template probes `system_metrics.summary.*` and `system_metrics.samples`.
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub struct SystemMetricsDisplay {
+    pub summary: SystemSummaryDisplay,
+    pub samples: Vec<SystemSampleDisplay>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub struct SystemSummaryDisplay {
+    pub peak_cpu_percent: f64,
+    pub avg_cpu_percent: f64,
+    pub peak_memory_mb: f64,
+    pub avg_memory_mb: f64,
+    pub peak_threads: usize,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub struct SystemSampleDisplay {
+    pub elapsed_sec: f64,
+    pub cpu_percent: f64,
+    pub memory_mb: f64,
+    pub threads: usize,
+}
+
+fn round1(v: f64) -> f64 {
+    (v * 10.0).round() / 10.0
+}
+
+impl From<&crate::metrics::system::SystemMetrics> for SystemMetricsDisplay {
+    fn from(sm: &crate::metrics::system::SystemMetrics) -> Self {
+        Self {
+            summary: SystemSummaryDisplay {
+                peak_cpu_percent: f64::from(sm.peak_cpu_percent),
+                avg_cpu_percent: f64::from(sm.avg_cpu_percent),
+                peak_memory_mb: round1(sm.peak_memory_rss_bytes as f64 / (1024.0 * 1024.0)),
+                avg_memory_mb: round1(sm.avg_memory_rss_bytes as f64 / (1024.0 * 1024.0)),
+                peak_threads: sm.peak_thread_count,
+            },
+            samples: sm
+                .time_series
+                .iter()
+                .map(|s| SystemSampleDisplay {
+                    elapsed_sec: round1(s.timestamp_us as f64 / 1_000_000.0),
+                    cpu_percent: f64::from(s.cpu_usage_percent),
+                    memory_mb: round1(s.memory_rss_bytes as f64 / (1024.0 * 1024.0)),
+                    threads: s.thread_count,
+                })
+                .collect(),
+        }
+    }
 }
 
 /// Test run metadata including configuration and system information.
@@ -190,7 +247,10 @@ impl ReportArtifact {
                 None
             },
             latency_histogram: Some(summary.latency_histogram.clone()),
-            system_metrics: summary.system_metrics.clone(),
+            system_metrics: summary
+                .system_metrics
+                .as_ref()
+                .map(SystemMetricsDisplay::from),
             connection_pool: if summary.total_requests > 0 {
                 Some(ConnectionPoolMetrics {
                     socket_creation_rate: 1.0 - summary.connection_reuse_ratio,
@@ -599,5 +659,133 @@ mod tests {
         assert!(!artifact.metadata.cli_options.chaos);
         assert!(artifact.latency_histogram.is_some());
         assert!(artifact.latency_histogram.unwrap().is_empty());
+    }
+
+    #[test]
+    fn system_metrics_serializes_to_display_shape() {
+        use crate::config::{TestConfig, WsMode};
+        use crate::metrics::TestSummary;
+        use crate::metrics::system::{ResourceSample, SystemMetrics};
+
+        let mut status_codes = std::collections::HashMap::new();
+        status_codes.insert(200, 100u64);
+
+        let system_metrics = SystemMetrics::from_samples(&[
+            ResourceSample {
+                timestamp_us: 1_000_000,
+                cpu_usage_percent: 45.0,
+                memory_rss_bytes: 67_633_152, // 64.5 MiB
+                thread_count: 4,
+                open_fds: None,
+            },
+            ResourceSample {
+                timestamp_us: 1_500_000,
+                cpu_usage_percent: 20.0,
+                memory_rss_bytes: 33_554_432, // 32 MiB
+                thread_count: 8,
+                open_fds: None,
+            },
+        ]);
+
+        let summary = TestSummary {
+            url: "http://localhost:8080".to_string(),
+            total_requests: 100,
+            total_errors: 0,
+            average_latency_ms: 12.5,
+            p95_latency_ms: 25.0,
+            p99_latency_ms: 50.0,
+            min_latency_ms: 1.0,
+            p50_latency_ms: 10.0,
+            p90_latency_ms: 20.0,
+            max_latency_ms: 100.0,
+            total_bytes_received: 1024,
+            duration_secs: 10.0,
+            workers: 5,
+            timestamp: "2026-08-28T10:00:00Z".to_string(),
+            raw_command: None,
+            status_codes,
+            avg_e2e_latency_us: 0.0,
+            avg_connection_latency_us: 0.0,
+            quic: None,
+            sse: None,
+            ws: None,
+            grpc: None,
+            http3: None,
+            chaos_injected_total: 0,
+            chaos_faults_by_type: std::collections::HashMap::new(),
+            std_dev_latency_ms: 0.0,
+            p99_99_latency_ms: 0.0,
+            latency_histogram: std::collections::HashMap::new(),
+            system_metrics: Some(system_metrics),
+            connection_reuse_ratio: 0.0,
+            avg_dns_resolution_ms: 0.0,
+        };
+
+        let config = TestConfig::new(
+            "http://localhost:8080".into(),
+            10,
+            10,
+            10,
+            false,
+            0.1,
+            false,
+            "GET",
+            None,
+            None,
+            None,
+            WsMode::Handshake,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            false,
+            false,
+            None,
+            None,
+            None,
+            None,
+            None,
+            false,
+            false,
+            None,
+            false,
+            None,
+            None,
+            false,
+            1000u64,
+            1_048_576u64,
+            0.8f32,
+            false,
+            false,
+            50u64,
+        );
+
+        let artifact = ReportArtifact::from_summary_and_config(&summary, &config);
+        let value = serde_json::to_value(&artifact).expect("artifact serializes");
+        let sm = &value["system_metrics"];
+
+        // Documented display shape (docs/reports.md): summary + samples.
+        assert_eq!(sm["summary"]["peak_cpu_percent"], 45.0);
+        assert_eq!(sm["summary"]["avg_cpu_percent"], 32.5);
+        assert_eq!(sm["summary"]["peak_memory_mb"], 64.5);
+        assert_eq!(sm["summary"]["avg_memory_mb"], 48.3);
+        assert_eq!(sm["summary"]["peak_threads"], 8);
+
+        assert_eq!(sm["samples"].as_array().map(Vec::len), Some(2));
+        assert_eq!(sm["samples"][0]["elapsed_sec"], 1.0);
+        assert_eq!(sm["samples"][0]["cpu_percent"], 45.0);
+        assert_eq!(sm["samples"][0]["memory_mb"], 64.5);
+        assert_eq!(sm["samples"][0]["threads"], 4);
+        assert_eq!(sm["samples"][1]["elapsed_sec"], 1.5);
+        assert_eq!(sm["samples"][1]["cpu_percent"], 20.0);
+        assert_eq!(sm["samples"][1]["memory_mb"], 32.0);
+        assert_eq!(sm["samples"][1]["threads"], 8);
+
+        // The raw flat SystemMetrics shape must never leak into the artifact.
+        assert!(sm.get("time_series").is_none());
+        assert!(sm.get("peak_cpu_percent").is_none());
+        assert!(sm["summary"].get("peak_memory_rss_bytes").is_none());
     }
 }
