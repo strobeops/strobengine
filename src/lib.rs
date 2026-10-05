@@ -22,7 +22,7 @@ use pyo3::prelude::*;
 use tokio_util::sync::CancellationToken;
 
 use crate::chaos::ChaosEngine;
-use crate::config::{LoadProfile, TestConfig};
+use crate::config::{LoadProfile, MAX_CONCURRENCY, TestConfig};
 use crate::metrics::{LiveCounters, RequestMetric};
 use crate::protocols::ProtocolEngine;
 
@@ -529,9 +529,19 @@ fn build_engine(
     }
 }
 
+fn ensure_concurrency_limit(concurrency: usize) -> PyResult<()> {
+    if concurrency == 0 || concurrency > MAX_CONCURRENCY {
+        return Err(pyo3::exceptions::PyValueError::new_err(format!(
+            "concurrency must be between 1 and {MAX_CONCURRENCY}"
+        )));
+    }
+    Ok(())
+}
+
 #[pyfunction]
 fn run_load_test(py: Python<'_>, config: TestConfig) -> PyResult<metrics::TestSummary> {
     py.detach(move || {
+        ensure_concurrency_limit(config.concurrency)?;
         let url = config.url.clone();
         let chaos = ChaosEngine::new(config.chaos, config.chaos_rate);
         let engine = build_engine(&config, chaos, config.concurrency)?;
@@ -564,6 +574,7 @@ fn run_load_profiles(
     profile: LoadProfile,
 ) -> PyResult<metrics::TestSummary> {
     py.detach(move || {
+        ensure_concurrency_limit(profile.concurrency_upper_bound())?;
         let url = config.url.clone();
         let chaos = ChaosEngine::new(config.chaos, config.chaos_rate);
         let engine = build_engine(&config, chaos, profile.max_concurrency())?;

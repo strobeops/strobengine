@@ -24,6 +24,7 @@ from strobengine.constants import (
     DEFAULT_SPIKE_SECS,
     DEFAULT_START_CONCURRENCY,
     DEFAULT_TIMEOUT_SECS,
+    MAX_CONCURRENCY,
 )
 
 
@@ -146,6 +147,8 @@ class StrobEngine:
         if profile is None:
             if concurrency <= 0:
                 raise ValueError("Concurrency must be greater than 0")
+            if concurrency > MAX_CONCURRENCY:
+                raise ValueError(f"Concurrency must be <= {MAX_CONCURRENCY}")
             if duration <= 0:
                 raise ValueError("Duration must be greater than 0")
             self.config = _build_test_config(url, self._options, concurrency, duration)
@@ -186,6 +189,8 @@ class StrobEngine:
             raise ValueError("start_concurrency must be greater than 0")
         if max_concurrency <= 0:
             raise ValueError("max_concurrency must be greater than 0")
+        if max_concurrency > MAX_CONCURRENCY:
+            raise ValueError(f"max_concurrency must be <= {MAX_CONCURRENCY}")
         if start_concurrency > max_concurrency:
             raise ValueError("start_concurrency must be <= max_concurrency")
         if ramp_duration < 0:
@@ -218,8 +223,12 @@ class StrobEngine:
     ) -> "StrobEngine":
         if baseline <= 0:
             raise ValueError("baseline must be greater than 0")
+        if baseline > MAX_CONCURRENCY:
+            raise ValueError(f"baseline must be <= {MAX_CONCURRENCY}")
         if peak_concurrency <= 0:
             raise ValueError("peak_concurrency must be greater than 0")
+        if peak_concurrency > MAX_CONCURRENCY:
+            raise ValueError(f"peak_concurrency must be <= {MAX_CONCURRENCY}")
         if pre_spike_duration < 0:
             raise ValueError("pre_spike_duration must be >= 0")
         if spike_duration < 0:

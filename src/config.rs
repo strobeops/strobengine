@@ -3,6 +3,9 @@ use std::time::Duration;
 use crate::chaos::DEFAULT_CHAOS_RATE;
 use pyo3::prelude::*;
 
+// Keep in sync with MAX_CONCURRENCY in src/strobengine/constants.py.
+pub const MAX_CONCURRENCY: usize = 10_000;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 #[pyclass(from_py_object)]
 pub enum WsMode {
@@ -682,6 +685,28 @@ impl LoadProfile {
     }
 }
 
+impl LoadProfile {
+    /// Highest concurrency this profile can request at any point in time.
+    ///
+    /// Unlike [`LoadProfile::max_concurrency`], this also accounts for ramp
+    /// starts above their target and spike baselines above their peak.
+    pub fn concurrency_upper_bound(&self) -> usize {
+        match self {
+            LoadProfile::Constant { concurrency, .. } => *concurrency,
+            LoadProfile::Ramp {
+                start_concurrency,
+                target_concurrency,
+                ..
+            } => (*start_concurrency).max(*target_concurrency),
+            LoadProfile::Spike {
+                baseline_concurrency,
+                peak_concurrency,
+                ..
+            } => (*baseline_concurrency).max(*peak_concurrency),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -963,5 +988,39 @@ mod tests {
         assert_eq!(p.target_concurrency(Duration::from_secs(29)), 500);
         assert_eq!(p.target_concurrency(Duration::from_secs(30)), 5);
         assert_eq!(p.target_concurrency(Duration::from_secs(39)), 5);
+    }
+
+    #[test]
+    fn upper_bound_constant_returns_concurrency() {
+        let p = LoadProfile::Constant {
+            concurrency: 50,
+            duration_secs: 10,
+        };
+        assert_eq!(p.concurrency_upper_bound(), 50);
+    }
+
+    #[test]
+    fn upper_bound_ramp_accounts_for_start_above_target() {
+        let p = LoadProfile::Ramp {
+            start_concurrency: 100,
+            target_concurrency: 10,
+            ramp_secs: 5,
+            hold_secs: 5,
+        };
+        assert_eq!(p.concurrency_upper_bound(), 100);
+        assert_eq!(p.max_concurrency(), 10);
+    }
+
+    #[test]
+    fn upper_bound_spike_accounts_for_baseline_above_peak() {
+        let p = LoadProfile::Spike {
+            baseline_concurrency: 500,
+            peak_concurrency: 50,
+            pre_spike_secs: 5,
+            spike_secs: 10,
+            post_spike_secs: 5,
+        };
+        assert_eq!(p.concurrency_upper_bound(), 500);
+        assert_eq!(p.max_concurrency(), 50);
     }
 }

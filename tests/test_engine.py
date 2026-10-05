@@ -2,6 +2,12 @@ from unittest.mock import patch
 
 import pytest
 
+from strobengine._strobengine import (
+    LoadProfile,
+    TestConfig as _TestConfig,
+    run_load_profiles,
+    run_load_test,
+)
 from strobengine.engine import RequestOptions, StrobEngine
 
 from .factories import make_summary as _make_summary
@@ -34,6 +40,10 @@ class TestStrobEngineInit:
     def test_negative_concurrency(self):
         with pytest.raises(ValueError, match="Concurrency must be greater than 0"):
             StrobEngine(url="http://example.com", concurrency=-5)
+
+    def test_concurrency_above_limit(self):
+        with pytest.raises(ValueError, match="Concurrency must be <= 10000"):
+            StrobEngine(url="http://example.com", concurrency=10001)
 
     def test_invalid_duration(self):
         with pytest.raises(ValueError, match="Duration must be greater than 0"):
@@ -152,6 +162,12 @@ class TestStressTestFactory:
         with pytest.raises(ValueError, match="ramp_duration must be >= 0"):
             StrobEngine.stress_test(url="http://example.com", ramp_duration=-1)
 
+    def test_stress_test_max_above_limit(self):
+        with pytest.raises(ValueError, match="max_concurrency must be <= 10000"):
+            StrobEngine.stress_test(
+                url="http://example.com", start_concurrency=10, max_concurrency=10001
+            )
+
 
 class TestSpikeTestFactory:
     def test_spike_test_creates_profile(self):
@@ -182,6 +198,14 @@ class TestSpikeTestFactory:
         with pytest.raises(ValueError, match="pre_spike_duration must be >= 0"):
             StrobEngine.spike_test(url="http://example.com", pre_spike_duration=-1)
 
+    def test_spike_test_baseline_above_limit(self):
+        with pytest.raises(ValueError, match="baseline must be <= 10000"):
+            StrobEngine.spike_test(url="http://example.com", baseline=10001)
+
+    def test_spike_test_peak_above_limit(self):
+        with pytest.raises(ValueError, match="peak_concurrency must be <= 10000"):
+            StrobEngine.spike_test(url="http://example.com", peak_concurrency=10001)
+
 
 class TestProfileRun:
     @patch("strobengine.reporter.save_report")
@@ -207,3 +231,25 @@ class TestProfileRun:
 
         mock_run.assert_called_once()
         assert result is not None
+
+
+class TestConcurrencyLimitFFI:
+    """Guards on the pyfunction entries bypass all Python-side validation."""
+
+    def test_run_load_test_rejects_oversized_config(self):
+        config = _TestConfig(
+            url="http://127.0.0.1:1", concurrency=10001, duration_secs=1
+        )
+        with pytest.raises(ValueError, match="concurrency must be between 1 and 10000"):
+            run_load_test(config)
+
+    def test_run_load_test_rejects_zero_concurrency(self):
+        config = _TestConfig(url="http://127.0.0.1:1", concurrency=0, duration_secs=1)
+        with pytest.raises(ValueError, match="concurrency must be between 1 and 10000"):
+            run_load_test(config)
+
+    def test_run_load_profiles_rejects_oversized_profile(self):
+        config = _TestConfig(url="http://127.0.0.1:1", concurrency=10, duration_secs=1)
+        profile = LoadProfile.constant(concurrency=10001, duration_secs=1)
+        with pytest.raises(ValueError, match="concurrency must be between 1 and 10000"):
+            run_load_profiles(config, profile)
