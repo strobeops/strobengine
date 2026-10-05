@@ -127,6 +127,48 @@ class TestCLIValidation:
         result = runner.invoke(app, ["spike", "http://unused", "--peak", "0"])
         assert result.exit_code != 0
 
+    def test_load_concurrency_above_limit(self) -> None:
+        result = runner.invoke(
+            app, ["load", "http://unused", "-c", "10001", "-d", "1", "--no-save"]
+        )
+        assert result.exit_code != 0
+
+    def test_stress_concurrency_above_limit(self) -> None:
+        result = runner.invoke(
+            app,
+            [
+                "stress",
+                "http://unused",
+                "--to",
+                "10001",
+                "--ramp",
+                "1",
+                "--hold",
+                "1",
+                "--no-save",
+            ],
+        )
+        assert result.exit_code != 0
+
+    def test_spike_concurrency_above_limit(self) -> None:
+        result = runner.invoke(
+            app,
+            [
+                "spike",
+                "http://unused",
+                "--peak",
+                "10001",
+                "--pre-spike",
+                "0",
+                "--spike-duration",
+                "1",
+                "--post-spike",
+                "0",
+                "--no-save",
+            ],
+        )
+        assert result.exit_code != 0
+
 
 class TestCLIJsonOutput:
     def test_json_load(self, local_server: str) -> None:
