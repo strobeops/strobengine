@@ -4,6 +4,84 @@ All notable changes to `strobengine` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.0] - 2026-10-06
+
+### Bug Fixes
+
+- *(core)* Enforce per-iteration deadline in spawn_worker
+- *(sse)* Report stream read errors and reconnect after EOF
+- *(ws)* Report read timeouts, errors, and closes as failures
+- *(chaos)* Carry selected chaos fault on error metrics
+- *(http)* Drain response body for accurate bytes and keep-alive
+- *(sse)* Report time-to-first-event correctly in persistent mode
+- *(cli)* Wire verbose/quiet into log level resolution
+- *(report)* Serialize system_metrics in documented display shape
+- *(engine)* Reject concurrency above 10000 in Python API
+- *(core)* Enforce concurrency limit at pyo3 entry points
+- *(report)* Validate baseline artifact shape in compute_comparison
+- *(cli)* Skip baseline comparison when artifact is malformed
+- *(report)* Enable jinja2 autoescape for html reports
+
+### Documentation
+
+- Document WebSocket deep metrics for v0.8.0
+- Document gRPC stream-concurrency and flow-control deep metrics
+- Document HTTP/3 deep metrics for v0.8.0
+- *(roadmap)* Add Static Type Safety & Quality Assurance epic
+- *(sse)* Document stream error reporting and reconnection
+- *(ws)* Document read error semantics for stream and ping-pong modes
+
+### Features
+
+- *(metrics)* Add WebsocketMetrics counters and backpressure gauge
+- *(ws)* Instrument ping/pong heartbeats and write-buffer backpressure
+- *(report)* Render WebSocket deep metrics in CLI and HTML
+- *(metrics)* Add GrpcMetrics stream-concurrency and flow-control gauge
+- *(grpc)* Add config-gated raw-h2 multiplexed engine with stream/window metrics
+- *(report)* Render gRPC deep metrics in CLI and HTML
+- *(metrics)* Add Http3Metrics congestion-window and migration gauge
+- *(http3)* Sample QUIC cwnd and add opt-in connection migration
+- *(report)* Render HTTP/3 deep metrics in CLI and HTML
+
+### Performance
+
+- *(grpc)* Store payload as Bytes to avoid per-iteration Vec clone
+
+### Refactoring
+
+- *(cli)* Dedupe shared option definitions into cli_options.py
+- *(cli)* Extract export pipeline into cli_export.py
+- *(cli)* Give _build_request_options explicit typed parameters
+- *(reporter)* Extract artifact construction into artifact.py
+- *(reporter)* Extract report persistence into persistence.py
+- *(metrics)* Build request metrics through a fluent builder
+
+### Testing
+
+- *(bench)* Add criterion micro-bench for WebSocket metric overhead
+- *(ws)* Cover e2e metrics, publisher backpressure, and CLI rendering
+- *(bench)* Add criterion micro-bench for gRPC metric overhead
+- *(grpc)* Harden async-SETTINGS races in h2 stall and concurrency tests
+- *(bench)* Add criterion micro-bench for HTTP/3 metric overhead
+- *(core)* Cover stalled-iteration deadline in spawn_worker
+- *(e2e)* Assert blackhole WS target completes under --timeout
+- *(sse)* Cover stream-error status, post-EOF reconnect, and per-connection max events
+- *(e2e)* Assert SSE error counting and reconnect against local raw servers
+- *(ws)* Cover stream/ping-pong timeouts and persistent reconnect
+- *(e2e)* Assert WS read failures against local raw servers
+- *(chaos)* Cover fault accounting in metrics, SSE, and WebSocket
+- *(e2e)* Assert chaos fault counting against local servers
+- *(http)* Cover body byte accounting and connection reuse
+- *(e2e)* Assert chunked body bytes in HTTP runs
+- *(sse)* Cover persistent TTFB accounting
+- *(e2e)* Bound average TTFB in SSE runs
+- *(cli)* Assert log levels for verbosity flags
+- *(report)* Golden-test system_metrics artifact shape
+- *(e2e)* Assert HTML system panel in real runs
+- *(core)* Cover profile concurrency upper-bound helper
+- Enforce concurrency limit in engine, CLI, and FFI paths
+- Cover malformed baseline comparison handling
+- *(report)* Cover html report autoescape
 ## [0.7.1] - 2026-09-24
 
 ### Bug Fixes
@@ -13,6 +91,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Features
 
 - *(ffi)* Expose QuicMetrics and SseMetrics to Python
+
+### Miscellaneous Tasks
+
+- *(release)* Bump version to 0.7.1
 
 ### Performance
 
