@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from jinja2 import Template
+from jinja2 import Environment, FileSystemLoader
 
 from strobengine.artifact import build_artifact_dict
 
@@ -12,10 +12,12 @@ from strobengine.artifact import build_artifact_dict
 _ASSETS_DIR = Path(__file__).parent / "assets"
 _CHART_JS_SOURCE = (_ASSETS_DIR / "chart.min.js").read_text(encoding="utf-8")
 
+# Autoescape on: report values (target URL, baseline timestamps) may be
+# hostile; trusted JS is explicitly marked with | safe in the template.
 # Pre-compiled at module level for performance
-_HTML_TEMPLATE = Template(
-    (_ASSETS_DIR / "report_template.html").read_text(encoding="utf-8")
-)
+_HTML_TEMPLATE = Environment(
+    loader=FileSystemLoader(_ASSETS_DIR), autoescape=True
+).get_template("report_template.html")
 
 
 def render_html_report(summary, config, comparison=None) -> str:

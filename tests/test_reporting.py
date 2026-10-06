@@ -9,7 +9,11 @@ from strobengine.cli import _build_request_options, _parse_headers, _validate_me
 from strobengine.reporter import _is_grpc_mapped, build_artifact_dict, save_report
 from strobengine.reporting.baseline import compute_comparison, load_baseline_artifact
 from strobengine.reporting.csv_report import generate_csv_report, save_csv_report
-from strobengine.reporting.html_report import render_html_report, save_html_report
+from strobengine.reporting.html_report import (
+    _CHART_JS_SOURCE,
+    render_html_report,
+    save_html_report,
+)
 from strobengine.reporting.junit_report import generate_junit_report
 from strobengine.reporting.markdown_report import (
     generate_markdown_summary,
@@ -744,6 +748,33 @@ class TestHTMLReport:
         assert (tmp_path / "report.html").exists()
         content = (tmp_path / "report.html").read_text()
         assert "<html" in content
+
+    def test_render_html_escapes_hostile_target_url(self):
+        summary = _make_summary(url="http://evil/</title><script>alert(1)</script>")
+        html = render_html_report(summary, _make_config())
+        escaped = "http://evil/&lt;/title&gt;&lt;script&gt;alert(1)&lt;/script&gt;"
+        assert escaped in html
+        assert "</title><script>alert(1)</script>" not in html
+
+    def test_render_html_escapes_hostile_baseline_timestamp(self):
+        comparison = {
+            "baseline_timestamp": "<img src=x onerror=alert(1)>",
+            "rps_delta": 10.5,
+            "latency_p95_delta": -5.2,
+            "error_rate_delta": -1.0,
+            "baseline_rps": 30.0,
+            "baseline_p95_ms": 35.0,
+            "baseline_error_rate": 5.0,
+        }
+        html = render_html_report(
+            _make_summary(), _make_config(), comparison=comparison
+        )
+        assert "&lt;img src=x onerror=alert(1)&gt;" in html
+        assert "<img src=x onerror=alert(1)>" not in html
+
+    def test_render_html_keeps_chart_js_verbatim(self):
+        html = render_html_report(_make_summary(), _make_config())
+        assert _CHART_JS_SOURCE in html
 
 
 class TestCLIHelpers:
