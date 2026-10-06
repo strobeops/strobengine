@@ -47,7 +47,8 @@ def compute_comparison(current: dict, baseline: dict) -> dict:
     Returns a dict with baseline metadata, current values, and percentage/point
     deltas for RPS, P95 latency, and error rate.
 
-    Raises ValueError if either artifact is missing required keys.
+    Raises ValueError if either artifact is missing required keys or has
+    malformed (non-dictionary) sections.
     """
 
     def pct_delta(curr_val: float, base_val: float) -> float:
@@ -57,10 +58,16 @@ def compute_comparison(current: dict, baseline: dict) -> dict:
 
     # Validate required structure
     for label, artifact in [("current", current), ("baseline", baseline)]:
+        if not isinstance(artifact, dict):
+            raise ValueError(f"Invalid {label} artifact: expected a dictionary")
         for key in ["summary", "latency_percentiles", "metadata"]:
             if key not in artifact:
                 raise ValueError(
                     f"Invalid {label} artifact: missing required key '{key}'"
+                )
+            if not isinstance(artifact[key], dict):
+                raise ValueError(
+                    f"Invalid {label} artifact: '{key}' must be a dictionary"
                 )
         for subkey in ["rps", "total_requests", "failed_requests"]:
             if subkey not in artifact["summary"]:
@@ -71,6 +78,11 @@ def compute_comparison(current: dict, baseline: dict) -> dict:
             if subkey not in artifact["latency_percentiles"]:
                 raise ValueError(
                     f"Invalid {label} artifact: missing 'latency_percentiles.{subkey}'"
+                )
+        for subkey in ["timestamp", "target_url"]:
+            if subkey not in artifact["metadata"]:
+                raise ValueError(
+                    f"Invalid {label} artifact: missing 'metadata.{subkey}'"
                 )
 
     curr_summary = current["summary"]
