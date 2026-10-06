@@ -60,8 +60,12 @@ def _output_results(
         baseline = load_baseline_artifact(baseline_file=Path(exports.compare_to))
         if baseline and config is not None:
             current = build_artifact_dict(summary, config)
-            comparison = compute_comparison(current, baseline)
-            if not exports.json_output:
+            try:
+                comparison = compute_comparison(current, baseline)
+            except (ValueError, KeyError, TypeError) as e:
+                print(f"[warning] Skipping comparison: {e}", file=sys.stderr)
+                comparison = None
+            if comparison is not None and not exports.json_output:
                 from strobengine.reporting.baseline import print_cli_comparison
 
                 print_cli_comparison(comparison)

@@ -170,6 +170,86 @@ class TestCLIValidation:
         assert result.exit_code != 0
 
 
+class TestCompareToBaseline:
+    """Malformed --compare-to baselines must warn and still write exports."""
+
+    @pytest.mark.parametrize(
+        "baseline_content",
+        [
+            pytest.param(
+                {
+                    "metadata": {},
+                    "summary": {
+                        "rps": 1.0,
+                        "total_requests": 10,
+                        "failed_requests": 0,
+                    },
+                    "latency_percentiles": {"p95_us": 1000.0},
+                },
+                id="missing-metadata-subkey",
+            ),
+            pytest.param(
+                {
+                    "metadata": {
+                        "timestamp": "2026-01-01T00:00:00Z",
+                        "target_url": "http://unused",
+                    },
+                },
+                id="missing-summary",
+            ),
+            pytest.param(
+                {
+                    "metadata": {
+                        "timestamp": "2026-01-01T00:00:00Z",
+                        "target_url": "http://unused",
+                    },
+                    "summary": {
+                        "rps": "fast",
+                        "total_requests": 10,
+                        "failed_requests": 0,
+                    },
+                    "latency_percentiles": {"p95_us": 1000.0},
+                },
+                id="string-rps",
+            ),
+        ],
+    )
+    def test_malformed_baseline_skips_comparison_but_writes_exports(
+        self, local_server: str, tmp_path: Path, baseline_content: dict[str, object]
+    ) -> None:
+        baseline_file = tmp_path / "baseline.json"
+        baseline_file.write_text(json.dumps(baseline_content))
+        html_path = tmp_path / "report.html"
+        md_path = tmp_path / "report.md"
+
+        result = runner.invoke(
+            app,
+            [
+                "load",
+                local_server,
+                "-c",
+                "2",
+                "-d",
+                "1",
+                "--no-progress",
+                "--no-save",
+                "--compare-to",
+                str(baseline_file),
+                "--html",
+                str(html_path),
+                "--markdown",
+                str(md_path),
+            ],
+        )
+
+        assert result.exit_code == 0, result.output
+        assert "Skipping comparison" in result.output
+        assert "Skipping comparison" in result.stderr
+        assert "Traceback" not in result.output
+        assert html_path.exists()
+        assert md_path.exists()
+
+
 class TestCLIJsonOutput:
     def test_json_load(self, local_server: str) -> None:
         result = runner.invoke(
