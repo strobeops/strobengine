@@ -186,4 +186,4 @@ with the same color-coded deltas.
 
 - Baseline comparison assumes same target URL (cross-URL comparison not supported)
 - Report schema version is not tracked (no migration support)
-- `--compare-to` requires the baseline file to be a valid strobengine JSON artifact
+- `--compare-to` requires the baseline file to be a valid strobengine JSON artifact; malformed baselines are skipped with a warning and exports still complete without comparison
