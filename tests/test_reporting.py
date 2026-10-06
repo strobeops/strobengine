@@ -581,6 +581,48 @@ class TestComputeComparison:
         result = compute_comparison(current, baseline)
         assert result["latency_p95_delta"] == 100.0  # base=0, curr>0 -> 100%
 
+    @pytest.mark.parametrize("subkey", ["timestamp", "target_url"])
+    def test_compute_comparison_missing_metadata_subkey(self, subkey):
+        current = self._make_artifact(
+            rps=40.0, total_requests=200, failed_requests=10, p95_us=25000.0
+        )
+        baseline = self._make_artifact(
+            rps=30.0, total_requests=150, failed_requests=5, p95_us=35000.0
+        )
+        del baseline["metadata"][subkey]
+
+        with pytest.raises(ValueError, match=f"missing 'metadata.{subkey}'"):
+            compute_comparison(current, baseline)
+
+    @pytest.mark.parametrize(
+        ("key", "value"),
+        [
+            ("metadata", None),
+            ("metadata", "2026-01-01"),
+            ("summary", None),
+            ("latency_percentiles", None),
+        ],
+    )
+    def test_compute_comparison_non_dict_section(self, key, value):
+        current = self._make_artifact(
+            rps=40.0, total_requests=200, failed_requests=10, p95_us=25000.0
+        )
+        baseline = self._make_artifact(
+            rps=30.0, total_requests=150, failed_requests=5, p95_us=35000.0
+        )
+        baseline[key] = value
+
+        with pytest.raises(ValueError, match="must be a dictionary"):
+            compute_comparison(current, baseline)
+
+    def test_compute_comparison_non_dict_artifact(self):
+        current = self._make_artifact(
+            rps=40.0, total_requests=200, failed_requests=10, p95_us=25000.0
+        )
+
+        with pytest.raises(ValueError, match="expected a dictionary"):
+            compute_comparison(current, ["not", "a", "dict"])
+
 
 class TestHTMLReport:
     """Tests for render_html_report and save_html_report."""
