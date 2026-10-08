@@ -5,7 +5,7 @@ from collections.abc import Callable
 from typing import Annotated
 
 import typer
-from typer.core import TyperOption
+from typer.core import TyperGroup, TyperOption
 from typer.main import get_command
 
 from strobengine._strobengine import init_logging
@@ -138,6 +138,8 @@ def _collect_value_flags(app: typer.Typer) -> set[str]:
     """Build the set of flags that consume the next argument."""
     root = get_command(app)
     flags: set[str] = set()
+    if not isinstance(root, TyperGroup):
+        return flags
     for cmd in root.commands.values():
         for param in cmd.params:
             if isinstance(param, TyperOption) and not param.is_flag and not param.count:
