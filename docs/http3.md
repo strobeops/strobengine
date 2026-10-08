@@ -25,12 +25,12 @@ engine = StrobEngine(
     url="h3://localhost:443/api",
     concurrency=10,
     duration=30,
-    options=RequestOptions(
-        http3_enabled=True,
-    ),
 )
 summary = engine.run()
 ```
+
+> **Note:** The `http3_enabled` option is recognized for forward-compatibility
+> but not yet functional; the `http3://` / `h3://` URL scheme selects HTTP/3.
 
 ### With Custom Headers
 
@@ -40,7 +40,6 @@ engine = StrobEngine(
     concurrency=10,
     duration=30,
     options=RequestOptions(
-        http3_enabled=True,
         headers=[("Authorization", "Bearer token123")],
     ),
 )
@@ -55,7 +54,6 @@ engine = StrobEngine(
     concurrency=10,
     duration=30,
     options=RequestOptions(
-        http3_enabled=True,
         quic_zero_rtt=True,
     ),
 )
@@ -70,7 +68,6 @@ engine = StrobEngine(
     concurrency=10,
     duration=30,
     options=RequestOptions(
-        http3_enabled=True,
         chaos=True,
     ),
 )
@@ -82,31 +79,31 @@ summary = engine.run()
 ### Basic HTTP/3
 
 ```bash
-strobengine load h3://localhost:443/api -c 10 -d 30 --http3
+strobengine load h3://localhost:443/api -c 10 -d 30
 ```
 
 ### With 0-RTT
 
 ```bash
-strobengine load h3://localhost:443/api -c 10 -d 30 --http3 --quic-zero-rtt
+strobengine load h3://localhost:443/api -c 10 -d 30 --quic-zero-rtt
 ```
 
 ### With Custom Idle Timeout
 
 ```bash
-strobengine load h3://localhost:443/api -c 10 -d 30 --http3 --quic-max-idle-timeout 10000
+strobengine load h3://localhost:443/api -c 10 -d 30 --quic-max-idle-timeout 10000
 ```
 
 ### With Chaos
 
 ```bash
-strobengine load h3://localhost:443/api -c 10 -d 30 --http3 --chaos
+strobengine load h3://localhost:443/api -c 10 -d 30 --chaos
 ```
 
 ### JSON Output
 
 ```bash
-strobengine load h3://localhost:443/api -c 10 -d 30 --http3 --json --no-progress
+strobengine load h3://localhost:443/api -c 10 -d 30 --json --no-progress
 ```
 
 ## Protocol Detection
@@ -118,7 +115,8 @@ URL scheme:
 - `http3://` -- HTTP/3 over QUIC (alias)
 
 No explicit protocol flag is needed when using these URL schemes.
-The `--http3` flag enables HTTP/3 mode explicitly.
+The `--http3` flag is recognized for forward-compatibility but not yet
+functional; it does not change protocol selection.
 
 ## Metrics
 

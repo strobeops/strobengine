@@ -20,7 +20,9 @@ class TestGrpcE2E:
 
         assert summary.total_requests > 0
         assert summary.total_errors == summary.total_requests
-        assert summary.status_codes.get(0, 0) == summary.total_requests
+        # Transport failures map to HTTP-equivalent error codes (503/500/...),
+        # never a raw 0 that would masquerade as an unknown bucket.
+        assert all(code >= 400 for code in summary.status_codes)
 
     async def test_grpc_chaos_mode(self):
         engine = StrobEngine(

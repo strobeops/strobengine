@@ -1,4 +1,4 @@
-use std::net::{SocketAddr, ToSocketAddrs};
+use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -89,7 +89,13 @@ impl Http3Engine {
             .map(|pq| pq.as_str().to_string())
             .unwrap_or_else(|| "/".to_string());
 
-        let server_name = host.clone();
+        // http::Uri keeps IPv6 brackets in host() ("[::1]"): the authority needs
+        // them, but the TLS server name must not have them.
+        let server_name = host
+            .strip_prefix('[')
+            .and_then(|h| h.strip_suffix(']'))
+            .unwrap_or(&host)
+            .to_string();
         let authority = format!("{host}:{port}");
 
         let method = match method.to_uppercase().as_str() {
@@ -175,8 +181,11 @@ impl Http3Engine {
 
                 tls.alpn_protocols = vec![b"h3".to_vec()];
 
-                // Enable TLS 1.3 session resumption for 0-RTT support
+                // Enable TLS 1.3 session resumption. Early data (0-RTT) is only
+                // offered when the zero_rtt flag is on; otherwise into_0rtt()
+                // can never succeed and the handshake stays plain 1-RTT.
                 tls.resumption = quinn::rustls::client::Resumption::in_memory_sessions(256);
+                tls.enable_early_data = self.zero_rtt;
 
                 // Configure QUIC transport
                 let mut transport = TransportConfig::default();
@@ -218,14 +227,12 @@ impl Http3Engine {
     async fn connect_quic_connecting(&self) -> Result<(quinn::Connecting, u64), String> {
         let endpoint = self.ensure_endpoint().await?;
 
-        let addr_str = format!(
-            "{}:{}",
-            self.authority.split(':').next().unwrap_or(&self.authority),
-            self.authority.split(':').nth(1).unwrap_or("443")
-        );
+        let (host, port) = split_authority(&self.authority)?;
         let dns_start = Instant::now();
-        let addr = addr_str
-            .to_socket_addrs()
+        // Tokio's async resolver: the previous blocking to_socket_addrs stalled
+        // the runtime (and every in-flight iteration) during DNS lookups.
+        let addr = tokio::net::lookup_host((host, port))
+            .await
             .map_err(|e| format!("DNS resolution failed: {e}"))?
             .next()
             .ok_or_else(|| "no addresses found for host".to_string())?;
@@ -242,27 +249,32 @@ impl Http3Engine {
         connecting: quinn::Connecting,
     ) -> Result<(quinn::Connection, Option<bool>, bool), String> {
         let connect_start = Instant::now();
-        match connecting.into_0rtt() {
-            Ok((conn, zero_rtt_accepted)) => {
-                let accepted = zero_rtt_accepted.await;
-                tracing::debug!(accepted, "0-RTT connection established");
-                Ok((conn, Some(accepted), true))
+        // 0-RTT is opt-in: without the zero_rtt flag the handshake is always
+        // plain 1-RTT, even when a resumption ticket is cached.
+        let connecting = if self.zero_rtt {
+            match connecting.into_0rtt() {
+                Ok((conn, zero_rtt_accepted)) => {
+                    let accepted = zero_rtt_accepted.await;
+                    tracing::debug!(accepted, "0-RTT connection established");
+                    return Ok((conn, Some(accepted), true));
+                }
+                Err(connecting) => connecting,
             }
-            Err(connecting) => {
-                let connection = tokio::time::timeout(Duration::from_secs(5), async {
-                    connecting
-                        .await
-                        .map_err(|e| format!("QUIC handshake failed: {e}"))
-                })
+        } else {
+            connecting
+        };
+        let connection = tokio::time::timeout(Duration::from_secs(5), async {
+            connecting
                 .await
-                .map_err(|_| "QUIC handshake timed out".to_string())?
-                .map_err(|e| e.to_string())?;
+                .map_err(|e| format!("QUIC handshake failed: {e}"))
+        })
+        .await
+        .map_err(|_| "QUIC handshake timed out".to_string())?
+        .map_err(|e| e.to_string())?;
 
-                let handshake_us = connect_start.elapsed().as_micros() as u64;
-                tracing::debug!(handshake_us, "1-RTT connection established");
-                Ok((connection, None, false))
-            }
-        }
+        let handshake_us = connect_start.elapsed().as_micros() as u64;
+        tracing::debug!(handshake_us, "1-RTT connection established");
+        Ok((connection, None, false))
     }
 
     async fn setup_h3(
@@ -345,6 +357,48 @@ impl Http3Engine {
 
         Ok((status, total_bytes))
     }
+
+    /// Sends a request with a corrupted body and reports the response the
+    /// server produced for that faulted attempt.
+    async fn send_corrupted_request(
+        &self,
+        send_request: &mut h3::client::SendRequest<h3_quinn::OpenStreams, Bytes>,
+    ) -> Result<(u16, u64), String> {
+        let request = self.build_request()?;
+
+        let mut stream = send_request
+            .send_request(request)
+            .await
+            .map_err(|e| format!("failed to open H3 stream: {e}"))?;
+
+        stream
+            .send_data(Bytes::from_static(b"\xff\xfe\xbd\xef"))
+            .await
+            .map_err(|e| format!("failed to send corrupted H3 body: {e}"))?;
+
+        stream
+            .finish()
+            .await
+            .map_err(|e| format!("failed to finish corrupted H3 stream: {e}"))?;
+
+        let response = stream
+            .recv_response()
+            .await
+            .map_err(|e| format!("failed to receive H3 response: {e}"))?;
+
+        let status = response.status().as_u16();
+
+        let mut total_bytes = 0u64;
+        while let Some(chunk) = stream
+            .recv_data()
+            .await
+            .map_err(|e| format!("failed to receive H3 data: {e}"))?
+        {
+            total_bytes += chunk.remaining() as u64;
+        }
+
+        Ok((status, total_bytes))
+    }
 }
 
 #[async_trait]
@@ -365,10 +419,23 @@ impl ProtocolEngine for Http3Engine {
             tokio::time::sleep(Duration::from_millis(duration_ms)).await;
         }
 
-        // Connect QUIC
+        // Connect QUIC (0-RTT only when explicitly enabled).
         let connect_start = Instant::now();
-        let (connection, dns_us) = match self.connect_quic().await {
-            Ok(c) => c,
+        let connect_outcome: Result<(quinn::Connection, u64, bool), String> = if self.zero_rtt {
+            match self.connect_quic_connecting().await {
+                Ok((connecting, dns_us)) => self
+                    .connect_with_0rtt(connecting)
+                    .await
+                    .map(|(conn, _accepted, is_0rtt)| (conn, dns_us, is_0rtt)),
+                Err(e) => Err(e),
+            }
+        } else {
+            self.connect_quic()
+                .await
+                .map(|(conn, dns_us)| (conn, dns_us, false))
+        };
+        let (connection, dns_us, used_0rtt) = match connect_outcome {
+            Ok(v) => v,
             Err(e) => {
                 tracing::debug!(error = %e, "QUIC connection failed");
                 return RequestMetric::error(req_start.elapsed().as_micros(), fault);
@@ -390,18 +457,14 @@ impl ProtocolEngine for Http3Engine {
         let result = match fault {
             Some(ChaosFault::CorruptedPayload) => {
                 tracing::trace!("http3 chaos: corrupted payload");
-                if let Ok(request) = self.build_request()
-                    && let Ok(mut stream) = send_request.send_request(request).await
-                {
-                    let _ = stream
-                        .send_data(Bytes::from_static(b"\xff\xfe\xbd\xef"))
-                        .await;
-                    let _ = stream.finish().await;
-                    let _ = stream.recv_response().await;
-                }
-                match self.send_request_on_conn(&mut send_request).await {
-                    Ok((s, b)) => (s, b),
-                    Err(_) => (0, 0),
+                // The faulted attempt is the one measured: report its outcome
+                // instead of silently sending a second, healthy request on top.
+                match self.send_corrupted_request(&mut send_request).await {
+                    Ok((status, bytes)) => (status, bytes),
+                    Err(e) => {
+                        tracing::debug!(error = %e, "H3 corrupted-payload request failed");
+                        (0, 0)
+                    }
                 }
             }
             _ => match self.send_request_on_conn(&mut send_request).await {
@@ -413,8 +476,11 @@ impl ProtocolEngine for Http3Engine {
             },
         };
 
-        // Sample QUIC congestion window before teardown.
-        let cwnd_bytes = connection.stats().path.cwnd;
+        // Sample QUIC path stats before teardown; stateless iterations must
+        // report quic metrics too, not only persistent sessions.
+        let stats = connection.stats();
+        let cwnd_bytes = stats.path.cwnd;
+        let retransmits = stats.path.lost_packets;
         connection.close(0u32.into(), b"");
 
         let latency_micros = req_start.elapsed().as_micros();
@@ -424,6 +490,11 @@ impl ProtocolEngine for Http3Engine {
             .bytes(result.1)
             .connection_latency_us(Some(connection_latency_us))
             .dns_resolution_us(Some(dns_us))
+            .quic(
+                Some(connection_latency_us as u64),
+                used_0rtt,
+                Some(retransmits),
+            )
             .http3(Some(Http3Sample {
                 cwnd_bytes,
                 migrations_attempted: 0,
@@ -568,6 +639,35 @@ impl ProtocolEngine for Http3Engine {
     }
 }
 
+/// Splits a `host[:port]` authority (possibly bracketed IPv6) into host and
+/// port, defaulting to 443 when no port is present.
+fn split_authority(authority: &str) -> Result<(&str, u16), String> {
+    if let Some(rest) = authority.strip_prefix('[') {
+        // Bracketed IPv6 literal: [::1] or [::1]:8443
+        let (host, rest) = rest
+            .split_once(']')
+            .ok_or_else(|| format!("invalid IPv6 authority: {authority}"))?;
+        let port = match rest {
+            "" => 443,
+            p => p
+                .strip_prefix(':')
+                .ok_or_else(|| format!("invalid authority: {authority}"))?
+                .parse::<u16>()
+                .map_err(|e| format!("invalid port in authority {authority}: {e}"))?,
+        };
+        return Ok((host, port));
+    }
+    match authority.rsplit_once(':') {
+        Some((host, port)) => {
+            let port = port
+                .parse::<u16>()
+                .map_err(|e| format!("invalid port in authority {authority}: {e}"))?;
+            Ok((host, port))
+        }
+        None => Ok((authority, 443)),
+    }
+}
+
 /// Bind a fresh non-blocking UDP socket for a client migration rebind.
 fn bind_migration_socket() -> Result<std::net::UdpSocket, String> {
     let socket = std::net::UdpSocket::bind("0.0.0.0:0")
@@ -581,6 +681,8 @@ fn bind_migration_socket() -> Result<std::net::UdpSocket, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::protocols::WorkerSession;
+    use std::sync::atomic::{AtomicUsize, Ordering};
 
     #[tokio::test]
     async fn test_http3_url_parsing_h3_scheme() {
@@ -680,8 +782,8 @@ mod tests {
     use super::ProtocolEngine;
 
     /// Start a minimal h3 echo server on 127.0.0.1/::1 (whichever "localhost"
-    /// resolves to). Returns (port, DER trust anchor to hand the client).
-    async fn spawn_h3_server() -> (u16, Vec<u8>) {
+    /// resolves to). Returns (port, DER trust anchor, request counter).
+    async fn spawn_h3_server() -> (u16, Vec<u8>, Arc<AtomicUsize>) {
         // rustls requires a process-default CryptoProvider before builder(); the
         // client normally installs it lazily, so ensure it here too.
         let _ = quinn::rustls::crypto::ring::default_provider().install_default();
@@ -699,6 +801,11 @@ mod tests {
             )
             .unwrap();
         tls.alpn_protocols = vec![b"h3".to_vec()];
+        // QUIC allows max_early_data_size only 0 or u32::MAX; grant it so the
+        // zero_rtt gate tests can resume with early data. Early data requires
+        // STATEFUL resumption (rustls rejects it with a stateless ticketer),
+        // which is the default: session_storage-backed tickets, no ticketer.
+        tls.max_early_data_size = u32::MAX;
         let quic_crypto = quinn::crypto::rustls::QuicServerConfig::try_from(tls).unwrap();
         let server_config = quinn::ServerConfig::with_crypto(std::sync::Arc::new(quic_crypto));
 
@@ -713,8 +820,11 @@ mod tests {
         )
         .unwrap();
 
+        let request_count = Arc::new(AtomicUsize::new(0));
+        let counter = request_count.clone();
         tokio::spawn(async move {
             while let Some(incoming) = endpoint.accept().await {
+                let counter = counter.clone();
                 tokio::spawn(async move {
                     let Ok(conn) = incoming.await else { return };
                     let Ok(mut h3conn) = h3::server::builder()
@@ -724,10 +834,12 @@ mod tests {
                         return;
                     };
                     while let Ok(Some(resolver)) = h3conn.accept().await {
+                        let counter = counter.clone();
                         tokio::spawn(async move {
                             let Ok((_req, mut stream)) = resolver.resolve_request().await else {
                                 return;
                             };
+                            counter.fetch_add(1, Ordering::SeqCst);
                             let resp = http::Response::builder()
                                 .status(http::StatusCode::OK)
                                 .body(())
@@ -743,12 +855,12 @@ mod tests {
                 });
             }
         });
-        (port, trust_der)
+        (port, trust_der, request_count)
     }
 
     #[tokio::test(flavor = "multi_thread")]
     async fn http3_engine_samples_cwnd_over_real_transfer() {
-        let (port, trust) = spawn_h3_server().await;
+        let (port, trust, _count) = spawn_h3_server().await;
         let engine = Http3Engine::new(
             &format!("h3://127.0.0.1:{port}/test"),
             vec![],
@@ -773,7 +885,7 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn http3_engine_counts_opt_in_migration() {
-        let (port, trust) = spawn_h3_server().await;
+        let (port, trust, _count) = spawn_h3_server().await;
         let engine = std::sync::Arc::new(
             Http3Engine::new(
                 &format!("h3://127.0.0.1:{port}/test"),
@@ -806,5 +918,179 @@ mod tests {
             attempted >= 1,
             "expected at least one migration attempt, got {attempted}"
         );
+    }
+
+    #[test]
+    fn test_http3_split_authority() {
+        assert_eq!(split_authority("example.com"), Ok(("example.com", 443)));
+        assert_eq!(
+            split_authority("example.com:8443"),
+            Ok(("example.com", 8443))
+        );
+        assert_eq!(split_authority("[::1]"), Ok(("::1", 443)));
+        assert_eq!(split_authority("[::1]:8443"), Ok(("::1", 8443)));
+        assert!(split_authority("[::1").is_err());
+        assert!(split_authority("[::1]junk").is_err());
+        assert!(split_authority("example.com:port").is_err());
+    }
+
+    #[tokio::test]
+    async fn test_http3_ipv6_authority_parsing() {
+        let engine = Http3Engine::new(
+            "h3://[::1]:8443/x",
+            vec![],
+            "GET".into(),
+            None,
+            ChaosEngine::default(),
+            None,
+            false,
+        )
+        .unwrap();
+        // The authority keeps IPv6 brackets (used in request URIs); the TLS
+        // server name must not have them.
+        assert_eq!(engine.authority, "[::1]:8443");
+        assert_eq!(engine.server_name, "::1");
+        assert_eq!(engine.path, "/x");
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn http3_stateless_iteration_reports_quic_metrics() {
+        let (port, trust, _count) = spawn_h3_server().await;
+        let engine = Http3Engine::new(
+            &format!("h3://127.0.0.1:{port}/test"),
+            vec![],
+            "GET".into(),
+            None,
+            ChaosEngine::default(),
+            None,
+            false,
+        )
+        .unwrap()
+        .with_test_ca(trust);
+
+        let m = tokio::time::timeout(Duration::from_secs(5), engine.execute_iteration(""))
+            .await
+            .expect("iteration should finish");
+        assert_eq!(m.status_code, 200);
+        assert!(
+            m.quic_handshake_us.is_some(),
+            "stateless iterations must report quic metrics"
+        );
+        assert!(m.quic_retransmits.is_some());
+        assert!(!m.quic_0rtt_used);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn http3_corrupted_payload_sends_single_request() {
+        let (port, trust, count) = spawn_h3_server().await;
+        let engine = Http3Engine::new(
+            &format!("h3://127.0.0.1:{port}/test"),
+            vec![],
+            "GET".into(),
+            None,
+            ChaosEngine::new(true, 1.0),
+            None,
+            false,
+        )
+        .unwrap()
+        .with_test_ca(trust);
+
+        let mut iterations = 0usize;
+        let mut drops = 0usize;
+        let mut corrupted = false;
+        for _ in 0..40 {
+            let m = tokio::time::timeout(Duration::from_secs(5), engine.execute_iteration(""))
+                .await
+                .expect("iteration should finish");
+            iterations += 1;
+            match m.chaos_fault.as_ref().map(|f| f.name()) {
+                Some("ConnectionDrop") => drops += 1,
+                Some("CorruptedPayload") => corrupted = true,
+                _ => {}
+            }
+        }
+        assert!(
+            corrupted,
+            "40 iterations at rate 1.0 should inject a corrupted payload"
+        );
+
+        // Every non-drop iteration sends exactly one request, including the
+        // corrupted ones: the pre-fix double-send made them hit the server twice.
+        let expected = iterations - drops;
+        let seen = count.load(Ordering::SeqCst);
+        assert!(
+            seen <= expected,
+            "server saw {seen} requests, expected at most {expected}"
+        );
+        assert!(
+            seen >= expected - 1,
+            "server saw {seen} requests, expected about {expected}"
+        );
+    }
+
+    fn session_zero_rtt(session: &mut dyn WorkerSession) -> Option<bool> {
+        session
+            .as_any_mut()
+            .downcast_mut::<Http3Session>()
+            .expect("http3 session")
+            .zero_rtt_accepted
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn http3_zero_rtt_flag_gates_resumption() {
+        let (port, trust, _count) = spawn_h3_server().await;
+        let url = format!("h3://127.0.0.1:{port}/test");
+
+        // Flag on: the first connection has no ticket yet (None); once the
+        // server's resumption ticket is cached, the second attempts 0-RTT.
+        let engine_on = Http3Engine::new(
+            &url,
+            vec![],
+            "GET".into(),
+            None,
+            ChaosEngine::default(),
+            None,
+            true,
+        )
+        .unwrap()
+        .with_test_ca(trust.clone());
+        let mut first = engine_on
+            .create_worker_context()
+            .await
+            .expect("first session");
+        assert_eq!(session_zero_rtt(first.as_mut()), None);
+        tokio::time::sleep(Duration::from_millis(250)).await;
+        let mut second = engine_on
+            .create_worker_context()
+            .await
+            .expect("second session");
+        assert!(
+            session_zero_rtt(second.as_mut()).is_some(),
+            "a cached ticket should make the resumed session attempt 0-RTT"
+        );
+
+        // Flag off: tickets are never turned into 0-RTT attempts.
+        let engine_off = Http3Engine::new(
+            &url,
+            vec![],
+            "GET".into(),
+            None,
+            ChaosEngine::default(),
+            None,
+            false,
+        )
+        .unwrap()
+        .with_test_ca(trust);
+        let mut first_off = engine_off
+            .create_worker_context()
+            .await
+            .expect("first session");
+        assert_eq!(session_zero_rtt(first_off.as_mut()), None);
+        tokio::time::sleep(Duration::from_millis(250)).await;
+        let mut second_off = engine_off
+            .create_worker_context()
+            .await
+            .expect("second session");
+        assert_eq!(session_zero_rtt(second_off.as_mut()), None);
     }
 }

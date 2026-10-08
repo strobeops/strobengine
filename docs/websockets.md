@@ -245,7 +245,7 @@ nanosecond timestamps.
 |-----------|------|---------|-------------|
 | `ws_role` | `str \| None` | `None` | Worker role: `"publisher"` or `"subscriber"` |
 | `ws_publish_interval_ms` | `int \| None` | `None` | Interval between publisher sends (ms) |
-| `ws_subscribers` | `int \| None` | `None` | Number of subscriber workers (informational) |
+| `ws_subscribers` | `int \| None` | `None` | Number of subscriber workers (recognized, not yet functional) |
 
 ### Python API — Publisher
 
@@ -275,7 +275,6 @@ engine = StrobEngine(
     duration=30,
     options=RequestOptions(
         ws_role="subscriber",
-        ws_subscribers=10,
     ),
 )
 summary = engine.run()
@@ -293,8 +292,7 @@ strobengine load ws://localhost:8080/ws/broadcast -c 10 -d 30 \
 
 ```bash
 strobengine load ws://localhost:8080/ws/broadcast -c 10 -d 30 \
-  --ws-role subscriber \
-  --ws-subscribers 10
+  --ws-role subscriber
 ```
 
 ### Cross-Client Latency Measurement

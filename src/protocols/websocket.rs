@@ -657,6 +657,9 @@ impl WebSocketEngine {
             }
             Err(e) => {
                 tracing::debug!(error = %e, "publisher send failed");
+                // The sink is bound to a dead connection; discard it so the
+                // next iteration reconnects instead of writing into a corpse.
+                session.write = None;
                 RequestMetric::error(latency_micros, fault)
             }
         }
@@ -765,7 +768,12 @@ impl WebSocketEngine {
                     .ws(ws)
                     .build()
             }
-            Ok(None) => RequestMetric::error(latency_micros, fault),
+            Ok(None) => {
+                // Close or EOF: the stream is dead; discard it so the next
+                // iteration reconnects instead of reading from a corpse.
+                session.read = None;
+                RequestMetric::error(latency_micros, fault)
+            }
             Err(_) => {
                 tracing::debug!("subscriber receive timed out");
                 RequestMetric::error(latency_micros, fault)
@@ -1732,6 +1740,125 @@ mod tests {
         assert!(
             accepts.load(Ordering::Relaxed) >= 2,
             "session must reconnect after EOF: accepts={accepts:?} statuses={statuses:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn publisher_send_failure_discards_write_sink() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let local_addr = listener.local_addr().unwrap();
+        let accepts = Arc::new(AtomicUsize::new(0));
+        let counter = Arc::clone(&accepts);
+
+        // Complete the handshake but never read: the client's frame stays
+        // unread in the receive buffer, so closing the socket resets (RST)
+        // the connection and the publisher's next flush fails.
+        tokio::spawn(async move {
+            while let Ok((stream, _)) = listener.accept().await {
+                counter.fetch_add(1, Ordering::Relaxed);
+                if accept_async(stream).await.is_ok() {
+                    // Stay open for the first flush, then drop with the
+                    // client's frame still unread.
+                    tokio::time::sleep(Duration::from_millis(50)).await;
+                }
+            }
+        });
+
+        let engine = WebSocketEngine::new(
+            vec![],
+            WsMode::Stream,
+            Some("x".repeat(64)),
+            ChaosEngine::default(),
+            5,
+            false,
+            None,
+            None,
+        )
+        .with_role(Some("publisher".into()), Some(100));
+        let ws_url = format!("ws://{}", local_addr);
+        let mut ctx = engine.create_worker_context().await.unwrap();
+
+        let first = engine
+            .execute_iteration_with_context(&ws_url, ctx.as_mut())
+            .await;
+        assert_eq!(first.status_code, 200, "first flush lands before the reset");
+
+        // Let the server drop the connection and the RST reach the client.
+        tokio::time::sleep(Duration::from_millis(100)).await;
+
+        let second = engine
+            .execute_iteration_with_context(&ws_url, ctx.as_mut())
+            .await;
+        assert_eq!(second.status_code, 0, "flush into a reset connection fails");
+        let session = ctx.as_any_mut().downcast_mut::<PublisherSession>().unwrap();
+        assert!(session.write.is_none(), "failed sink must be discarded");
+
+        let third = engine
+            .execute_iteration_with_context(&ws_url, ctx.as_mut())
+            .await;
+        assert_eq!(third.status_code, 200, "next iteration reconnects");
+        assert!(
+            accepts.load(Ordering::Relaxed) >= 2,
+            "publisher must open a fresh connection after a failed send: accepts={accepts:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn subscriber_close_discards_read_and_reconnects() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let local_addr = listener.local_addr().unwrap();
+        let accepts = Arc::new(AtomicUsize::new(0));
+        let counter = Arc::clone(&accepts);
+
+        tokio::spawn(async move {
+            while let Ok((stream, _)) = listener.accept().await {
+                counter.fetch_add(1, Ordering::Relaxed);
+                let Ok(mut ws_stream) = accept_async(stream).await else {
+                    break;
+                };
+                // One payload per connection, then close.
+                let payload = create_pubsub_payload(b"hello");
+                let _ = ws_stream.send(Message::Binary(Bytes::from(payload))).await;
+                let _ = ws_stream.close(None).await;
+            }
+        });
+
+        let engine = WebSocketEngine::new(
+            vec![],
+            WsMode::Stream,
+            None,
+            ChaosEngine::default(),
+            5,
+            false,
+            None,
+            None,
+        )
+        .with_role(Some("subscriber".into()), None);
+        let ws_url = format!("ws://{}", local_addr);
+        let mut ctx = engine.create_worker_context().await.unwrap();
+
+        let first = engine
+            .execute_iteration_with_context(&ws_url, ctx.as_mut())
+            .await;
+        assert_eq!(first.status_code, 200, "payload read succeeds");
+
+        let second = engine
+            .execute_iteration_with_context(&ws_url, ctx.as_mut())
+            .await;
+        assert_eq!(second.status_code, 0, "server close is not a success");
+        let session = ctx
+            .as_any_mut()
+            .downcast_mut::<SubscriberSession>()
+            .unwrap();
+        assert!(session.read.is_none(), "dead reader must be discarded");
+
+        let third = engine
+            .execute_iteration_with_context(&ws_url, ctx.as_mut())
+            .await;
+        assert_eq!(third.status_code, 200, "next iteration reconnects");
+        assert!(
+            accepts.load(Ordering::Relaxed) >= 2,
+            "subscriber must open a fresh connection after EOF: accepts={accepts:?}"
         );
     }
 

@@ -51,6 +51,13 @@ pub struct ChaosEngine {
 
 impl ChaosEngine {
     pub fn new(enabled: bool, rate: f32) -> Self {
+        // NaN is treated as "off"; out-of-range rates are clamped so external
+        // callers can never configure an always/never-injecting rate.
+        let rate = if rate.is_nan() {
+            0.0
+        } else {
+            rate.clamp(0.0, 1.0)
+        };
         Self { enabled, rate }
     }
 
