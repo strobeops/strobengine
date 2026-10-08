@@ -26,7 +26,7 @@ use h2::client::SendRequest;
 use http::header::{CONTENT_TYPE, HeaderName, HeaderValue};
 use http::{Method, Request, Uri};
 use tokio::net::TcpStream;
-use tokio::sync::OnceCell;
+use tokio::sync::Mutex;
 
 use crate::chaos::{ChaosEngine, ChaosFault};
 use crate::metrics::{GrpcSample, RequestMetric};
@@ -95,8 +95,10 @@ pub struct GrpcH2Engine {
     deadline: Option<Duration>,
     chaos: ChaosEngine,
     /// Shared multiplexed connection; the `SendRequest` handle is cheap to clone
-    /// and each clone drives the same underlying HTTP/2 connection.
-    send: OnceCell<SendRequest<Bytes>>,
+    /// and each clone drives the same underlying HTTP/2 connection. Cleared on
+    /// handle-level failures so the next iteration reconnects instead of using
+    /// a dead connection forever.
+    send: Mutex<Option<SendRequest<Bytes>>>,
     /// Client-side active-stream gauge for the shared connection.
     active: Arc<AtomicU64>,
 }
@@ -136,7 +138,7 @@ impl GrpcH2Engine {
             headers,
             deadline: deadline_ms.map(Duration::from_millis),
             chaos,
-            send: OnceCell::new(),
+            send: Mutex::new(None),
             active: Arc::new(AtomicU64::new(0)),
         })
     }
@@ -158,17 +160,26 @@ impl GrpcH2Engine {
     }
 
     /// Returns (send handle, connection-latency us, reused flag). The connection
-    /// is established once (races deduped by `OnceLock`) and cloned thereafter.
+    /// is established on first use (concurrent callers serialize on the mutex)
+    /// and cloned thereafter.
     async fn get_send(&self) -> Result<(SendRequest<Bytes>, u64, bool), ProtoError> {
-        let was_set = self.send.get().is_some();
+        let mut guard = self.send.lock().await;
+        if let Some(send) = guard.as_ref() {
+            let send = send.clone();
+            drop(guard);
+            return Ok((send, 0, true));
+        }
         let t0 = Instant::now();
-        let send = self.send.get_or_try_init(|| self.connect()).await?.clone();
-        let conn_us = if was_set {
-            0
-        } else {
-            t0.elapsed().as_micros() as u64
-        };
-        Ok((send, conn_us, was_set))
+        let send = self.connect().await?;
+        let conn_us = t0.elapsed().as_micros() as u64;
+        *guard = Some(send.clone());
+        Ok((send, conn_us, false))
+    }
+
+    /// Drops the stored send handle after a handle-level failure so the next
+    /// iteration replaces the dead connection.
+    async fn clear_send(&self) {
+        *self.send.lock().await = None;
     }
 }
 
@@ -199,6 +210,7 @@ impl ProtocolEngine for GrpcH2Engine {
         // Gate on stream capacity: `poll_ready` blocks when the peer's
         // SETTINGS_MAX_CONCURRENT_STREAMS is saturated (multiplexing headroom).
         if poll_fn(|cx| send.poll_ready(cx)).await.is_err() {
+            self.clear_send().await;
             return RequestMetric::error(req_start.elapsed().as_micros(), fault);
         }
 
@@ -228,7 +240,10 @@ impl ProtocolEngine for GrpcH2Engine {
 
         let (resp_fut, mut send_stream) = match send.send_request(req, false) {
             Ok(v) => v,
-            Err(_) => return RequestMetric::error(req_start.elapsed().as_micros(), fault),
+            Err(_) => {
+                self.clear_send().await;
+                return RequestMetric::error(req_start.elapsed().as_micros(), fault);
+            }
         };
 
         // Snapshot multiplexing state immediately after opening our stream.
@@ -710,5 +725,71 @@ mod tests {
         let engine = engine_for(addr, Some("dGVzdA==".into()));
         let metric = engine.execute_iteration("").await;
         assert_eq!(metric.status_code, 0);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn grpc_h2_connection_death_reconnects() {
+        // The engine stores one multiplexed handle; when the server drops the
+        // connection the handle must be discarded so the next iteration dials
+        // again instead of failing on the dead connection forever.
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let accepts = Arc::new(AtomicU64::new(0));
+        let counter = Arc::clone(&accepts);
+
+        tokio::spawn(async move {
+            while let Ok((stream, _)) = listener.accept().await {
+                counter.fetch_add(1, Ordering::Relaxed);
+                tokio::spawn(async move {
+                    let Ok(mut conn) = h2::server::Builder::new()
+                        .initial_window_size(65535)
+                        .max_concurrent_streams(100)
+                        .handshake::<_, Bytes>(stream)
+                        .await
+                    else {
+                        return;
+                    };
+                    let cfg = ServerCfg {
+                        window: 65535,
+                        read_delay_ms: 0,
+                        resp_delay_ms: 0,
+                        max_streams: 100,
+                        behavior: Behavior::Normal,
+                    };
+                    // Drive the connection (so request bodies drain and
+                    // responses flush) for a bounded window, then drop it
+                    // without GOAWAY so the client's next iteration observes
+                    // a dead connection.
+                    let _ = tokio::time::timeout(Duration::from_millis(200), async {
+                        while let Some(Ok((req, resp))) = conn.accept().await {
+                            tokio::spawn(serve_stream(req, resp, cfg));
+                        }
+                    })
+                    .await;
+                    drop(conn);
+                });
+            }
+        });
+
+        let engine = engine_for(addr, Some("dGVzdA==".into()));
+
+        let first = engine.execute_iteration("").await;
+        assert_eq!(first.status_code, 200);
+
+        // Let the server close the connection and the EOF reach the client.
+        tokio::time::sleep(Duration::from_millis(400)).await;
+
+        let second = engine.execute_iteration("").await;
+        assert_eq!(second.status_code, 0, "a dead connection must fail");
+
+        let third = engine.execute_iteration("").await;
+        assert_eq!(
+            third.status_code, 200,
+            "engine must reconnect after connection death"
+        );
+        assert!(
+            accepts.load(Ordering::Relaxed) >= 2,
+            "expected a fresh TCP connection: accepts={accepts:?}"
+        );
     }
 }
