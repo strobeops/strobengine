@@ -197,8 +197,8 @@ impl TestConfig {
         grpc_h2_multiplex: bool,
         http3_migrate: bool,
         http3_migrate_every: u64,
-    ) -> Self {
-        Self {
+    ) -> PyResult<Self> {
+        let config = Self {
             url,
             concurrency,
             duration_secs,
@@ -237,11 +237,31 @@ impl TestConfig {
             grpc_h2_multiplex,
             http3_migrate,
             http3_migrate_every,
-        }
+        };
+        config.validate()?;
+        Ok(config)
     }
 }
 
 impl TestConfig {
+    /// Validate config invariants at the Python FFI boundary. Callers from
+    /// Rust-internal factories (builder paths) are responsible for their own
+    /// checks; this guards values arriving from Python before any run starts.
+    fn validate(&self) -> PyResult<()> {
+        if !(1..=MAX_CONCURRENCY).contains(&self.concurrency) {
+            return Err(pyo3::exceptions::PyValueError::new_err(
+                "concurrency must be between 1 and 10000",
+            ));
+        }
+        // Range check rejects NaN as well (all comparisons false).
+        if !(0.0..=1.0).contains(&self.chaos_rate) {
+            return Err(pyo3::exceptions::PyValueError::new_err(
+                "chaos_rate must be between 0.0 and 1.0",
+            ));
+        }
+        Ok(())
+    }
+
     /// Create a builder for programmatic construction (tests, internal factories).
     pub fn builder(url: String) -> TestConfigBuilder {
         TestConfigBuilder::new(url)
@@ -814,7 +834,8 @@ mod tests {
             false,
             false,
             50u64,
-        );
+        )
+        .unwrap();
         assert_eq!(c.url, "http://127.0.0.1:8080");
         assert_eq!(c.concurrency, 10);
         assert!(!c.ws_persistent);
@@ -862,7 +883,8 @@ mod tests {
             false,
             false,
             50u64,
-        );
+        )
+        .unwrap();
         assert_eq!(c.concurrency, 50);
         assert!(c.chaos);
         assert_eq!(c.ws_mode, WsMode::PingPong);

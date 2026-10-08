@@ -10,10 +10,13 @@ name = "_strobengine"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-# "extension-module" tells pyo3 we want to build an extension module (skips linking against libpython.so)
 # "abi3-py311" tells pyo3 (and maturin) to build using the stable ABI with
-# minimum Python version 3.11
-pyo3 = { version = "0.29", features = ["extension-module", "abi3-py311"] }
+# minimum Python version 3.11.
+# The "extension-module" feature is intentionally NOT enabled here: it is passed
+# only by maturin (see pyproject.toml [tool.maturin] features), so wheel builds skip
+# libpython.so while plain `cargo test` links against it (any test reaching PyErr
+# construction requires the interpreter symbols at link time).
+pyo3 = { version = "0.29", features = ["abi3-py311"] }
 reqwest = { version = "0.13.4", default-features = false, features = ["rustls", "http2", "stream"] }
 http = "1"
 bytes = "1"

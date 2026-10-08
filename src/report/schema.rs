@@ -639,7 +639,8 @@ mod tests {
             false,
             false,
             50u64,
-        );
+        )
+        .unwrap();
 
         let artifact = ReportArtifact::from_summary_and_config(&summary, &config);
 
@@ -760,7 +761,8 @@ mod tests {
             false,
             false,
             50u64,
-        );
+        )
+        .unwrap();
 
         let artifact = ReportArtifact::from_summary_and_config(&summary, &config);
         let value = serde_json::to_value(&artifact).expect("artifact serializes");

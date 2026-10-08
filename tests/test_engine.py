@@ -237,16 +237,36 @@ class TestConcurrencyLimitFFI:
     """Guards on the pyfunction entries bypass all Python-side validation."""
 
     def test_run_load_test_rejects_oversized_config(self):
-        config = _TestConfig(
-            url="http://127.0.0.1:1", concurrency=10001, duration_secs=1
-        )
+        config = _TestConfig(url="http://127.0.0.1:1", concurrency=1, duration_secs=1)
+        config.concurrency = 10001
         with pytest.raises(ValueError, match="concurrency must be between 1 and 10000"):
             run_load_test(config)
 
     def test_run_load_test_rejects_zero_concurrency(self):
-        config = _TestConfig(url="http://127.0.0.1:1", concurrency=0, duration_secs=1)
+        config = _TestConfig(url="http://127.0.0.1:1", concurrency=1, duration_secs=1)
+        config.concurrency = 0
         with pytest.raises(ValueError, match="concurrency must be between 1 and 10000"):
             run_load_test(config)
+
+    def test_config_construction_rejects_oversized_concurrency(self):
+        with pytest.raises(ValueError, match="concurrency must be between 1 and 10000"):
+            _TestConfig(url="http://127.0.0.1:1", concurrency=10001, duration_secs=1)
+
+    def test_config_construction_rejects_zero_concurrency(self):
+        with pytest.raises(ValueError, match="concurrency must be between 1 and 10000"):
+            _TestConfig(url="http://127.0.0.1:1", concurrency=0, duration_secs=1)
+
+    @pytest.mark.parametrize("rate", [1.5, -0.1, float("nan")])
+    def test_config_construction_rejects_invalid_chaos_rate(self, rate):
+        with pytest.raises(
+            ValueError, match=r"chaos_rate must be between 0\.0 and 1\.0"
+        ):
+            _TestConfig(
+                url="http://127.0.0.1:1",
+                concurrency=1,
+                duration_secs=1,
+                chaos_rate=rate,
+            )
 
     def test_run_load_profiles_rejects_oversized_profile(self):
         config = _TestConfig(url="http://127.0.0.1:1", concurrency=10, duration_secs=1)
