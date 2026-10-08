@@ -50,6 +50,24 @@ fn grpc_status_from(map: Option<&http::HeaderMap>) -> Option<u16> {
     map?.get("grpc-status")?.to_str().ok()?.parse::<u16>().ok()
 }
 
+/// Resolves the effective `grpc-status` for a response: trailers win, then the
+/// head headers (trailers-only responses), then `0` (OK). A transport error
+/// while awaiting trailers maps to `None` so the caller records a failed
+/// request instead of an OK response.
+fn resolve_grpc_status<T>(
+    trailers: Result<Option<http::HeaderMap>, T>,
+    head: &http::HeaderMap,
+) -> Option<u16> {
+    match trailers {
+        Ok(t) => Some(
+            grpc_status_from(t.as_ref())
+                .or_else(|| grpc_status_from(Some(head)))
+                .unwrap_or(0),
+        ),
+        Err(_) => None,
+    }
+}
+
 /// RAII counter tracking in-flight streams on the shared multiplexed
 /// connection: incremented when an RPC is issued, decremented when its
 /// status/trailers arrive or the stream aborts (guard drop on any exit path).
@@ -344,6 +362,8 @@ async fn drive_send(
 async fn read_response(resp_fut: h2::client::ResponseFuture) -> Option<(u16, u64)> {
     let resp = resp_fut.await.ok()?;
     let status = resp.status();
+    // Head headers may carry grpc-status for trailers-only responses.
+    let head = resp.headers().clone();
     let mut recv = resp.into_body();
     if status != http::StatusCode::OK {
         // HTTP-level failure: gRPC treats it as an error status.
@@ -363,11 +383,9 @@ async fn read_response(resp_fut: h2::client::ResponseFuture) -> Option<(u16, u64
         }
     }
 
-    // Trailers (grpc-status) or trailers-only in the head headers.
-    let trailers = poll_fn(|cx| recv.poll_trailers(cx)).await.ok().flatten();
-    let grpc_status = grpc_status_from(trailers.as_ref())
-        // Some(gRPC servers put status in initial headers for trailers-only responses)
-        .unwrap_or(0);
+    // Trailers (grpc-status), falling back to the head headers.
+    let trailers = poll_fn(|cx| recv.poll_trailers(cx)).await;
+    let grpc_status = resolve_grpc_status(trailers, &head)?;
 
     // Message length is the inner payload (strip the 5-byte length prefix).
     let msg_len = if body.len() >= 5 {
@@ -386,6 +404,18 @@ mod tests {
     use std::net::SocketAddr;
     use tokio::net::TcpListener;
 
+    /// How the server completes each stream after draining the request.
+    #[derive(Clone, Copy, PartialEq)]
+    enum Behavior {
+        /// Response + DATA + trailers carrying grpc-status 0 (healthy).
+        Normal,
+        /// Trailers-only error: HEADERS carry grpc-status 5 and END_STREAM.
+        TrailersOnlyError,
+        /// Response + DATA, then the stream is dropped mid-flight
+        /// (RST_STREAM), so the client hits a transport error before trailers.
+        ResetMidStream,
+    }
+
     #[derive(Clone, Copy)]
     struct ServerCfg {
         /// Advertised SETTINGS_INITIAL_WINDOW_SIZE (limits how much the client
@@ -397,6 +427,7 @@ mod tests {
         /// Delay before responding (keeps streams open to exercise concurrency).
         resp_delay_ms: u64,
         max_streams: u32,
+        behavior: Behavior,
     }
 
     fn frame(msg: &[u8]) -> Vec<u8> {
@@ -424,18 +455,44 @@ mod tests {
         if cfg.resp_delay_ms > 0 {
             tokio::time::sleep(Duration::from_millis(cfg.resp_delay_ms)).await;
         }
-        let response = Response::builder()
-            .status(StatusCode::OK)
-            .header(CONTENT_TYPE, "application/grpc")
-            .body(())
-            .unwrap();
         // Send a non-empty reply message so bytes_received is observable.
         let msg = frame(b"hello-from-server");
-        if let Ok(mut ss) = resp.send_response(response, false) {
-            let _ = ss.send_data(Bytes::from(msg), false);
-            let mut trailers = http::HeaderMap::new();
-            trailers.insert("grpc-status", HeaderValue::from_static("0"));
-            let _ = ss.send_trailers(trailers);
+        match cfg.behavior {
+            Behavior::Normal => {
+                let response = Response::builder()
+                    .status(StatusCode::OK)
+                    .header(CONTENT_TYPE, "application/grpc")
+                    .body(())
+                    .unwrap();
+                if let Ok(mut ss) = resp.send_response(response, false) {
+                    let _ = ss.send_data(Bytes::from(msg), false);
+                    let mut trailers = http::HeaderMap::new();
+                    trailers.insert("grpc-status", HeaderValue::from_static("0"));
+                    let _ = ss.send_trailers(trailers);
+                }
+            }
+            Behavior::TrailersOnlyError => {
+                let response = Response::builder()
+                    .status(StatusCode::OK)
+                    .header(CONTENT_TYPE, "application/grpc")
+                    .header("grpc-status", HeaderValue::from_static("5"))
+                    .body(())
+                    .unwrap();
+                let _ = resp.send_response(response, true);
+            }
+            Behavior::ResetMidStream => {
+                let response = Response::builder()
+                    .status(StatusCode::OK)
+                    .header(CONTENT_TYPE, "application/grpc")
+                    .body(())
+                    .unwrap();
+                if let Ok(mut ss) = resp.send_response(response, false) {
+                    let _ = ss.send_data(Bytes::from(msg), false);
+                    // Dropping the stream without END_STREAM resets it, so the
+                    // client observes a transport error before any trailers.
+                    drop(ss);
+                }
+            }
         }
     }
 
@@ -488,6 +545,7 @@ mod tests {
             read_delay_ms: 0,
             resp_delay_ms: 0,
             max_streams: 100,
+            behavior: Behavior::Normal,
         })
         .await;
         let engine = engine_for(addr, Some("dGVzdA==".into())); // "test"
@@ -525,6 +583,7 @@ mod tests {
             read_delay_ms: 0,
             resp_delay_ms: 250,
             max_streams: 100,
+            behavior: Behavior::Normal,
         })
         .await;
         let engine = std::sync::Arc::new(engine_for(addr, None));
@@ -567,6 +626,7 @@ mod tests {
             read_delay_ms: 60,
             resp_delay_ms: 0,
             max_streams: 100,
+            behavior: Behavior::Normal,
         })
         .await;
         let raw = vec![0xABu8; 1024];
@@ -588,5 +648,67 @@ mod tests {
         // A stall is only possible once the 16-byte window is active, so the
         // observed send credit is bounded by it.
         assert!(g.has_send_capacity && g.send_capacity_bytes <= 16);
+    }
+
+    #[test]
+    fn test_resolve_grpc_status() {
+        let mut head = http::HeaderMap::new();
+        head.insert("grpc-status", HeaderValue::from_static("5"));
+
+        // Transport failure while awaiting trailers: the caller must record a
+        // failed request, never an OK response.
+        assert_eq!(resolve_grpc_status::<()>(Err(()), &head), None);
+
+        // Trailers-only responses carry grpc-status in the head headers.
+        assert_eq!(resolve_grpc_status::<()>(Ok(None), &head), Some(5));
+
+        // Explicit trailers win over the head headers.
+        let mut trailers = http::HeaderMap::new();
+        trailers.insert("grpc-status", HeaderValue::from_static("0"));
+        assert_eq!(
+            resolve_grpc_status::<()>(Ok(Some(trailers)), &head),
+            Some(0)
+        );
+
+        // No status anywhere: preserve the historical OK fallback.
+        assert_eq!(
+            resolve_grpc_status::<()>(Ok(None), &http::HeaderMap::new()),
+            Some(0)
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn grpc_h2_trailers_only_error_maps_status() {
+        // Trailers-only responses put grpc-status in the HEADERS block; it must
+        // map to the HTTP equivalent (gRPC 5 -> 404), not collapse to OK.
+        let addr = spawn_server(ServerCfg {
+            window: 65535,
+            read_delay_ms: 0,
+            resp_delay_ms: 0,
+            max_streams: 100,
+            behavior: Behavior::TrailersOnlyError,
+        })
+        .await;
+        let engine = engine_for(addr, Some("dGVzdA==".into()));
+        let metric = engine.execute_iteration("").await;
+        assert_eq!(metric.status_code, 404);
+        assert_eq!(metric.bytes_received, 0);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn grpc_h2_transport_failure_reports_error() {
+        // A stream reset before trailers is a transport failure: the iteration
+        // must report status 0 (failed request), not an OK response.
+        let addr = spawn_server(ServerCfg {
+            window: 65535,
+            read_delay_ms: 0,
+            resp_delay_ms: 0,
+            max_streams: 100,
+            behavior: Behavior::ResetMidStream,
+        })
+        .await;
+        let engine = engine_for(addr, Some("dGVzdA==".into()));
+        let metric = engine.execute_iteration("").await;
+        assert_eq!(metric.status_code, 0);
     }
 }

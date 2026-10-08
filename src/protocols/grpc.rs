@@ -37,6 +37,13 @@ pub(crate) fn grpc_to_http_status(code: u16) -> u16 {
     }
 }
 
+/// Maps a tonic error to its HTTP-equivalent status code. Server-returned
+/// statuses carry the original gRPC code; transport failures surface as
+/// `Code::Unavailable`/`Code::Unknown` and map accordingly.
+pub(crate) fn tonic_status_to_http(status: &Status) -> u16 {
+    grpc_to_http_status(status.code() as u16)
+}
+
 /// Decodes the gRPC request payload into raw protobuf bytes.
 ///
 /// Two modes: a `proto_path` + JSON payload is converted to protobuf via
@@ -241,7 +248,11 @@ impl ProtocolEngine for GrpcEngine {
             Ok(ch) => ch,
             Err(e) => {
                 tracing::debug!(error = %e, "gRPC connection failed");
-                return RequestMetric::error(req_start.elapsed().as_micros(), fault);
+                // Transport-level failure (refused/DNS): report the HTTP
+                // equivalent of gRPC UNAVAILABLE (503), not the status-0 bucket.
+                return RequestMetric::builder(req_start.elapsed().as_micros(), fault)
+                    .status(503)
+                    .build();
             }
         };
 
@@ -290,7 +301,10 @@ impl ProtocolEngine for GrpcEngine {
                 Ok(result) => result,
                 Err(_) => {
                     tracing::debug!("gRPC call timed out");
-                    return RequestMetric::error(req_start.elapsed().as_micros(), fault);
+                    // gRPC DEADLINE_EXCEEDED (4) maps to HTTP 504.
+                    return RequestMetric::builder(req_start.elapsed().as_micros(), fault)
+                        .status(504)
+                        .build();
                 }
             }
         } else {
@@ -311,7 +325,7 @@ impl ProtocolEngine for GrpcEngine {
             }
             Err(e) => {
                 tracing::debug!(error = %e, "gRPC call failed");
-                (0, 0)
+                (tonic_status_to_http(&e), 0)
             }
         };
 
@@ -342,9 +356,24 @@ mod tests {
     fn test_grpc_to_http_status() {
         assert_eq!(grpc_to_http_status(0), 200);
         assert_eq!(grpc_to_http_status(3), 400);
+        assert_eq!(grpc_to_http_status(4), 504);
         assert_eq!(grpc_to_http_status(13), 500);
         assert_eq!(grpc_to_http_status(14), 503);
         assert_eq!(grpc_to_http_status(16), 401);
+    }
+
+    #[test]
+    fn test_tonic_status_to_http() {
+        use tonic::Code;
+        assert_eq!(
+            tonic_status_to_http(&Status::new(Code::NotFound, "nf")),
+            404
+        );
+        assert_eq!(tonic_status_to_http(&Status::unavailable("down")), 503);
+        assert_eq!(tonic_status_to_http(&Status::invalid_argument("bad")), 400);
+        assert_eq!(tonic_status_to_http(&Status::internal("boom")), 500);
+        // Transport failures without a specific code map through Unknown -> 500.
+        assert_eq!(tonic_status_to_http(&Status::unknown("?")), 500);
     }
 
     #[test]
