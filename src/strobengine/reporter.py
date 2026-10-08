@@ -407,7 +407,7 @@ def _print_plain(
     print("\n".join(lines))
 
 
-def _metrics_description():
+def _metrics_description() -> None:
     print("Metric Descriptions:")
     print("- Min Latency: Minimum round-trip time across all completed requests.")
     print(
@@ -424,7 +424,7 @@ def _metrics_description():
     print("- Max Latency: Maximum round-trip time across all completed requests.")
 
 
-def generate_markdown_summary(summary, config) -> str:
+def generate_markdown_summary(summary: TestSummary, config: object) -> str:
     """Generate a Markdown summary string from TestSummary + config.
 
     Returns a GitHub Actions / PR comment ready Markdown string with
@@ -438,7 +438,7 @@ def generate_markdown_summary(summary, config) -> str:
     return _gen(artifact)
 
 
-def generate_junit_report(summary, config) -> str:
+def generate_junit_report(summary: TestSummary, config: object) -> str:
     """Generate a JUnit XML string from TestSummary + config.
 
     Returns JUnit XML with performance assertion testcases for
@@ -452,7 +452,7 @@ def generate_junit_report(summary, config) -> str:
     return _gen(artifact)
 
 
-def generate_csv_report(summary, config) -> str:
+def generate_csv_report(summary: TestSummary, config: object) -> str:
     """Generate a CSV string from TestSummary + config.
 
     Returns CSV with microsecond latencies for schema consistency.

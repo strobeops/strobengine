@@ -6,6 +6,7 @@ from pathlib import Path
 
 from jinja2 import Environment, FileSystemLoader
 
+from strobengine._strobengine import TestSummary
 from strobengine.artifact import build_artifact_dict
 
 # Load Chart.js from local asset for 100% offline reports
@@ -20,7 +21,9 @@ _HTML_TEMPLATE = Environment(
 ).get_template("report_template.html")
 
 
-def render_html_report(summary, config, comparison=None) -> str:
+def render_html_report(
+    summary: TestSummary, config: object, comparison: dict | None = None
+) -> str:
     """Render a self-contained HTML report from TestSummary + config."""
     artifact = build_artifact_dict(summary, config)
 
@@ -74,7 +77,12 @@ def render_html_report(summary, config, comparison=None) -> str:
     )
 
 
-def save_html_report(summary, config, filepath: str, comparison=None) -> str:
+def save_html_report(
+    summary: TestSummary,
+    config: object,
+    filepath: str,
+    comparison: dict | None = None,
+) -> str:
     """Render and write HTML report to disk. Returns filepath."""
     html = render_html_report(summary, config, comparison=comparison)
     Path(filepath).parent.mkdir(parents=True, exist_ok=True)
