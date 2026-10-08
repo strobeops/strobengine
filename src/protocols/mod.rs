@@ -1,7 +1,6 @@
 pub mod grpc;
 pub mod grpc_h2;
 pub mod grpc_parser;
-pub mod grpc_reflection;
 pub mod http;
 pub mod http3;
 pub mod sse;
@@ -107,6 +106,24 @@ pub fn detect_protocol(
     config: &TestConfig,
     chaos: ChaosEngine,
 ) -> Result<Arc<dyn ProtocolEngine>, SetupError> {
+    // Options that are recognized for forward-compatibility / CLI symmetry but
+    // not yet functional: surface them instead of silently ignoring them.
+    if config.grpc_use_reflection {
+        tracing::warn!(
+            "--grpc-use-reflection is recognized for forward-compatibility but not yet functional; ignoring"
+        );
+    }
+    if config.http3_enabled {
+        tracing::warn!(
+            "--http3 is recognized for forward-compatibility but not yet functional; use an http3:// URL scheme instead"
+        );
+    }
+    if config.ws_subscribers.is_some() {
+        tracing::warn!(
+            "--ws-subscribers is recognized for forward-compatibility but not yet functional; ignoring"
+        );
+    }
+
     let headers = config.headers.clone().unwrap_or_default();
     if url.starts_with("ws://") || url.starts_with("wss://") {
         let engine = websocket::WebSocketEngine::new(
@@ -153,7 +170,6 @@ pub fn detect_protocol(
             config.grpc_payload.clone(),
             config.grpc_deadline_ms,
             config.proto_path.clone(),
-            config.grpc_use_reflection,
         )?;
         Ok(Arc::new(engine))
     } else if url.starts_with("http3://") || url.starts_with("h3://") {
@@ -289,6 +305,74 @@ mod tests {
         assert!(
             detect_protocol("sse://127.0.0.1:8080", &config, ChaosEngine::default()).is_ok(),
             "expected Ok for valid SSE"
+        );
+    }
+
+    /// Captures emitted event messages so tests can assert on log output.
+    #[derive(Clone, Default)]
+    struct EventCapture(std::sync::Arc<std::sync::Mutex<Vec<String>>>);
+
+    impl<S: tracing::Subscriber + for<'a> tracing_subscriber::registry::LookupSpan<'a>>
+        tracing_subscriber::Layer<S> for EventCapture
+    {
+        fn on_event(
+            &self,
+            event: &tracing::Event<'_>,
+            _ctx: tracing_subscriber::layer::Context<'_, S>,
+        ) {
+            struct MessageVisitor(String);
+            impl tracing::field::Visit for MessageVisitor {
+                fn record_debug(
+                    &mut self,
+                    field: &tracing::field::Field,
+                    value: &dyn std::fmt::Debug,
+                ) {
+                    if field.name() == "message" {
+                        self.0 = format!("{value:?}");
+                    }
+                }
+                fn record_str(&mut self, field: &tracing::field::Field, value: &str) {
+                    if field.name() == "message" {
+                        self.0 = value.to_string();
+                    }
+                }
+            }
+            let mut visitor = MessageVisitor(String::new());
+            event.record(&mut visitor);
+            self.0.lock().unwrap().push(visitor.0);
+        }
+    }
+
+    #[test]
+    fn test_dead_flags_emit_warnings() {
+        use tracing_subscriber::layer::SubscriberExt as _;
+
+        let capture = EventCapture::default();
+        let subscriber = tracing_subscriber::registry().with(capture.clone());
+        let _guard = tracing::subscriber::set_default(subscriber);
+
+        let mut config =
+            TestConfig::for_protocol_detection("http://127.0.0.1:8080".into(), 1, 10, 10);
+        config.grpc_use_reflection = true;
+        config.http3_enabled = true;
+        config.ws_subscribers = Some(10);
+        assert!(
+            detect_protocol("http://127.0.0.1:8080", &config, ChaosEngine::default()).is_ok(),
+            "warnings must not change engine selection"
+        );
+
+        let events = capture.0.lock().unwrap();
+        assert!(
+            events.iter().any(|m| m.contains("--grpc-use-reflection")),
+            "expected --grpc-use-reflection warning, got {events:?}"
+        );
+        assert!(
+            events.iter().any(|m| m.contains("--http3 ")),
+            "expected --http3 warning, got {events:?}"
+        );
+        assert!(
+            events.iter().any(|m| m.contains("--ws-subscribers")),
+            "expected --ws-subscribers warning, got {events:?}"
         );
     }
 }
