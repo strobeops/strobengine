@@ -16,9 +16,6 @@ def basic_http3_test():
         url=H3_URL,
         concurrency=10,
         duration=30,
-        options=RequestOptions(
-            http3_enabled=True,
-        ),
     )
     summary = engine.run()
     print_summary(summary)
@@ -31,7 +28,6 @@ def zero_rtt_test():
         concurrency=10,
         duration=30,
         options=RequestOptions(
-            http3_enabled=True,
             quic_zero_rtt=True,
         ),
     )
@@ -46,7 +42,6 @@ def custom_headers_test():
         concurrency=10,
         duration=30,
         options=RequestOptions(
-            http3_enabled=True,
             headers=[("Authorization", "Bearer token123")],
         ),
     )
@@ -61,7 +56,6 @@ def chaos_test():
         concurrency=10,
         duration=30,
         options=RequestOptions(
-            http3_enabled=True,
             chaos=True,
         ),
     )
@@ -77,7 +71,6 @@ def result_analysis():
         duration=5,
         options=RequestOptions(
             timeout=3,
-            http3_enabled=True,
         ),
     )
     summary = engine.run()

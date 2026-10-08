@@ -89,7 +89,6 @@ def pubsub_subscriber_test():
         duration=10,
         options=RequestOptions(
             ws_role="subscriber",
-            ws_subscribers=2,
         ),
     )
     summary = engine.run()
