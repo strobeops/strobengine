@@ -58,9 +58,9 @@ This document outlines the planned trajectory and upcoming feature epics for **s
 ### Epic: Static Type Safety & Quality Assurance
 *Target Focus: Codebase Maintainability & Developer Ergonomics*
 
-- [ ] Integrate Pyright static type checking into dev workflow (`uv add --dev pyright` / `uv run pyright`).
-- [ ] Configure `pyrightconfig.json` with basic strictness to enforce function signatures and PyO3 interface contracts across Python/Rust boundaries.
-- [ ] Add Pyright validation step to local checks and CI workflow.
+- [x] Integrate Pyright static type checking into dev workflow (`uv add --dev pyright` / `uv run pyright`). `[v0.8.1]`
+- [x] Configure `pyrightconfig.json` with basic strictness to enforce function signatures and PyO3 interface contracts across Python/Rust boundaries. `[v0.8.1]`
+- [x] Add Pyright validation step to local checks and CI workflow. `[v0.8.1]`
 
 ---
 

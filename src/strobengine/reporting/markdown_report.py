@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from strobengine._strobengine import TestSummary
 from strobengine.artifact import build_artifact_dict
 from strobengine.reporting import us_to_ms
 
@@ -78,7 +79,9 @@ def generate_markdown_summary(artifact: dict) -> str:
     return "\n".join(lines)
 
 
-def save_markdown_report(summary, config, filepath: str, duration_secs: float) -> str:
+def save_markdown_report(
+    summary: TestSummary, config: object, filepath: str, duration_secs: float
+) -> str:
     """Render and write Markdown report to disk. Returns filepath."""
     filepath = str(Path(filepath).expanduser().resolve())
     artifact = build_artifact_dict(summary, config)

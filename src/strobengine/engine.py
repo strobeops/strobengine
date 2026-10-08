@@ -1,5 +1,5 @@
 import asyncio
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from enum import StrEnum
 
@@ -52,7 +52,7 @@ class RequestOptions:
     method: str = "GET"
     body: str | None = None
     form: list[tuple[str, str]] | None = None
-    headers: list[tuple[str, str]] = field(default_factory=list)
+    headers: list[tuple[str, str]] | None = None
     ws_mode: WsModeEnum = WsModeEnum.handshake
     ws_payload: str | None = None
     ws_persistent: bool = False
@@ -281,7 +281,7 @@ class StrobEngine:
     async def run_async(self) -> TestSummary:
         return await asyncio.to_thread(self.run)
 
-    def get_config(self):
+    def get_config(self) -> TestConfig:
         """Return the active TestConfig."""
         return self.config
 
