@@ -7,9 +7,10 @@ from xml.etree.ElementTree import Element, SubElement, tostring
 
 from strobengine._strobengine import TestSummary
 from strobengine.artifact import build_artifact_dict
+from strobengine.report_schema import ReportArtifactDict
 
 
-def generate_junit_report(artifact: dict) -> str:
+def generate_junit_report(artifact: ReportArtifactDict) -> str:
     """Generate JUnit XML with performance assertion testcases.
 
     Includes three testcases:

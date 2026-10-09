@@ -6,10 +6,11 @@ from pathlib import Path
 
 from strobengine._strobengine import TestSummary
 from strobengine.artifact import build_artifact_dict
+from strobengine.report_schema import ReportArtifactDict
 from strobengine.reporting import us_to_ms
 
 
-def generate_markdown_summary(artifact: dict) -> str:
+def generate_markdown_summary(artifact: ReportArtifactDict) -> str:
     """Generate a GitHub Actions / PR comment ready Markdown summary.
 
     Includes a status badge (PASS/FAIL), execution metadata, metrics table,

@@ -8,9 +8,10 @@ from pathlib import Path
 
 from strobengine._strobengine import TestSummary
 from strobengine.artifact import build_artifact_dict
+from strobengine.report_schema import ReportArtifactDict
 
 
-def generate_csv_report(artifact: dict) -> str:
+def generate_csv_report(artifact: ReportArtifactDict) -> str:
     """Generate CSV with schema-consistent microsecond latencies.
 
     Output columns use `_us` suffix for latency fields to match
