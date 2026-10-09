@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import shutil
 import sys
+from dataclasses import dataclass
 
 from strobengine._strobengine import (
     HISTOGRAM_BUCKET_ORDER,
@@ -121,6 +122,166 @@ def _is_grpc_mapped(codes: dict[int, int]) -> bool:
     return any(code in _GRPC_MAPPED_HTTP_CODES for code in codes)
 
 
+@dataclass(frozen=True)
+class _Row:
+    label: str
+    value: str = ""
+    style: str = ""
+    indent: int = 0
+    is_header: bool = False
+
+
+def _summary_rows(summary: TestSummary) -> list[_Row]:
+    """Build the canonical metric rows shared by both renderers.
+
+    Row kinds: normal rows carry a label and value; ``is_header`` rows are
+    rich-only section headers (skipped by the plain renderer); rows with an
+    empty label carry preformatted lines (histogram bars) rendered verbatim.
+    """
+    rows = [_Row("Target URL", summary.url)]
+    if summary.timestamp:
+        rows.append(_Row("Timestamp", summary.timestamp))
+    rows.append(_Row("Duration", f"{summary.duration_secs:.1f}s"))
+    rows.append(_Row("Workers", str(summary.workers)))
+
+    rows.append(_Row("Total Requests", _format_number(summary.total_requests)))
+    if summary.duration_secs > 0:
+        rps = summary.total_requests / summary.duration_secs
+        rows.append(_Row("Requests/sec", f"{rps:.1f}"))
+    rows.append(_Row("Total Received", _format_bytes(summary.total_bytes_received)))
+
+    rows.append(_Row("Min Latency", f"{summary.min_latency_ms:.2f} ms"))
+    rows.append(_Row("Avg Latency", f"{summary.average_latency_ms:.2f} ms"))
+    rows.append(_Row("P50 Latency", f"{summary.p50_latency_ms:.2f} ms"))
+    rows.append(_Row("P90 Latency", f"{summary.p90_latency_ms:.2f} ms"))
+    rows.append(_Row("P95 Latency", f"{summary.p95_latency_ms:.2f} ms"))
+    rows.append(_Row("P99 Latency", f"{summary.p99_latency_ms:.2f} ms"))
+    rows.append(_Row("Max Latency", f"{summary.max_latency_ms:.2f} ms"))
+    rows.append(_Row("Std Dev (Jitter)", f"{summary.std_dev_latency_ms:.2f} ms"))
+    rows.append(_Row("P99.99 Latency", f"{summary.p99_99_latency_ms:.2f} ms"))
+
+    histogram_lines = _render_histogram(summary.latency_histogram)
+    if histogram_lines:
+        rows.append(_Row("Histogram", "", is_header=True))
+        rows.extend(_Row("", line) for line in histogram_lines)
+
+    if summary.total_errors > 0:
+        rate = _error_rate(summary.total_requests, summary.total_errors)
+        rows.append(
+            _Row(
+                "Errors",
+                f"{_format_number(summary.total_errors)} ({rate})",
+                style="error",
+            )
+        )
+    else:
+        rows.append(
+            _Row(
+                "Errors",
+                f"{_format_number(summary.total_errors)} (0.00%)",
+                style="success",
+            )
+        )
+    rows.append(_Row("Status Codes", _format_status_codes(summary.status_codes)))
+
+    if summary.avg_e2e_latency_us > 0.0:
+        rows.append(
+            _Row("Avg E2E Latency", f"{summary.avg_e2e_latency_us / 1000:.2f} ms")
+        )
+
+    if _is_grpc_mapped(summary.status_codes):
+        rows.append(_Row("Protocol", "gRPC (status codes mapped to HTTP equivalents)"))
+
+    if summary.chaos_injected_total > 0:
+        rows.append(
+            _Row(
+                "Chaos Faults",
+                f"{_format_number(summary.chaos_injected_total)} injected",
+            )
+        )
+        for fault_type, count in summary.chaos_faults_by_type.items():
+            rows.append(_Row(fault_type, _format_number(count), indent=1))
+
+    sm = summary.system_metrics
+    if isinstance(sm, SystemMetrics):
+        mb = sm.peak_memory_rss_bytes / (1024 * 1024)
+        rows.append(
+            _Row(
+                "Client Footprint",
+                f"Peak CPU: {sm.peak_cpu_percent:.1f}% | "
+                f"Peak RSS: {mb:.1f} MB | "
+                f"Peak Threads: {sm.peak_thread_count}",
+            )
+        )
+
+    ws = summary.ws
+    if isinstance(ws, WebsocketMetrics):
+        rows.append(
+            _Row(
+                "WS Heartbeat",
+                f"Pings: {_format_number(ws.pings_sent_total)} sent / "
+                f"{_format_number(ws.pings_received_total)} recv | "
+                f"Pongs: {_format_number(ws.pongs_solicited_total)} solicited / "
+                f"{_format_number(ws.pongs_unsolicited_total)} unsolicited",
+            )
+        )
+        if ws.backpressure_max_bytes > 0 or ws.backpressure_threshold_breaches > 0:
+            rows.append(
+                _Row(
+                    "WS Backpressure",
+                    f"Max {_format_number(ws.backpressure_max_bytes)} B | "
+                    f"Mean {ws.backpressure_mean_bytes:.0f} B | "
+                    f"Breaches {_format_number(ws.backpressure_threshold_breaches)}",
+                )
+            )
+
+    grpc = summary.grpc
+    if isinstance(grpc, GrpcMetrics):
+        rows.append(
+            _Row(
+                "gRPC Streams",
+                f"Peak active {_format_number(grpc.active_streams_peak)} | "
+                f"Util peak {grpc.concurrency_utilization_peak:.3f} / "
+                f"mean {grpc.concurrency_utilization_mean:.3f}",
+            )
+        )
+        if (
+            grpc.window_exhaustion_events_total > 0
+            or grpc.window_stall_duration_ms_total > 0
+        ):
+            rows.append(
+                _Row(
+                    "gRPC Window",
+                    f"Exhaustions {_format_number(grpc.window_exhaustion_events_total)} | "
+                    f"Stall {grpc.window_stall_duration_ms_total:.1f} ms | "
+                    f"Min credit {_format_number(grpc.send_capacity_min_bytes)} B",
+                )
+            )
+
+    http3 = summary.http3
+    if isinstance(http3, Http3Metrics):
+        rows.append(
+            _Row(
+                "HTTP/3 cwnd",
+                f"Cur {_format_number(http3.cwnd_bytes_current)} B | "
+                f"min {_format_number(http3.cwnd_bytes_min)} / "
+                f"max {_format_number(http3.cwnd_bytes_max)} / "
+                f"mean {http3.cwnd_bytes_mean:.0f} B",
+            )
+        )
+        if http3.migrations_attempted_total > 0:
+            rows.append(
+                _Row(
+                    "HTTP/3 Migration",
+                    f"{_format_number(http3.migrations_attempted_total)} attempted / "
+                    f"{_format_number(http3.migrations_successful_total)} successful "
+                    f"({http3.migration_success_rate:.0%})",
+                )
+            )
+
+    return rows
+
+
 def _print_rich(
     summary: TestSummary,
 ) -> None:
@@ -130,138 +291,13 @@ def _print_rich(
     table.add_column("Metric", style="bold cyan", no_wrap=True)
     table.add_column("Value", justify="right")
 
-    # Execution context
-    table.add_row("Target URL", summary.url)
-    if summary.timestamp:
-        table.add_row("Timestamp", summary.timestamp)
-    table.add_row("Duration", f"{summary.duration_secs:.1f}s")
-    table.add_row("Workers", str(summary.workers))
-
-    # Throughput
-    table.add_row("Total Requests", _format_number(summary.total_requests))
-    if summary.duration_secs > 0:
-        rps = summary.total_requests / summary.duration_secs
-        table.add_row("Requests/sec", f"{rps:.1f}")
-    table.add_row("Total Received", _format_bytes(summary.total_bytes_received))
-
-    # Latency distribution
-    table.add_row("Min Latency", f"{summary.min_latency_ms:.2f} ms")
-    table.add_row("Avg Latency", f"{summary.average_latency_ms:.2f} ms")
-    table.add_row("P50 Latency", f"{summary.p50_latency_ms:.2f} ms")
-    table.add_row("P90 Latency", f"{summary.p90_latency_ms:.2f} ms")
-    table.add_row("P95 Latency", f"{summary.p95_latency_ms:.2f} ms")
-    table.add_row("P99 Latency", f"{summary.p99_latency_ms:.2f} ms")
-    table.add_row("Max Latency", f"{summary.max_latency_ms:.2f} ms")
-    table.add_row("Std Dev (Jitter)", f"{summary.std_dev_latency_ms:.2f} ms")
-    table.add_row("P99.99 Latency", f"{summary.p99_99_latency_ms:.2f} ms")
-
-    # Latency histogram
-    histogram = getattr(summary, "latency_histogram", {})
-    if histogram and any(v > 0 for v in histogram.values()):
-        table.add_row("Histogram", "")
-        for line in _render_histogram(histogram):
-            table.add_row("", line)
-
-    # Errors
-    if summary.total_errors > 0:
-        rate = _error_rate(summary.total_requests, summary.total_errors)
-        table.add_row(
-            "Errors",
-            f"[bold red]{_format_number(summary.total_errors)} ({rate})[/]",
-        )
-    else:
-        table.add_row(
-            "Errors",
-            f"[green]{_format_number(summary.total_errors)} (0.00%)[/]",
-        )
-    table.add_row("Status Codes", _format_status_codes(summary.status_codes))
-
-    # E2E latency (pub/sub only)
-    if summary.avg_e2e_latency_us > 0.0:
-        table.add_row(
-            "Avg E2E Latency",
-            f"{summary.avg_e2e_latency_us / 1000:.2f} ms",
-        )
-
-    # gRPC protocol note
-    if _is_grpc_mapped(summary.status_codes):
-        table.add_row("Protocol", "gRPC (status codes mapped to HTTP equivalents)")
-
-    # Chaos faults (if any were injected)
-    if getattr(summary, "chaos_injected_total", 0) > 0:
-        table.add_row(
-            "Chaos Faults",
-            f"{_format_number(summary.chaos_injected_total)} injected",
-        )
-        for fault_type, count in summary.chaos_faults_by_type.items():
-            table.add_row(f"  {fault_type}", _format_number(count))
-
-    # Client resource footprint (if resource monitor was enabled)
-    sm = getattr(summary, "system_metrics", None)
-    if sm is not None and isinstance(sm, SystemMetrics):
-        mb = sm.peak_memory_rss_bytes / (1024 * 1024)
-        table.add_row(
-            "Client Footprint",
-            f"Peak CPU: {sm.peak_cpu_percent:.1f}% | "
-            f"Peak RSS: {mb:.1f} MB | "
-            f"Peak Threads: {sm.peak_thread_count}",
-        )
-
-    # WebSocket heartbeat & backpressure (WS protocol runs only)
-    ws = getattr(summary, "ws", None)
-    if ws is not None and isinstance(ws, WebsocketMetrics):
-        table.add_row(
-            "WS Heartbeat",
-            f"Pings: {_format_number(ws.pings_sent_total)} sent / "
-            f"{_format_number(ws.pings_received_total)} recv | "
-            f"Pongs: {_format_number(ws.pongs_solicited_total)} solicited / "
-            f"{_format_number(ws.pongs_unsolicited_total)} unsolicited",
-        )
-        if ws.backpressure_max_bytes > 0 or ws.backpressure_threshold_breaches > 0:
-            table.add_row(
-                "WS Backpressure",
-                f"Max {_format_number(ws.backpressure_max_bytes)} B | "
-                f"Mean {ws.backpressure_mean_bytes:.0f} B | "
-                f"Breaches {_format_number(ws.backpressure_threshold_breaches)}",
-            )
-
-    # gRPC stream concurrency & flow-control window (multiplexed h2 runs only)
-    grpc = getattr(summary, "grpc", None)
-    if grpc is not None and isinstance(grpc, GrpcMetrics):
-        table.add_row(
-            "gRPC Streams",
-            f"Peak active {_format_number(grpc.active_streams_peak)} | "
-            f"Util peak {grpc.concurrency_utilization_peak:.3f} / "
-            f"mean {grpc.concurrency_utilization_mean:.3f}",
-        )
-        if (
-            grpc.window_exhaustion_events_total > 0
-            or grpc.window_stall_duration_ms_total > 0
-        ):
-            table.add_row(
-                "gRPC Window",
-                f"Exhaustions {_format_number(grpc.window_exhaustion_events_total)} | "
-                f"Stall {grpc.window_stall_duration_ms_total:.1f} ms | "
-                f"Min credit {_format_number(grpc.send_capacity_min_bytes)} B",
-            )
-
-    # HTTP/3 congestion window & migration (QUIC runs only)
-    http3 = getattr(summary, "http3", None)
-    if http3 is not None and isinstance(http3, Http3Metrics):
-        table.add_row(
-            "HTTP/3 cwnd",
-            f"Cur {_format_number(http3.cwnd_bytes_current)} B | "
-            f"min {_format_number(http3.cwnd_bytes_min)} / "
-            f"max {_format_number(http3.cwnd_bytes_max)} / "
-            f"mean {http3.cwnd_bytes_mean:.0f} B",
-        )
-        if http3.migrations_attempted_total > 0:
-            table.add_row(
-                "HTTP/3 Migration",
-                f"{_format_number(http3.migrations_attempted_total)} attempted / "
-                f"{_format_number(http3.migrations_successful_total)} successful "
-                f"({http3.migration_success_rate:.0%})",
-            )
+    for row in _summary_rows(summary):
+        value = row.value
+        if row.style == "error":
+            value = f"[bold red]{value}[/]"
+        elif row.style == "success":
+            value = f"[green]{value}[/]"
+        table.add_row(f"{'  ' * row.indent}{row.label}", value)
 
     console.print()
     console.print(table)
@@ -285,122 +321,22 @@ def _print_plain(
     width = 44
     sep = "=" * width
 
-    lines = [
-        f"{BOLD}{'Load Test Results':^{width}}{RESET}",
-        sep,
-        f"  Target URL:     {summary.url}",
-    ]
+    lines = [f"{BOLD}{'Load Test Results':^{width}}{RESET}", sep]
 
-    if summary.timestamp:
-        lines.append(f"  Timestamp:      {summary.timestamp}")
-    lines.append(f"  Duration:       {summary.duration_secs:.1f}s")
-    lines.append(f"  Workers:        {summary.workers}")
-
-    lines.append(f"  Total Requests: {_format_number(summary.total_requests)}")
-    if summary.duration_secs > 0:
-        rps = summary.total_requests / summary.duration_secs
-        lines.append(f"  Requests/sec:   {rps:.1f}")
-    lines.append(f"  Total Received: {_format_bytes(summary.total_bytes_received)}")
-
-    lines.append(f"  Min Latency:    {summary.min_latency_ms:.2f} ms")
-    lines.append(f"  Avg Latency:    {summary.average_latency_ms:.2f} ms")
-    lines.append(f"  P50 Latency:    {summary.p50_latency_ms:.2f} ms")
-    lines.append(f"  P90 Latency:    {summary.p90_latency_ms:.2f} ms")
-    lines.append(f"  P95 Latency:    {summary.p95_latency_ms:.2f} ms")
-    lines.append(f"  P99 Latency:    {summary.p99_latency_ms:.2f} ms")
-    lines.append(f"  Max Latency:     {summary.max_latency_ms:.2f} ms")
-    lines.append(f"  Std Dev:         {summary.std_dev_latency_ms:.2f} ms")
-    lines.append(f"  P99.99 Latency:  {summary.p99_99_latency_ms:.2f} ms")
-
-    # Latency histogram
-    histogram = getattr(summary, "latency_histogram", {})
-    if histogram and any(v > 0 for v in histogram.values()):
-        lines.extend(_render_histogram(histogram))
-
-    if summary.total_errors > 0:
-        rate = _error_rate(summary.total_requests, summary.total_errors)
-        lines.append(
-            f"  Errors:         {RED}{_format_number(summary.total_errors)} ({rate}){RESET}"
-        )
-    else:
-        lines.append(
-            f"  Errors:         {GREEN}{_format_number(summary.total_errors)} (0.00%){RESET}"
-        )
-    lines.append(f"  Status Codes:   {_format_status_codes(summary.status_codes)}")
-
-    # E2E latency (pub/sub only)
-    if summary.avg_e2e_latency_us > 0.0:
-        lines.append(f"  Avg E2E Latency:{summary.avg_e2e_latency_us / 1000:.2f} ms")
-
-    if _is_grpc_mapped(summary.status_codes):
-        lines.append("  Protocol:       gRPC (status codes mapped to HTTP equivalents)")
-
-    # Chaos faults
-    if getattr(summary, "chaos_injected_total", 0) > 0:
-        lines.append(
-            f"  Chaos Faults:  {_format_number(summary.chaos_injected_total)} injected"
-        )
-        for fault_type, count in summary.chaos_faults_by_type.items():
-            lines.append(f"    {fault_type}: {_format_number(count)}")
-
-    # Client resource footprint (if resource monitor was enabled)
-    sm = getattr(summary, "system_metrics", None)
-    if sm is not None and isinstance(sm, SystemMetrics):
-        mb = sm.peak_memory_rss_bytes / (1024 * 1024)
-        lines.append(
-            f"  Client Footprint:{sm.peak_cpu_percent:.1f}% CPU | "
-            f"{mb:.1f} MB RSS | {sm.peak_thread_count} threads"
-        )
-
-    # WebSocket heartbeat & backpressure (WS protocol runs only)
-    ws = getattr(summary, "ws", None)
-    if ws is not None and isinstance(ws, WebsocketMetrics):
-        lines.append(
-            f"  WS Heartbeat:  {_format_number(ws.pings_sent_total)} pings sent / "
-            f"{_format_number(ws.pings_received_total)} recv, "
-            f"{_format_number(ws.pongs_solicited_total)} sol / "
-            f"{_format_number(ws.pongs_unsolicited_total)} unsol pongs"
-        )
-        if ws.backpressure_max_bytes > 0 or ws.backpressure_threshold_breaches > 0:
-            lines.append(
-                f"  WS Backpressure: max {_format_number(ws.backpressure_max_bytes)} B, "
-                f"mean {ws.backpressure_mean_bytes:.0f} B, "
-                f"{_format_number(ws.backpressure_threshold_breaches)} breaches"
-            )
-
-    # gRPC stream concurrency & flow-control window (multiplexed h2 runs only)
-    grpc = getattr(summary, "grpc", None)
-    if grpc is not None and isinstance(grpc, GrpcMetrics):
-        lines.append(
-            f"  gRPC Streams:  peak {_format_number(grpc.active_streams_peak)} active, "
-            f"util peak {grpc.concurrency_utilization_peak:.3f} / "
-            f"mean {grpc.concurrency_utilization_mean:.3f}"
-        )
-        if (
-            grpc.window_exhaustion_events_total > 0
-            or grpc.window_stall_duration_ms_total > 0
-        ):
-            lines.append(
-                f"  gRPC Window:   {_format_number(grpc.window_exhaustion_events_total)} "
-                f"exhaustions, {grpc.window_stall_duration_ms_total:.1f} ms stalled, "
-                f"min credit {_format_number(grpc.send_capacity_min_bytes)} B"
-            )
-
-    # HTTP/3 congestion window & migration (QUIC runs only)
-    http3 = getattr(summary, "http3", None)
-    if http3 is not None and isinstance(http3, Http3Metrics):
-        lines.append(
-            f"  HTTP/3 cwnd:   cur {_format_number(http3.cwnd_bytes_current)} B, "
-            f"min {_format_number(http3.cwnd_bytes_min)} / "
-            f"max {_format_number(http3.cwnd_bytes_max)} / "
-            f"mean {http3.cwnd_bytes_mean:.0f} B"
-        )
-        if http3.migrations_attempted_total > 0:
-            lines.append(
-                f"  HTTP/3 Migr:   {_format_number(http3.migrations_attempted_total)} "
-                f"attempted, {_format_number(http3.migrations_successful_total)} successful "
-                f"({http3.migration_success_rate:.0%})"
-            )
+    for row in _summary_rows(summary):
+        if row.is_header:
+            continue
+        value = row.value
+        if row.style == "error":
+            value = f"{RED}{value}{RESET}"
+        elif row.style == "success":
+            value = f"{GREEN}{value}{RESET}"
+        if not row.label:
+            lines.append(value)
+        elif row.indent:
+            lines.append(f"{'  ' * (row.indent + 1)}{row.label}: {value}")
+        else:
+            lines.append(f"  {row.label + ':':<16} {value}")
 
     lines.append(sep)
 
