@@ -109,14 +109,18 @@ class TestBuildArtifactDict:
         assert chaos["by_type"]["LatencySpike"] == 2
 
     def test_chaos_faults_zero_when_no_injections(self):
+        # Mirrors schema.rs: chaos_faults is omitted entirely (not null) when
+        # the run injected no faults.
         artifact = build_artifact_dict(_make_summary(), _make_config())
-        chaos = artifact["chaos_faults"]
-        assert chaos["injected_total"] == 0
-        assert chaos["by_type"] == {}
+        assert "chaos_faults" not in artifact
 
 
 class TestArtifactSchemaConsistency:
-    """Verify build_artifact_dict output matches Rust ReportArtifact schema."""
+    """Verify build_artifact_dict output matches Rust ReportArtifact schema.
+
+    Optional top-level blocks must be *omitted* when absent, exactly like the
+    Rust ``skip_serializing_if`` serialization on the production path.
+    """
 
     def test_artifact_has_required_keys(self):
         artifact = build_artifact_dict(_make_summary(), _make_config())
@@ -126,6 +130,14 @@ class TestArtifactSchemaConsistency:
             "latency_percentiles",
             "latency_histogram",
             "error_breakdown",
+        }
+        assert required_keys.issubset(artifact.keys())
+
+    def test_optional_blocks_omitted_when_absent(self):
+        # Baseline summary has no protocol metrics, no chaos, no system
+        # sampling, and avg_connection_latency_us == 0 -> all omitted.
+        artifact = build_artifact_dict(_make_summary(), _make_config())
+        optional_keys = {
             "avg_connection_latency_us",
             "quic",
             "sse",
@@ -133,8 +145,9 @@ class TestArtifactSchemaConsistency:
             "grpc",
             "http3",
             "chaos_faults",
+            "system_metrics",
         }
-        assert required_keys.issubset(artifact.keys())
+        assert optional_keys.isdisjoint(artifact.keys())
 
     def test_metadata_structure(self):
         artifact = build_artifact_dict(_make_summary(), _make_config())
@@ -164,23 +177,23 @@ class TestArtifactSchemaConsistency:
 
     def test_optional_quic_metrics_absent_when_none(self):
         artifact = build_artifact_dict(_make_summary(), _make_config())
-        assert artifact["quic"] is None
+        assert "quic" not in artifact
 
     def test_optional_sse_metrics_absent_when_none(self):
         artifact = build_artifact_dict(_make_summary(), _make_config())
-        assert artifact["sse"] is None
+        assert "sse" not in artifact
 
     def test_optional_ws_metrics_absent_when_none(self):
         artifact = build_artifact_dict(_make_summary(), _make_config())
-        assert artifact["websocket"] is None
+        assert "websocket" not in artifact
 
     def test_optional_grpc_metrics_absent_when_none(self):
         artifact = build_artifact_dict(_make_summary(), _make_config())
-        assert artifact["grpc"] is None
+        assert "grpc" not in artifact
 
     def test_optional_http3_metrics_absent_when_none(self):
         artifact = build_artifact_dict(_make_summary(), _make_config())
-        assert artifact["http3"] is None
+        assert "http3" not in artifact
 
     def test_zero_duration_no_division_error(self):
         artifact = build_artifact_dict(_make_summary(duration_secs=0), _make_config())
@@ -195,33 +208,42 @@ class TestArtifactSchemaConsistency:
 
 
 class TestRustDictParity:
-    """Verify fallback path produces correct schema.
+    """Verify the fallback path mirrors the Rust ReportArtifact schema.
 
-    Note: build_report_artifact_dict requires a real TestSummary (Rust #[pyclass]),
-    which cannot be constructed from Python. Rust parity is verified by the E2E
-    persistence tests that exercise the full Rust path with real objects.
-
-    These tests verify the fallback path (Mock/RequestOptions config) produces
-    the correct schema structure.
+    The Rust path (``build_report_artifact_dict``) needs a real ``TestSummary``
+    (Rust #[pyclass], not constructible from Python), so cross-path parity with
+    real objects is covered by ``test_rust_fallback_artifact_parity`` in
+    ``tests/e2e/test_persistence_e2e.py``. These tests pin the fallback's key
+    contract and full-precision numerics against ``report/schema.rs``.
     """
 
-    def test_fallback_produces_correct_keys(self):
+    def test_fallback_golden_key_set(self):
+        # Exact top-level key set for the baseline scenario (no protocol
+        # metrics, no chaos, no system sampling, avg_connection == 0). Must
+        # stay in sync with ReportArtifactDict in strobengine.report_schema.
         artifact = build_artifact_dict(_make_summary(), _make_config())
-        required_keys = {
+        assert set(artifact) == {
             "metadata",
             "summary",
             "latency_percentiles",
             "latency_histogram",
             "error_breakdown",
-            "avg_connection_latency_us",
-            "quic",
-            "sse",
-            "websocket",
-            "grpc",
-            "http3",
-            "chaos_faults",
+            "connection_pool",
         }
-        assert required_keys.issubset(artifact.keys())
+
+    def test_fallback_rps_stored_at_full_precision(self):
+        # schema.rs stores raw rps (full-precision stance, PR #161); the
+        # fallback must not round.
+        summary = _make_summary(total_requests=10, duration_secs=3)
+        artifact = build_artifact_dict(summary, _make_config())
+        assert artifact["summary"]["rps"] == 10 / 3
+
+    def test_fallback_percentiles_stored_at_full_precision(self):
+        summary = _make_summary(min_latency_ms=0.1)
+        artifact = build_artifact_dict(summary, _make_config())
+        lp = artifact["latency_percentiles"]
+        assert lp["min_us"] == 0.1 * 1000.0
+        assert lp["mean_us"] == 1.5 * 1000.0
 
     def test_fallback_chaos_faults_structure(self):
         summary = _make_summary(
@@ -253,14 +275,15 @@ class TestRustDictParity:
         summary = _make_summary(
             total_requests=100,
             connection_reuse_ratio=0.75,
-            avg_dns_resolution_ms=1.5,
+            avg_dns_resolution_ms=1.234567,
         )
         artifact = build_artifact_dict(summary, _make_config())
         assert "connection_pool" in artifact
         cp = artifact["connection_pool"]
         assert cp["socket_creation_rate"] == 0.25
         assert cp["socket_reuse_rate"] == 0.75
-        assert cp["dns_lookup_ms"] == 1.5
+        # Full precision like schema.rs (rounding to 3dp would give 1.235)
+        assert cp["dns_lookup_ms"] == 1.234567
 
     def test_connection_pool_zero_requests(self):
         summary = _make_summary(total_requests=0)
@@ -278,7 +301,7 @@ class TestRustDictParity:
             pongs_solicited_total = 7
             pongs_unsolicited_total = 1
             backpressure_max_bytes = 2_097_152
-            backpressure_mean_bytes = 786_432.5
+            backpressure_mean_bytes = 786_432.55
             backpressure_threshold_breaches = 3
 
         monkeypatch.setattr(artifact, "WebsocketMetrics", FakeWs)
@@ -293,7 +316,8 @@ class TestRustDictParity:
         assert ws["pongs_solicited_total"] == 7
         assert ws["pongs_unsolicited_total"] == 1
         assert ws["backpressure_max_bytes"] == 2_097_152
-        assert ws["backpressure_mean_bytes"] == 786_432.5
+        # Full precision like schema.rs (round1 would give 786432.6)
+        assert ws["backpressure_mean_bytes"] == 786_432.55
         assert ws["backpressure_threshold_breaches"] == 3
 
     def test_grpc_report_serialization(self, monkeypatch):
@@ -302,9 +326,9 @@ class TestRustDictParity:
         class FakeGrpc:
             active_streams_peak = 6
             concurrency_utilization_peak = 0.06
-            concurrency_utilization_mean = 0.05
+            concurrency_utilization_mean = 0.0001234
             window_exhaustion_events_total = 3
-            window_stall_duration_ms_total = 42.5
+            window_stall_duration_ms_total = 42.56
             send_capacity_min_bytes = 32768
 
         monkeypatch.setattr(artifact, "GrpcMetrics", FakeGrpc)
@@ -316,9 +340,11 @@ class TestRustDictParity:
         assert g is not None
         assert g["active_streams_peak"] == 6
         assert g["concurrency_utilization_peak"] == 0.06
-        assert g["concurrency_utilization_mean"] == 0.05
+        # Full precision like schema.rs (round4 would give 0.0001)
+        assert g["concurrency_utilization_mean"] == 0.0001234
         assert g["window_exhaustion_events_total"] == 3
-        assert g["window_stall_duration_ms_total"] == 42.5
+        # Full precision like schema.rs (round1 would give 42.6)
+        assert g["window_stall_duration_ms_total"] == 42.56
         assert g["send_capacity_min_bytes"] == 32768
 
     def test_http3_report_serialization(self, monkeypatch):
@@ -328,10 +354,10 @@ class TestRustDictParity:
             cwnd_bytes_current = 4000
             cwnd_bytes_min = 1000
             cwnd_bytes_max = 8000
-            cwnd_bytes_mean = 3500.0
+            cwnd_bytes_mean = 3500.55
             migrations_attempted_total = 4
             migrations_successful_total = 3
-            migration_success_rate = 0.75
+            migration_success_rate = 0.123456
 
         monkeypatch.setattr(artifact, "Http3Metrics", FakeHttp3)
         summary = _make_summary()
@@ -343,10 +369,12 @@ class TestRustDictParity:
         assert h["cwnd_bytes_current"] == 4000
         assert h["cwnd_bytes_min"] == 1000
         assert h["cwnd_bytes_max"] == 8000
-        assert h["cwnd_bytes_mean"] == 3500.0
+        # Full precision like schema.rs (round1 would give 3500.5)
+        assert h["cwnd_bytes_mean"] == 3500.55
         assert h["migrations_attempted_total"] == 4
         assert h["migrations_successful_total"] == 3
-        assert h["migration_success_rate"] == 0.75
+        # Full precision like schema.rs (round4 would give 0.1235)
+        assert h["migration_success_rate"] == 0.123456
 
 
 class TestMarkdownReportFile:
@@ -727,10 +755,10 @@ class TestHTMLReport:
             cwnd_bytes_current = 4000
             cwnd_bytes_min = 1000
             cwnd_bytes_max = 8000
-            cwnd_bytes_mean = 3500.0
+            cwnd_bytes_mean = 3500.55
             migrations_attempted_total = 4
             migrations_successful_total = 3
-            migration_success_rate = 0.75
+            migration_success_rate = 0.123456
 
         monkeypatch.setattr(artifact, "Http3Metrics", FakeHttp3)
         summary = _make_summary()

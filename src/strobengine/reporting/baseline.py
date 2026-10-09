@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import json
 import sys
+from collections.abc import Mapping
 from pathlib import Path
+from typing import Any
 
 from strobengine.reporting import us_to_ms
 
@@ -41,7 +43,7 @@ def load_baseline_artifact(
         return None
 
 
-def compute_comparison(current: dict, baseline: dict) -> dict:
+def compute_comparison(current: Mapping[str, Any], baseline: Mapping[str, Any]) -> dict:
     """Compute delta metrics between current and baseline runs.
 
     Returns a dict with baseline metadata, current values, and percentage/point
