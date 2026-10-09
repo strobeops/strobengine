@@ -425,6 +425,81 @@ mod tests {
     }
 
     #[test]
+    fn top_level_key_set_matches_python_contract() {
+        // Must match ReportArtifactDict in src/strobengine/report_schema.py:
+        // optional blocks serialize only when present (skip_serializing_if),
+        // never as null.
+        let required: &[&str] = &[
+            "metadata",
+            "summary",
+            "latency_percentiles",
+            "latency_histogram",
+            "error_breakdown",
+        ];
+        let optional: &[&str] = &[
+            "avg_connection_latency_us",
+            "quic",
+            "sse",
+            "websocket",
+            "grpc",
+            "http3",
+            "chaos_faults",
+            "system_metrics",
+            "connection_pool",
+        ];
+
+        let value = serde_json::to_value(sample_artifact()).unwrap();
+        let keys: std::collections::BTreeSet<String> =
+            value.as_object().unwrap().keys().cloned().collect();
+        let expected: std::collections::BTreeSet<String> =
+            required.iter().map(|s| s.to_string()).collect();
+        assert_eq!(
+            keys, expected,
+            "all-None artifact must only carry the required keys"
+        );
+
+        let mut full = sample_artifact();
+        full.avg_connection_latency_us = Some(850.0);
+        full.quic = Some(crate::metrics::QuicMetrics::default());
+        full.sse = Some(crate::metrics::SseMetrics::default());
+        full.websocket = Some(crate::metrics::WebsocketMetrics::default());
+        full.grpc = Some(crate::metrics::GrpcMetrics::default());
+        full.http3 = Some(crate::metrics::Http3Metrics::default());
+        full.chaos = Some(ChaosMetrics {
+            total_injected: 1,
+            faults_by_type: std::collections::HashMap::new(),
+        });
+        full.system_metrics = Some(SystemMetricsDisplay {
+            summary: SystemSummaryDisplay {
+                peak_cpu_percent: 0.0,
+                avg_cpu_percent: 0.0,
+                peak_memory_mb: 0.0,
+                avg_memory_mb: 0.0,
+                peak_threads: 1,
+            },
+            samples: Vec::new(),
+        });
+        full.connection_pool = Some(ConnectionPoolMetrics {
+            socket_creation_rate: 0.0,
+            socket_reuse_rate: 1.0,
+            dns_lookup_ms: 1.0,
+        });
+
+        let value = serde_json::to_value(&full).unwrap();
+        let keys: std::collections::BTreeSet<String> =
+            value.as_object().unwrap().keys().cloned().collect();
+        let expected: std::collections::BTreeSet<String> = required
+            .iter()
+            .chain(optional.iter())
+            .map(|s| s.to_string())
+            .collect();
+        assert_eq!(
+            keys, expected,
+            "all-present artifact must carry every schema key"
+        );
+    }
+
+    #[test]
     fn test_grpc_field_serializes_when_present() {
         let mut artifact = sample_artifact();
         artifact.grpc = Some(crate::metrics::GrpcMetrics {
