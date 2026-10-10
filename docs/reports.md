@@ -110,7 +110,8 @@ they are never written as `null`. Fields *inside* a section may still be
 ### Dependencies
 
 - **Chart.js** — bundled locally at `src/strobengine/reporting/assets/chart.min.js`
-  (186KB, embedded inline in generated HTML — 100% offline, no CDN required)
+  (v4.5.1 UMD build, ~205KB, embedded inline in generated HTML — 100% offline, no
+  CDN required; must stay UMD/classic-script — the ESM build breaks inline `<script>`)
 - **Jinja2** — used for template rendering (`jinja2>=3.1`)
 
 ### CLI Usage
