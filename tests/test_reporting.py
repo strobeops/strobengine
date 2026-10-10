@@ -804,6 +804,22 @@ class TestHTMLReport:
         html = render_html_report(_make_summary(), _make_config())
         assert _CHART_JS_SOURCE in html
 
+    def test_chart_asset_is_classic_script_safe(self):
+        """chart.min.js must be a UMD build, not an ES module.
+
+        An ESM bundle inlined in a classic <script> tag throws
+        "Cannot use import statement outside a module", kills Chart, and
+        leaves every canvas blank (regression from d73569b).
+        """
+        for marker in ("import{", "export{", 'from"./chunks'):
+            assert marker not in _CHART_JS_SOURCE, (
+                f"{marker!r} found in bundled chart.min.js — inline the "
+                "official chart.umd.js build, not chart.esm.js/+esm output"
+            )
+        assert "!function" in _CHART_JS_SOURCE[:600], (
+            "bundled chart.min.js lost its UMD wrapper"
+        )
+
 
 class TestCLIHelpers:
     """Tests for cli.py helper functions."""
