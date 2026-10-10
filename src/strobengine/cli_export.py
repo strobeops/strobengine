@@ -12,6 +12,7 @@ import sys
 from dataclasses import dataclass
 
 from strobengine._strobengine import TestSummary
+from strobengine.report_schema import SupportsCliOptions
 from strobengine.reporter import print_summary
 
 
@@ -39,7 +40,7 @@ def _output_results(
     summary: TestSummary,
     url: str,
     duration_secs: int,
-    config: object | None,
+    config: SupportsCliOptions,
     exports: ExportOptions,
     saved_report_path: str | None = None,
 ) -> None:
@@ -58,7 +59,7 @@ def _output_results(
         )
 
         baseline = load_baseline_artifact(baseline_file=Path(exports.compare_to))
-        if baseline and config is not None:
+        if baseline:
             current = build_artifact_dict(summary, config)
             try:
                 comparison = compute_comparison(current, baseline)

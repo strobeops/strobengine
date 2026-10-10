@@ -20,7 +20,7 @@ fallback builder in ``src/strobengine/artifact.py`` together; the parity tests
 
 from __future__ import annotations
 
-from typing import NotRequired, TypedDict
+from typing import NotRequired, Protocol, TypedDict
 
 
 class SystemInfoDict(TypedDict):
@@ -30,6 +30,24 @@ class SystemInfoDict(TypedDict):
 
 
 class CliOptionsDict(TypedDict):
+    method: str
+    concurrency: int
+    timeout_secs: int
+    chaos: bool
+    chaos_rate: float
+    body: str | None
+    headers: list[tuple[str, str]] | None
+
+
+class SupportsCliOptions(Protocol):
+    """Structural type for config objects the report builders can read.
+
+    Mirrors :class:`CliOptionsDict` key-for-key (enforced by
+    ``tests/test_report_boundaries.py``): the Rust ``TestConfig`` satisfies it
+    via its PyO3 getters, and the Python fallback builder reads exactly these
+    attributes instead of duck-typed ``getattr`` defaults.
+    """
+
     method: str
     concurrency: int
     timeout_secs: int

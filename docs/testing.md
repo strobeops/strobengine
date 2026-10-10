@@ -22,6 +22,7 @@ uv run pytest -v --e2e
 | `tests/test_logging.py` | Unit | Log level resolution (`_resolve_log_level`) |
 | `tests/test_reporter.py` | Unit | `format_number`, `error_rate`, `print_summary`, rich fallback |
 | `tests/test_pyi_fidelity.py` | Unit | `.pyi` stub vs Rust bindings: field mutability, `TestConfig` init signature |
+| `tests/test_report_boundaries.py` | Unit | Report boundary contracts: no `getattr` defaults, Protocol/TypedDict key parity |
 | `tests/e2e/` | E2E | Full stack: Rust engine -> aiohttp mock server -> `TestSummary` assertions |
 
 ## Running Tests

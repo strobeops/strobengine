@@ -3,8 +3,9 @@
 
 This isolates the PyO3 boundary: :func:`build_artifact_dict` delegates to the
 native ``build_report_artifact_dict`` for a Rust ``TestConfig`` (guaranteeing
-schema parity) and falls back to a pure-Python builder for ``RequestOptions``
-(profile tests). The ``_format_*`` helpers render the optional protocol metric
+schema parity) and falls back to a pure-Python builder for any config
+satisfying :class:`~strobengine.report_schema.SupportsCliOptions` (unit-test
+doubles). The ``_format_*`` helpers render the optional protocol metric
 blocks (``quic``/``sse``/``websocket``/``grpc``/``http3``/``system_metrics``/
 ``connection_pool``) and their key layout must stay in lock-step with the Rust
 ``ReportArtifact`` serde output.
@@ -37,6 +38,7 @@ from strobengine.report_schema import (
     QuicMetricsDict,
     ReportArtifactDict,
     SseMetricsDict,
+    SupportsCliOptions,
     SystemInfoDict,
     SystemMetricsDict,
     WebsocketMetricsDict,
@@ -60,12 +62,14 @@ def _get_system_info() -> SystemInfoDict:
     }
 
 
-def build_artifact_dict(summary: TestSummary, config: object) -> ReportArtifactDict:
+def build_artifact_dict(
+    summary: TestSummary, config: SupportsCliOptions
+) -> ReportArtifactDict:
     """Build a ReportArtifact dict matching the Rust schema in report/schema.rs.
 
     When config is a Rust TestConfig, delegates to Rust for guaranteed 1:1 parity.
-    Falls back to manual construction for Python RequestOptions (profile tests
-    without TestConfig).
+    Falls back to manual construction for any other object exposing the
+    SupportsCliOptions attributes (unit-test config doubles).
     """
     from strobengine._strobengine import (
         TestConfig as RustTestConfig,
@@ -75,13 +79,13 @@ def build_artifact_dict(summary: TestSummary, config: object) -> ReportArtifactD
     if isinstance(config, RustTestConfig):
         return cast(ReportArtifactDict, build_report_artifact_dict(summary, config))
 
-    # Fallback: config is a Python RequestOptions (profile tests without TestConfig)
+    # Fallback: config is a non-TestConfig SupportsCliOptions (test doubles)
     return _build_artifact_dict_fallback(summary, config)
 
 
 def _format_system_metrics(summary: TestSummary) -> SystemMetricsDict | None:
     """Extract system_metrics from summary into JSON-friendly format."""
-    sm = getattr(summary, "system_metrics", None)
+    sm = summary.system_metrics
     if sm is None or not isinstance(sm, SystemMetrics):
         return None
     return {
@@ -106,11 +110,11 @@ def _format_system_metrics(summary: TestSummary) -> SystemMetricsDict | None:
 
 def _format_connection_pool(summary: TestSummary) -> ConnectionPoolDict | None:
     """Extract connection pool metrics from summary into JSON-friendly format."""
-    total = getattr(summary, "total_requests", 0)
+    total = summary.total_requests
     if not isinstance(total, (int, float)) or total <= 0:
         return None
-    reuse_ratio = getattr(summary, "connection_reuse_ratio", None)
-    dns_ms = getattr(summary, "avg_dns_resolution_ms", None)
+    reuse_ratio = summary.connection_reuse_ratio
+    dns_ms = summary.avg_dns_resolution_ms
     if not isinstance(reuse_ratio, (int, float)) or not isinstance(
         dns_ms, (int, float)
     ):
@@ -124,7 +128,7 @@ def _format_connection_pool(summary: TestSummary) -> ConnectionPoolDict | None:
 
 def _format_quic(summary: TestSummary) -> QuicMetricsDict | None:
     """Extract QUIC metrics from summary into a JSON-native dict or None."""
-    q = getattr(summary, "quic", None)
+    q = summary.quic
     if q is None or not isinstance(q, QuicMetrics):
         return None
     return {
@@ -136,7 +140,7 @@ def _format_quic(summary: TestSummary) -> QuicMetricsDict | None:
 
 def _format_sse(summary: TestSummary) -> SseMetricsDict | None:
     """Extract SSE metrics from summary into a JSON-native dict or None."""
-    s = getattr(summary, "sse", None)
+    s = summary.sse
     if s is None or not isinstance(s, SseMetrics):
         return None
     return {
@@ -147,7 +151,7 @@ def _format_sse(summary: TestSummary) -> SseMetricsDict | None:
 
 def _format_ws(summary: TestSummary) -> WebsocketMetricsDict | None:
     """Extract WebSocket heartbeat/backpressure metrics into a JSON-native dict."""
-    w = getattr(summary, "ws", None)
+    w = summary.ws
     if w is None or not isinstance(w, WebsocketMetrics):
         return None
     return {
@@ -163,7 +167,7 @@ def _format_ws(summary: TestSummary) -> WebsocketMetricsDict | None:
 
 def _format_grpc(summary: TestSummary) -> GrpcMetricsDict | None:
     """Extract gRPC stream-concurrency/flow-control metrics into a JSON-native dict."""
-    g = getattr(summary, "grpc", None)
+    g = summary.grpc
     if g is None or not isinstance(g, GrpcMetrics):
         return None
     return {
@@ -178,7 +182,7 @@ def _format_grpc(summary: TestSummary) -> GrpcMetricsDict | None:
 
 def _format_http3(summary: TestSummary) -> Http3MetricsDict | None:
     """Extract HTTP/3 congestion-window/migration metrics into a JSON-native dict."""
-    h = getattr(summary, "http3", None)
+    h = summary.http3
     if h is None or not isinstance(h, Http3Metrics):
         return None
     return {
@@ -193,9 +197,9 @@ def _format_http3(summary: TestSummary) -> Http3MetricsDict | None:
 
 
 def _build_artifact_dict_fallback(
-    summary: TestSummary, config: object
+    summary: TestSummary, config: SupportsCliOptions
 ) -> ReportArtifactDict:
-    """Manual construction for RequestOptions when TestConfig is unavailable.
+    """Manual construction for non-TestConfig configs when Rust is unavailable.
 
     Mirrors ``ReportArtifact::from_summary_and_config`` in ``report/schema.rs``:
     conditional top-level blocks are added only when applicable (omit, never
@@ -210,13 +214,13 @@ def _build_artifact_dict_fallback(
 
     # Extract CLI options from config
     cli_options: CliOptionsDict = {
-        "method": getattr(config, "method", "GET"),
-        "concurrency": getattr(config, "concurrency", 0),
-        "timeout_secs": getattr(config, "timeout_secs", 0),
-        "chaos": getattr(config, "chaos", False),
-        "chaos_rate": getattr(config, "chaos_rate", 0.1),
-        "body": getattr(config, "body", None),
-        "headers": getattr(config, "headers", None),
+        "method": config.method,
+        "concurrency": config.concurrency,
+        "timeout_secs": config.timeout_secs,
+        "chaos": config.chaos,
+        "chaos_rate": config.chaos_rate,
+        "body": config.body,
+        "headers": config.headers,
     }
 
     artifact: ReportArtifactDict = {
@@ -251,7 +255,7 @@ def _build_artifact_dict_fallback(
 
     # Optional top-level blocks: omitted entirely when absent (report/schema.rs
     # uses skip_serializing_if, so the Rust path never emits null either).
-    avg_conn = getattr(summary, "avg_connection_latency_us", 0.0)
+    avg_conn = summary.avg_connection_latency_us
     if isinstance(avg_conn, (int, float)) and avg_conn > 0.0:
         artifact["avg_connection_latency_us"] = avg_conn
 
@@ -275,11 +279,11 @@ def _build_artifact_dict_fallback(
     if http3 is not None:
         artifact["http3"] = http3
 
-    chaos_total = getattr(summary, "chaos_injected_total", 0)
+    chaos_total = summary.chaos_injected_total
     if chaos_total:
         artifact["chaos_faults"] = {
             "injected_total": chaos_total,
-            "by_type": getattr(summary, "chaos_faults_by_type", {}),
+            "by_type": summary.chaos_faults_by_type,
         }
 
     system_metrics = _format_system_metrics(summary)

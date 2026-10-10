@@ -12,6 +12,7 @@ import os
 from strobengine._strobengine import TestSummary
 
 from .artifact import build_artifact_dict
+from .report_schema import SupportsCliOptions
 
 DEFAULT_REPORT_DIR = ".strobengine/reports"
 
@@ -25,7 +26,7 @@ def _slugify_url(url: str) -> str:
 
 def save_report(
     summary: TestSummary,
-    config: object,
+    config: SupportsCliOptions,
     output_dir: str | None = None,
     no_save: bool = False,
 ) -> str | None:
