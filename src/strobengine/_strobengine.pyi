@@ -82,7 +82,7 @@ class TestConfig:
         body: str | None = None,
         form: list[tuple[str, str]] | None = None,
         headers: list[tuple[str, str]] | None = None,
-        ws_mode: WsMode | None = None,
+        ws_mode: WsMode = ...,
         ws_payload: str | None = None,
         grpc_service: str | None = None,
         grpc_method: str | None = None,
@@ -112,19 +112,30 @@ class TestConfig:
     ) -> None: ...
 
 class SystemMetrics:
-    peak_cpu_percent: float
-    avg_cpu_percent: float
-    peak_memory_rss_bytes: int
-    avg_memory_rss_bytes: int
-    peak_thread_count: int
-    time_series: list[ResourceSample]
+    @property
+    def peak_cpu_percent(self) -> float: ...
+    @property
+    def avg_cpu_percent(self) -> float: ...
+    @property
+    def peak_memory_rss_bytes(self) -> int: ...
+    @property
+    def avg_memory_rss_bytes(self) -> int: ...
+    @property
+    def peak_thread_count(self) -> int: ...
+    @property
+    def time_series(self) -> list[ResourceSample]: ...
 
 class ResourceSample:
-    timestamp_us: int
-    cpu_usage_percent: float
-    memory_rss_bytes: int
-    thread_count: int
-    open_fds: int | None
+    @property
+    def timestamp_us(self) -> int: ...
+    @property
+    def cpu_usage_percent(self) -> float: ...
+    @property
+    def memory_rss_bytes(self) -> int: ...
+    @property
+    def thread_count(self) -> int: ...
+    @property
+    def open_fds(self) -> int | None: ...
 
 class QuicMetrics:
     @property
@@ -243,8 +254,10 @@ class TestSummary:
     def latency_histogram(self) -> dict[str, int]: ...
     @property
     def system_metrics(self) -> SystemMetrics | None: ...
-    connection_reuse_ratio: float
-    avg_dns_resolution_ms: float
+    @property
+    def connection_reuse_ratio(self) -> float: ...
+    @property
+    def avg_dns_resolution_ms(self) -> float: ...
     def to_dict(self) -> dict[str, Any]: ...
     def to_json(self, indent: int | None = None) -> str: ...
 
