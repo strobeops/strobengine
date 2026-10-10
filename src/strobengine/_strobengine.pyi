@@ -82,7 +82,7 @@ class TestConfig:
         body: str | None = None,
         form: list[tuple[str, str]] | None = None,
         headers: list[tuple[str, str]] | None = None,
-        ws_mode: WsMode | None = None,
+        ws_mode: WsMode = ...,
         ws_payload: str | None = None,
         grpc_service: str | None = None,
         grpc_method: str | None = None,
