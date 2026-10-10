@@ -118,19 +118,14 @@ def generate_junit_report(artifact: ReportArtifactDict) -> str:
     return xml_bytes
 
 
-def render_junit_report(
-    summary: TestSummary, config: SupportsCliOptions, duration_secs: float
-) -> str:
+def render_junit_report(summary: TestSummary, config: SupportsCliOptions) -> str:
     """Render a JUnit XML report from TestSummary (convenience wrapper)."""
     artifact = build_artifact_dict(summary, config)
     return generate_junit_report(artifact)
 
 
 def save_junit_report(
-    summary: TestSummary,
-    config: SupportsCliOptions,
-    filepath: str,
-    duration_secs: float,
+    summary: TestSummary, config: SupportsCliOptions, filepath: str
 ) -> str:
     """Render and write JUnit XML report to disk. Returns filepath."""
     filepath = str(Path(filepath).expanduser().resolve())

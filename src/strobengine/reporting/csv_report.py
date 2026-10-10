@@ -42,19 +42,14 @@ def generate_csv_report(artifact: ReportArtifactDict) -> str:
     return buf.getvalue()
 
 
-def render_csv_report(
-    summary: TestSummary, config: SupportsCliOptions, duration_secs: float
-) -> str:
+def render_csv_report(summary: TestSummary, config: SupportsCliOptions) -> str:
     """Render a CSV report from TestSummary (convenience wrapper)."""
     artifact = build_artifact_dict(summary, config)
     return generate_csv_report(artifact)
 
 
 def save_csv_report(
-    summary: TestSummary,
-    config: SupportsCliOptions,
-    filepath: str,
-    duration_secs: float,
+    summary: TestSummary, config: SupportsCliOptions, filepath: str
 ) -> str:
     """Render and write CSV report to disk. Returns filepath."""
     filepath = str(Path(filepath).expanduser().resolve())

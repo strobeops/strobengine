@@ -81,10 +81,7 @@ def generate_markdown_summary(artifact: ReportArtifactDict) -> str:
 
 
 def save_markdown_report(
-    summary: TestSummary,
-    config: SupportsCliOptions,
-    filepath: str,
-    duration_secs: float,
+    summary: TestSummary, config: SupportsCliOptions, filepath: str
 ) -> str:
     """Render and write Markdown report to disk. Returns filepath."""
     filepath = str(Path(filepath).expanduser().resolve())

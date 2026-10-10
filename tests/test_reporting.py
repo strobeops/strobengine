@@ -382,7 +382,7 @@ class TestMarkdownReportFile:
 
     def test_save_markdown_report(self, tmp_path):
         filepath = str(tmp_path / "report.md")
-        result = save_markdown_report(_make_summary(), _make_config(), filepath, 10.0)
+        result = save_markdown_report(_make_summary(), _make_config(), filepath)
         assert result == filepath
         assert (tmp_path / "report.md").exists()
         content = (tmp_path / "report.md").read_text()
@@ -391,7 +391,7 @@ class TestMarkdownReportFile:
     def test_save_markdown_report_expands_user(self, tmp_path, monkeypatch):
         monkeypatch.setenv("HOME", str(tmp_path))
         result = save_markdown_report(
-            _make_summary(), _make_config(), "~/test_report.md", 10.0
+            _make_summary(), _make_config(), "~/test_report.md"
         )
         assert result.startswith(str(tmp_path))
 
@@ -474,7 +474,7 @@ class TestCSVReport:
 
     def test_generate_csv_file_output(self, tmp_path):
         filepath = str(tmp_path / "report.csv")
-        result = save_csv_report(_make_summary(), _make_config(), filepath, 10.0)
+        result = save_csv_report(_make_summary(), _make_config(), filepath)
         assert result == filepath
         assert (tmp_path / "report.csv").exists()
         content = (tmp_path / "report.csv").read_text()

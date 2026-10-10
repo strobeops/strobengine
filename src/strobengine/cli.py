@@ -178,7 +178,6 @@ def _run_load_test(
     url: str,
     options: RequestOptions,
     engine_factory: Callable[..., StrobEngine],
-    duration: int,
     json_output: bool = False,
     log_file: str | None = None,
     verbose: int = 0,
@@ -220,8 +219,6 @@ def _run_load_test(
     try:
         _output_results(
             summary,
-            url,
-            duration,
             engine.get_config(),
             exports,
             saved_report_path=engine.saved_report_path,
@@ -288,7 +285,6 @@ def load(
         engine_factory=lambda **kw: StrobEngine.load_test(
             concurrency=concurrency, duration=duration, **kw
         ),
-        duration=duration,
         json_output=json_output,
         log_file=log_file,
         verbose=verbose,
@@ -364,7 +360,6 @@ def stress(
             hold_duration=hold,
             **kw,
         ),
-        duration=ramp + hold,
         json_output=json_output,
         log_file=log_file,
         verbose=verbose,
@@ -442,7 +437,6 @@ def spike(
             post_spike_duration=post_spike,
             **kw,
         ),
-        duration=pre_spike + spike_duration + post_spike,
         json_output=json_output,
         log_file=log_file,
         verbose=verbose,
