@@ -6,7 +6,7 @@ from pathlib import Path
 
 from strobengine._strobengine import TestSummary
 from strobengine.artifact import build_artifact_dict
-from strobengine.report_schema import ReportArtifactDict
+from strobengine.report_schema import ReportArtifactDict, SupportsCliOptions
 from strobengine.reporting import us_to_ms
 
 
@@ -81,7 +81,10 @@ def generate_markdown_summary(artifact: ReportArtifactDict) -> str:
 
 
 def save_markdown_report(
-    summary: TestSummary, config: object, filepath: str, duration_secs: float
+    summary: TestSummary,
+    config: SupportsCliOptions,
+    filepath: str,
+    duration_secs: float,
 ) -> str:
     """Render and write Markdown report to disk. Returns filepath."""
     filepath = str(Path(filepath).expanduser().resolve())

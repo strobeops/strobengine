@@ -23,6 +23,7 @@ from .artifact import build_artifact_dict
 # Re-exported for backward compatibility (engine/tests import save_report from
 # strobengine.reporter); prefer `from strobengine.persistence import ...` in new code.
 from .persistence import DEFAULT_REPORT_DIR, save_report  # noqa: F401  (re-export)
+from .report_schema import SupportsCliOptions
 
 _HAS_RICH = False
 try:
@@ -360,7 +361,7 @@ def _metrics_description() -> None:
     print("- Max Latency: Maximum round-trip time across all completed requests.")
 
 
-def generate_markdown_summary(summary: TestSummary, config: object) -> str:
+def generate_markdown_summary(summary: TestSummary, config: SupportsCliOptions) -> str:
     """Generate a Markdown summary string from TestSummary + config.
 
     Returns a GitHub Actions / PR comment ready Markdown string with
@@ -374,7 +375,7 @@ def generate_markdown_summary(summary: TestSummary, config: object) -> str:
     return _gen(artifact)
 
 
-def generate_junit_report(summary: TestSummary, config: object) -> str:
+def generate_junit_report(summary: TestSummary, config: SupportsCliOptions) -> str:
     """Generate a JUnit XML string from TestSummary + config.
 
     Returns JUnit XML with performance assertion testcases for
@@ -388,7 +389,7 @@ def generate_junit_report(summary: TestSummary, config: object) -> str:
     return _gen(artifact)
 
 
-def generate_csv_report(summary: TestSummary, config: object) -> str:
+def generate_csv_report(summary: TestSummary, config: SupportsCliOptions) -> str:
     """Generate a CSV string from TestSummary + config.
 
     Returns CSV with microsecond latencies for schema consistency.

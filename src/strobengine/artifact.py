@@ -3,8 +3,9 @@
 
 This isolates the PyO3 boundary: :func:`build_artifact_dict` delegates to the
 native ``build_report_artifact_dict`` for a Rust ``TestConfig`` (guaranteeing
-schema parity) and falls back to a pure-Python builder for ``RequestOptions``
-(profile tests). The ``_format_*`` helpers render the optional protocol metric
+schema parity) and falls back to a pure-Python builder for any config
+satisfying :class:`~strobengine.report_schema.SupportsCliOptions` (unit-test
+doubles). The ``_format_*`` helpers render the optional protocol metric
 blocks (``quic``/``sse``/``websocket``/``grpc``/``http3``/``system_metrics``/
 ``connection_pool``) and their key layout must stay in lock-step with the Rust
 ``ReportArtifact`` serde output.
@@ -37,6 +38,7 @@ from strobengine.report_schema import (
     QuicMetricsDict,
     ReportArtifactDict,
     SseMetricsDict,
+    SupportsCliOptions,
     SystemInfoDict,
     SystemMetricsDict,
     WebsocketMetricsDict,
@@ -60,12 +62,14 @@ def _get_system_info() -> SystemInfoDict:
     }
 
 
-def build_artifact_dict(summary: TestSummary, config: object) -> ReportArtifactDict:
+def build_artifact_dict(
+    summary: TestSummary, config: SupportsCliOptions
+) -> ReportArtifactDict:
     """Build a ReportArtifact dict matching the Rust schema in report/schema.rs.
 
     When config is a Rust TestConfig, delegates to Rust for guaranteed 1:1 parity.
-    Falls back to manual construction for Python RequestOptions (profile tests
-    without TestConfig).
+    Falls back to manual construction for any other object exposing the
+    SupportsCliOptions attributes (unit-test config doubles).
     """
     from strobengine._strobengine import (
         TestConfig as RustTestConfig,
@@ -75,7 +79,7 @@ def build_artifact_dict(summary: TestSummary, config: object) -> ReportArtifactD
     if isinstance(config, RustTestConfig):
         return cast(ReportArtifactDict, build_report_artifact_dict(summary, config))
 
-    # Fallback: config is a Python RequestOptions (profile tests without TestConfig)
+    # Fallback: config is a non-TestConfig SupportsCliOptions (test doubles)
     return _build_artifact_dict_fallback(summary, config)
 
 
@@ -193,9 +197,9 @@ def _format_http3(summary: TestSummary) -> Http3MetricsDict | None:
 
 
 def _build_artifact_dict_fallback(
-    summary: TestSummary, config: object
+    summary: TestSummary, config: SupportsCliOptions
 ) -> ReportArtifactDict:
-    """Manual construction for RequestOptions when TestConfig is unavailable.
+    """Manual construction for non-TestConfig configs when Rust is unavailable.
 
     Mirrors ``ReportArtifact::from_summary_and_config`` in ``report/schema.rs``:
     conditional top-level blocks are added only when applicable (omit, never
@@ -210,13 +214,13 @@ def _build_artifact_dict_fallback(
 
     # Extract CLI options from config
     cli_options: CliOptionsDict = {
-        "method": getattr(config, "method", "GET"),
-        "concurrency": getattr(config, "concurrency", 0),
-        "timeout_secs": getattr(config, "timeout_secs", 0),
-        "chaos": getattr(config, "chaos", False),
-        "chaos_rate": getattr(config, "chaos_rate", 0.1),
-        "body": getattr(config, "body", None),
-        "headers": getattr(config, "headers", None),
+        "method": config.method,
+        "concurrency": config.concurrency,
+        "timeout_secs": config.timeout_secs,
+        "chaos": config.chaos,
+        "chaos_rate": config.chaos_rate,
+        "body": config.body,
+        "headers": config.headers,
     }
 
     artifact: ReportArtifactDict = {
