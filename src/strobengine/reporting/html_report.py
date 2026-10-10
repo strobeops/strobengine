@@ -9,6 +9,7 @@ from jinja2 import Environment, FileSystemLoader
 from strobengine._strobengine import TestSummary
 from strobengine.artifact import build_artifact_dict
 from strobengine.report_schema import SupportsCliOptions
+from strobengine.reporting.baseline import ComparisonDict
 
 # Load Chart.js from local asset for 100% offline reports
 _ASSETS_DIR = Path(__file__).parent / "assets"
@@ -23,7 +24,9 @@ _HTML_TEMPLATE = Environment(
 
 
 def render_html_report(
-    summary: TestSummary, config: SupportsCliOptions, comparison: dict | None = None
+    summary: TestSummary,
+    config: SupportsCliOptions,
+    comparison: ComparisonDict | None = None,
 ) -> str:
     """Render a self-contained HTML report from TestSummary + config."""
     artifact = build_artifact_dict(summary, config)
@@ -82,7 +85,7 @@ def save_html_report(
     summary: TestSummary,
     config: SupportsCliOptions,
     filepath: str,
-    comparison: dict | None = None,
+    comparison: ComparisonDict | None = None,
 ) -> str:
     """Render and write HTML report to disk. Returns filepath."""
     html = render_html_report(summary, config, comparison=comparison)

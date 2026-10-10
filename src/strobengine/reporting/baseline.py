@@ -6,15 +6,36 @@ import json
 import sys
 from collections.abc import Mapping
 from pathlib import Path
-from typing import Any
+from typing import Any, TypedDict, cast
 
+from strobengine.report_schema import ReportArtifactDict
 from strobengine.reporting import us_to_ms
+
+
+class ComparisonDict(TypedDict):
+    """Delta metrics between a current run and a stored baseline artifact.
+
+    Key set is pinned to :func:`compute_comparison` output by
+    ``tests/test_report_boundaries.py``.
+    """
+
+    baseline_timestamp: str
+    baseline_url: str
+    latency_p95_delta: float
+    rps_delta: float
+    error_rate_delta: float
+    baseline_rps: float
+    baseline_p95_ms: float
+    baseline_error_rate: float
+    current_rps: float
+    current_p95_ms: float
+    current_error_rate: float
 
 
 def load_baseline_artifact(
     report_dir: Path = Path(".strobengine/reports"),
     baseline_file: Path | None = None,
-) -> dict | None:
+) -> ReportArtifactDict | None:
     """Load baseline artifact from explicit file or latest.json pointer.
 
     Returns None if no baseline is available or file is corrupt.
@@ -27,7 +48,7 @@ def load_baseline_artifact(
                     file=sys.stderr,
                 )
                 return None
-            return json.loads(baseline_file.read_text())
+            return cast(ReportArtifactDict, json.loads(baseline_file.read_text()))
 
         # Try latest.json pointer
         latest_path = report_dir / "latest.json"
@@ -35,7 +56,7 @@ def load_baseline_artifact(
             pointer = json.loads(latest_path.read_text())
             report_path = report_dir / pointer["latest_report"]
             if report_path.exists():
-                return json.loads(report_path.read_text())
+                return cast(ReportArtifactDict, json.loads(report_path.read_text()))
 
         return None
     except (json.JSONDecodeError, KeyError, OSError) as e:
@@ -43,7 +64,9 @@ def load_baseline_artifact(
         return None
 
 
-def compute_comparison(current: Mapping[str, Any], baseline: Mapping[str, Any]) -> dict:
+def compute_comparison(
+    current: Mapping[str, Any], baseline: Mapping[str, Any]
+) -> ComparisonDict:
     """Compute delta metrics between current and baseline runs.
 
     Returns a dict with baseline metadata, current values, and percentage/point
@@ -118,7 +141,7 @@ def compute_comparison(current: Mapping[str, Any], baseline: Mapping[str, Any]) 
     }
 
 
-def print_cli_comparison(comparison: dict) -> None:
+def print_cli_comparison(comparison: ComparisonDict) -> None:
     """Print baseline comparison table to terminal using Rich."""
     from rich.console import Console
     from rich.table import Table
