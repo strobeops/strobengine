@@ -527,3 +527,39 @@ class TestCLIOptionDefaults:
                         f"{cmd.__name__}.{name} default {param.default!r} "
                         f"!= RequestOptions.{name} {ro_defaults[name]!r}"
                     )
+
+
+class TestRequestFieldAllowlist:
+    """_REQUEST_FIELDS must stay in lock-step with the builder and commands.
+
+    Each subcommand feeds ``locals()`` through the allowlist into
+    _build_request_options; a renamed or new option missing from the set is
+    silently replaced by the builder default.
+    """
+
+    def test_allowlist_matches_builder_kwargs(self):
+        import inspect
+
+        from strobengine.cli_options import _REQUEST_FIELDS, _build_request_options
+
+        builder_params = set(inspect.signature(_build_request_options).parameters)
+        allowlist = set(_REQUEST_FIELDS)
+        assert allowlist == builder_params, (
+            f"allowlist-only: {allowlist - builder_params} "
+            f"builder-only: {builder_params - allowlist}"
+        )
+
+    def test_every_command_exposes_allowlisted_fields(self):
+        import inspect
+
+        from strobengine.cli import load, spike, stress
+        from strobengine.cli_options import _REQUEST_FIELDS
+
+        allowlist = set(_REQUEST_FIELDS)
+        for cmd in (load, stress, spike):
+            cmd_params = set(inspect.signature(cmd).parameters)
+            missing = allowlist - cmd_params
+            assert not missing, (
+                f"{cmd.__name__} dropped allowlisted option(s) {missing}; the "
+                "locals() splat would silently fall back to builder defaults"
+            )
