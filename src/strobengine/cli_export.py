@@ -38,8 +38,6 @@ def _report_saved(filepath: str | None, exports: ExportOptions) -> None:
 
 def _output_results(
     summary: TestSummary,
-    url: str,
-    duration_secs: int,
     config: SupportsCliOptions,
     exports: ExportOptions,
     saved_report_path: str | None = None,
@@ -81,17 +79,17 @@ def _output_results(
     if exports.export_markdown:
         from strobengine.reporting.markdown_report import save_markdown_report
 
-        save_markdown_report(summary, config, exports.export_markdown, duration_secs)
+        save_markdown_report(summary, config, exports.export_markdown)
         _report_saved(exports.export_markdown, exports)
 
     if exports.export_junit:
         from strobengine.reporting.junit_report import save_junit_report
 
-        save_junit_report(summary, config, exports.export_junit, duration_secs)
+        save_junit_report(summary, config, exports.export_junit)
         _report_saved(exports.export_junit, exports)
 
     if exports.export_csv:
         from strobengine.reporting.csv_report import save_csv_report
 
-        save_csv_report(summary, config, exports.export_csv, duration_secs)
+        save_csv_report(summary, config, exports.export_csv)
         _report_saved(exports.export_csv, exports)

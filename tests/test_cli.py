@@ -1,5 +1,6 @@
 import json
 from pathlib import Path
+from typing import ClassVar
 from unittest import mock
 
 import pytest
@@ -413,3 +414,152 @@ class TestCLIErrorHandling:
         assert result.exit_code == 1
         assert "Error:" in result.output
         assert "Traceback" not in result.output
+
+
+class TestCLIOptionDefaults:
+    """CLI and builder defaults must not drift from their single sources.
+
+    constants.py -> RequestOptions dataclass -> _build_request_options /
+    typer signatures. The parse-layer params keep literal ``None`` defaults
+    because they carry pre-parse types (str form, WsRole enum) or convert
+    None into a concrete value downstream (ws_mode -> handshake).
+    """
+
+    _PARSE_LAYER: ClassVar[set[str]] = {
+        "ws_mode",
+        "form",
+        "ws_role",
+        "header",
+        "chaos_rate",
+    }
+
+    def test_request_options_defaults_come_from_constants(self):
+        from strobengine.constants import (
+            DEFAULT_HTTP3_MIGRATE_EVERY,
+            DEFAULT_METHOD,
+            DEFAULT_SYS_SAMPLE_INTERVAL_MS,
+            DEFAULT_TIMEOUT_SECS,
+            DEFAULT_WS_BACKPRESSURE_WARN_RATIO,
+            DEFAULT_WS_MAX_BUFFER_BYTES,
+        )
+        from strobengine.engine import RequestOptions
+
+        assert RequestOptions.timeout == DEFAULT_TIMEOUT_SECS
+        assert RequestOptions.method == DEFAULT_METHOD
+        assert RequestOptions.sys_sample_interval == DEFAULT_SYS_SAMPLE_INTERVAL_MS
+        assert RequestOptions.ws_max_buffer_bytes == DEFAULT_WS_MAX_BUFFER_BYTES
+        assert (
+            RequestOptions.ws_backpressure_warn_ratio
+            == DEFAULT_WS_BACKPRESSURE_WARN_RATIO
+        )
+        assert RequestOptions.http3_migrate_every == DEFAULT_HTTP3_MIGRATE_EVERY
+
+    def test_builder_defaults_match_request_options(self):
+        import dataclasses
+        import inspect
+
+        from strobengine.cli_options import _build_request_options
+        from strobengine.engine import RequestOptions
+
+        ro_defaults = {
+            f.name: f.default
+            for f in dataclasses.fields(RequestOptions)
+            if f.default is not dataclasses.MISSING
+        }
+        params = inspect.signature(_build_request_options).parameters
+        for name, default in ro_defaults.items():
+            if name in self._PARSE_LAYER or name not in params:
+                continue
+            assert params[name].default == default, (
+                f"_build_request_options.{name} default {params[name].default!r} "
+                f"!= RequestOptions.{name} {default!r}"
+            )
+
+    def test_command_defaults_match_single_source(self):
+        import dataclasses
+        import inspect
+
+        from strobengine.cli import load, spike, stress
+        from strobengine.constants import (
+            DEFAULT_BASELINE,
+            DEFAULT_CONCURRENCY,
+            DEFAULT_DURATION_SECS,
+            DEFAULT_HOLD_SECS,
+            DEFAULT_MAX_CONCURRENCY,
+            DEFAULT_PEAK_CONCURRENCY,
+            DEFAULT_POST_SPIKE_SECS,
+            DEFAULT_PRE_SPIKE_SECS,
+            DEFAULT_RAMP_SECS,
+            DEFAULT_SPIKE_SECS,
+            DEFAULT_START_CONCURRENCY,
+        )
+        from strobengine.engine import RequestOptions
+
+        ro_defaults = {
+            f.name: f.default
+            for f in dataclasses.fields(RequestOptions)
+            if f.default is not dataclasses.MISSING
+        }
+        profile_defaults = {
+            "concurrency": DEFAULT_CONCURRENCY,
+            "duration": DEFAULT_DURATION_SECS,
+            "start": DEFAULT_START_CONCURRENCY,
+            "target": DEFAULT_MAX_CONCURRENCY,
+            "ramp": DEFAULT_RAMP_SECS,
+            "hold": DEFAULT_HOLD_SECS,
+            "baseline": DEFAULT_BASELINE,
+            "peak": DEFAULT_PEAK_CONCURRENCY,
+            "pre_spike": DEFAULT_PRE_SPIKE_SECS,
+            "spike_duration": DEFAULT_SPIKE_SECS,
+            "post_spike": DEFAULT_POST_SPIKE_SECS,
+        }
+        for cmd in (load, stress, spike):
+            params = inspect.signature(cmd).parameters
+            for name, default in profile_defaults.items():
+                if name in params:
+                    assert params[name].default == default, (
+                        f"{cmd.__name__}.{name} default {params[name].default!r} "
+                        f"!= constant {default!r}"
+                    )
+            for name, param in params.items():
+                if name in ro_defaults and name not in self._PARSE_LAYER:
+                    assert param.default == ro_defaults[name], (
+                        f"{cmd.__name__}.{name} default {param.default!r} "
+                        f"!= RequestOptions.{name} {ro_defaults[name]!r}"
+                    )
+
+
+class TestRequestFieldAllowlist:
+    """_REQUEST_FIELDS must stay in lock-step with the builder and commands.
+
+    Each subcommand feeds ``locals()`` through the allowlist into
+    _build_request_options; a renamed or new option missing from the set is
+    silently replaced by the builder default.
+    """
+
+    def test_allowlist_matches_builder_kwargs(self):
+        import inspect
+
+        from strobengine.cli_options import _REQUEST_FIELDS, _build_request_options
+
+        builder_params = set(inspect.signature(_build_request_options).parameters)
+        allowlist = set(_REQUEST_FIELDS)
+        assert allowlist == builder_params, (
+            f"allowlist-only: {allowlist - builder_params} "
+            f"builder-only: {builder_params - allowlist}"
+        )
+
+    def test_every_command_exposes_allowlisted_fields(self):
+        import inspect
+
+        from strobengine.cli import load, spike, stress
+        from strobengine.cli_options import _REQUEST_FIELDS
+
+        allowlist = set(_REQUEST_FIELDS)
+        for cmd in (load, stress, spike):
+            cmd_params = set(inspect.signature(cmd).parameters)
+            missing = allowlist - cmd_params
+            assert not missing, (
+                f"{cmd.__name__} dropped allowlisted option(s) {missing}; the "
+                "locals() splat would silently fall back to builder defaults"
+            )

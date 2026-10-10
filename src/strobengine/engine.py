@@ -16,14 +16,19 @@ from strobengine.constants import (
     DEFAULT_CONCURRENCY,
     DEFAULT_DURATION_SECS,
     DEFAULT_HOLD_SECS,
+    DEFAULT_HTTP3_MIGRATE_EVERY,
     DEFAULT_MAX_CONCURRENCY,
+    DEFAULT_METHOD,
     DEFAULT_PEAK_CONCURRENCY,
     DEFAULT_POST_SPIKE_SECS,
     DEFAULT_PRE_SPIKE_SECS,
     DEFAULT_RAMP_SECS,
     DEFAULT_SPIKE_SECS,
     DEFAULT_START_CONCURRENCY,
+    DEFAULT_SYS_SAMPLE_INTERVAL_MS,
     DEFAULT_TIMEOUT_SECS,
+    DEFAULT_WS_BACKPRESSURE_WARN_RATIO,
+    DEFAULT_WS_MAX_BUFFER_BYTES,
     MAX_CONCURRENCY,
 )
 
@@ -49,7 +54,7 @@ class RequestOptions:
     chaos: bool = False
     chaos_rate: float = 0.1
     no_progress: bool = False
-    method: str = "GET"
+    method: str = DEFAULT_METHOD
     body: str | None = None
     form: list[tuple[str, str]] | None = None
     headers: list[tuple[str, str]] | None = None
@@ -73,12 +78,12 @@ class RequestOptions:
     sse_max_events: int | None = None
     output_dir: str | None = None
     no_save: bool = False
-    sys_sample_interval: int = 1000
-    ws_max_buffer_bytes: int = 1_048_576
-    ws_backpressure_warn_ratio: float = 0.8
+    sys_sample_interval: int = DEFAULT_SYS_SAMPLE_INTERVAL_MS
+    ws_max_buffer_bytes: int = DEFAULT_WS_MAX_BUFFER_BYTES
+    ws_backpressure_warn_ratio: float = DEFAULT_WS_BACKPRESSURE_WARN_RATIO
     grpc_h2_multiplex: bool = False
     http3_migrate: bool = False
-    http3_migrate_every: int = 50
+    http3_migrate_every: int = DEFAULT_HTTP3_MIGRATE_EVERY
 
     def __post_init__(self) -> None:
         if self.timeout <= 0:
