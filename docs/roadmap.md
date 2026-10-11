@@ -145,6 +145,81 @@ This document outlines the planned trajectory and upcoming feature epics for **s
   - [x] Zero-RTT connection testing and loss recovery benchmarking. `[v0.4.0] - 2026-08-23`
 - [x] **Server-Sent Events (SSE / HTTP Streaming)** `[v0.5.0]`
   - [x] Persistent HTTP streaming response parsing (Time-to-First-Byte, chunk latency, LLM stream benchmarking). `[v0.5.0]`
+- [ ] **GraphQL Benchmarking**
+  - [ ] **Queries & Mutations**: Benchmark execution performance, complex nested
+    query resolution, and payload sizes over standard HTTP.
+  - [ ] **Subscriptions**: Real-time event streaming and subscription load
+    testing over WebSockets.
+
+---
+
+### Epic: Distributed Load Testing
+*Target Focus: Multi-Node Coordination & High-Scale Concurrency*
+
+- [ ] **Distributed Runner Architecture**
+  - [ ] **Master-Worker Coordination**: Orchestrate multi-node load test runs
+    from a central controller node to generate massive traffic loads beyond
+    single-machine thread/socket limits.
+  - [ ] **Aggregated Telemetry Sync**: Real-time metric synchronization, health
+    checks, and unified final reporting from distributed worker nodes.
+
+---
+
+## Reporting, Storage & Analytics
+
+### Epic: Advanced HTML Visual Reports & SLO Compliance
+*Target Focus: Executive Summaries, Timeline Telemetry & Diagnostic Visibility*
+
+- [ ] **Timeline & Trend Visualization**
+  - [ ] **RPS & Latency Over Time Charts**: Dual-axis or synchronized timeline
+    graphs tracking Requests per Second (RPS) alongside P50/P95/P99 latency
+    trends to spot warm-up phases, throttling, or performance degradation
+    mid-test.
+- [ ] **SLO & Threshold Validation**
+  - [ ] **Pass/Fail Status Banner**: Configurable Service Level Objective (SLO)
+    thresholds (e.g., P95 latency < 50ms, Error Rate < 0.1%) rendered as an
+    instant pass/fail badge at the top of the report.
+- [ ] **Deep-Dive Statistics & Diagnostics**
+  - [ ] **Detailed Latency Summary Table**: Comprehensive statistical breakdown
+    listing exact values for Min, Mean, P50, P90, P95, P99, P99.9, and Max.
+  - [ ] **Error Breakdown Section**: Dedicated error classification block
+    tracking specific failure modes (timeouts, connection resets, or HTTP 5xx
+    status code subgroups) for easier debugging.
+- [ ] **Export & Sharing Ergonomics**
+  - [ ] **Print-Friendly CSS & Actions**: Embedded print styles and a "Print to
+    PDF" button for seamless archiving, sharing in pull requests, or inclusion
+    in technical documentation.
+
+---
+
+## Enterprise Integration & Data Protocols
+
+### Epic: Enterprise Services & Messaging
+*Target Focus: Legacy Web Services & Enterprise Messaging*
+
+- [ ] **SOAP Web Services**
+  - [ ] SOAP client integration and XML payload performance benchmarking.
+- [ ] **JMS (Java Message Service)**
+  - [ ] Enterprise messaging queue throughput and message broker benchmarking.
+
+### Epic: Data Stores & Directory Services
+*Target Focus: Relational, NoSQL, and Directory Systems*
+
+- [ ] **Database via JDBC**
+  - [ ] Standard relational database (SQL) connection pooling and query load testing.
+- [ ] **MongoDB**
+  - [ ] NoSQL document storage ingestion and read/write performance benchmarking.
+- [ ] **LDAP (Directory Services)**
+  - [ ] Directory lookup, authentication, and authorization benchmarking.
+
+### Epic: Communication & Automation
+*Target Focus: Mail Protocols & Local Execution*
+
+- [ ] **Mail Protocols**
+  - [ ] **SMTP(S)**: Email delivery throughput and concurrency benchmarking.
+  - [ ] **POP3(S) & IMAP(S)**: Email retrieval, mailbox monitoring, and storage load testing.
+- [ ] **Native Commands & Shell Scripts**
+  - [ ] Local system command execution and shell script automation benchmarking.
 
 ---
 
