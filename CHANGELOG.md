@@ -4,6 +4,55 @@ All notable changes to `strobengine` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.1] - 2026-10-11
+
+### Bug Fixes
+
+- Align pyi and cli types with runtime contracts
+- *(grpc)* Map tonic status codes and handle h2 trailers fallback
+- *(http3)* Wire quic zero-rtt, fix corrupted payload double-send, async dns, and ipv6 authority parsing
+- *(config)* Add TestConfig validation and clamp chaos engine rate
+- *(ws)* Clear websocket session write sink on feed/flush failure
+- *(grpc_h2)* Replace OnceCell with Mutex to allow reconnects on failure
+- *(report)* Mirror rust artifact schema in fallback builder
+- *(pyi)* Mark rust get-only metric fields read-only in stub
+- *(pyi)* Make TestConfig ws_mode init param non-optional
+- *(report)* Replace ESM Chart.js bundle with UMD build
+- *(cli)* Guard request-field allowlist against silent drops
+
+### Documentation
+
+- Document pyright checks and roadmap completion
+- Update CLI, http3, and websocket docs regarding flag implementations
+- *(reports)* Document optional artifact sections as omitted
+- Update project roadmap with GraphQL, distributed testing, and enterprise protocols
+
+### Features
+
+- *(report)* Add ReportArtifactDict typed contract
+
+### Miscellaneous Tasks
+
+- Add pyright dev dependency and config
+- Run pyright in pre-push checks and workflow
+- *(flags)* Add warnings for unsupported flags and prune dead reflection code
+
+### Refactoring
+
+- Annotate remaining untyped python signatures
+- *(report)* Dedupe rich/plain summary sections via shared row model
+- *(report)* Replace summary getattr defaults with direct attribute access
+- *(report)* Type report config boundary with SupportsCliOptions protocol
+- *(report)* Type baseline comparison with TypedDict
+- *(report)* Drop dead duration_secs and url threading
+- *(cli)* Single-source CLI defaults via RequestOptions
+
+### Testing
+
+- *(report)* Add rust-fallback artifact parity coverage
+- *(pyi)* Add stub-vs-rust fidelity coverage
+- *(report)* Guard report boundaries against getattr and dict drift
+- *(report)* Guard chart asset against ESM syntax
 ## [0.8.0] - 2026-10-06
 
 ### Bug Fixes
@@ -42,6 +91,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - *(metrics)* Add Http3Metrics congestion-window and migration gauge
 - *(http3)* Sample QUIC cwnd and add opt-in connection migration
 - *(report)* Render HTTP/3 deep metrics in CLI and HTML
+
+### Miscellaneous Tasks
+
+- *(release)* Bump version to 0.8.0
 
 ### Performance
 
