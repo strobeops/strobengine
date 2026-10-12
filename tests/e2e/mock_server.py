@@ -138,6 +138,31 @@ async def handle_sse(request: web.Request) -> web.StreamResponse:
     return response
 
 
+async def handle_graphql(request: web.Request) -> web.Response:
+    """Minimal GraphQL endpoint: returns a data payload echoing the operation."""
+    try:
+        body = await request.json()
+    except ValueError:
+        return web.json_response(
+            {"errors": [{"message": "request body must be JSON"}]},
+            status=400,
+        )
+    query = str(body.get("query", ""))
+    if not query.strip():
+        return web.json_response(
+            {"errors": [{"message": "Must provide query string"}]},
+            status=400,
+        )
+    if "mutation" in query.split("{", 1)[0]:
+        return web.json_response({"data": {"incremented": 1}})
+    return web.json_response({"data": {"ok": True}})
+
+
+async def handle_graphql_errors(request: web.Request) -> web.Response:
+    """GraphQL endpoint returning HTTP 200 with a top-level errors array."""
+    return web.json_response({"data": None, "errors": [{"message": "boom"}]})
+
+
 def create_app() -> web.Application:
     app = web.Application()
     app[LAST_ECHO_KEY] = {}
@@ -152,4 +177,6 @@ def create_app() -> web.Application:
     app.router.add_get("/ws/discard", handle_ws_discard)
     app.router.add_get("/ws/broadcast", handle_broadcast)
     app.router.add_get("/sse", handle_sse)
+    app.router.add_route("*", "/graphql", handle_graphql)
+    app.router.add_route("*", "/graphql/errors", handle_graphql_errors)
     return app
