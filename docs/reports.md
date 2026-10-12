@@ -49,6 +49,7 @@ These flags appear on all three subcommands (`load`, `stress`, `spike`):
 | `websocket` | `pings_sent_total`, `pings_received_total`, `pongs_solicited_total`, `pongs_unsolicited_total`, `backpressure_max_bytes`, `backpressure_mean_bytes`, `backpressure_threshold_breaches` *(WebSocket runs with heartbeat/write activity only)* |
 | `grpc` | `active_streams_peak`, `concurrency_utilization_peak`, `concurrency_utilization_mean`, `window_exhaustion_events_total`, `window_stall_duration_ms_total`, `send_capacity_min_bytes` *(multiplexed raw-h2 gRPC runs only)* |
 | `http3` | `cwnd_bytes_current`, `cwnd_bytes_min`, `cwnd_bytes_max`, `cwnd_bytes_mean`, `migrations_attempted_total`, `migrations_successful_total`, `migration_success_rate` *(HTTP/3 runs; migration counters require `--http3-migrate`)* |
+| `graphql` | `operations_total`, `error_responses_total`, `errors_total`, `operation_type` *(GraphQL runs only)* |
 | `chaos_faults` | `injected_total`, `by_type` *(chaos-enabled runs only)* |
 | `system_metrics` | `summary` (peak/avg CPU, memory MB, threads), `samples` (time series) *(when `--sys-sample-interval > 0`)* |
 | `connection_pool` | `socket_creation_rate`, `socket_reuse_rate`, `dns_lookup_ms` *(when requests > 0)* |
@@ -56,7 +57,7 @@ These flags appear on all three subcommands (`load`, `stress`, `spike`):
 All latency values are stored in **microseconds**.
 
 Optional sections listed above (`quic`, `sse`, `websocket`, `grpc`, `http3`,
-`chaos_faults`, `system_metrics`, `connection_pool`,
+`graphql`, `chaos_faults`, `system_metrics`, `connection_pool`,
 `avg_connection_latency_us`) are **omitted entirely** when they do not apply —
 they are never written as `null`. Fields *inside* a section may still be
 `null` (e.g. `cli_options.body` when no body was sent).

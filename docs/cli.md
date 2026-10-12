@@ -46,6 +46,9 @@ By default, this spawns **10 concurrent workers** for **10 seconds** with a **10
 | `--quic-max-idle-timeout` | none | QUIC max idle timeout in ms |
 | `--sse/--no-sse` | off | Enable SSE streaming mode |
 | `--sse-max-events` | none | Maximum events to receive per connection |
+| `--graphql-query` | none | GraphQL query/mutation document (sent as an HTTP POST) |
+| `--graphql-variables` | none | JSON object of GraphQL variables |
+| `--graphql-operation-name` | none | Named GraphQL operation to execute |
 | `--sys-sample-interval` | `1000` | Resource monitor sample interval in ms (0 to disable) |
 
 ## Stress Subcommand Options
@@ -82,6 +85,9 @@ By default, this spawns **10 concurrent workers** for **10 seconds** with a **10
 | `--quic-max-idle-timeout` | none | QUIC max idle timeout in ms |
 | `--sse/--no-sse` | off | Enable SSE streaming mode |
 | `--sse-max-events` | none | Maximum events to receive per connection |
+| `--graphql-query` | none | GraphQL query/mutation document (sent as an HTTP POST) |
+| `--graphql-variables` | none | JSON object of GraphQL variables |
+| `--graphql-operation-name` | none | Named GraphQL operation to execute |
 | `--sys-sample-interval` | `1000` | Resource monitor sample interval in ms (0 to disable) |
 
 ## Spike Subcommand Options
@@ -119,6 +125,9 @@ By default, this spawns **10 concurrent workers** for **10 seconds** with a **10
 | `--quic-max-idle-timeout` | none | QUIC max idle timeout in ms |
 | `--sse/--no-sse` | off | Enable SSE streaming mode |
 | `--sse-max-events` | none | Maximum events to receive per connection |
+| `--graphql-query` | none | GraphQL query/mutation document (sent as an HTTP POST) |
+| `--graphql-variables` | none | JSON object of GraphQL variables |
+| `--graphql-operation-name` | none | Named GraphQL operation to execute |
 | `--sys-sample-interval` | `1000` | Resource monitor sample interval in ms (0 to disable) |
 
 ## Global Options

@@ -146,7 +146,7 @@ This document outlines the planned trajectory and upcoming feature epics for **s
 - [x] **Server-Sent Events (SSE / HTTP Streaming)** `[v0.5.0]`
   - [x] Persistent HTTP streaming response parsing (Time-to-First-Byte, chunk latency, LLM stream benchmarking). `[v0.5.0]`
 - [ ] **GraphQL Benchmarking**
-  - [ ] **Queries & Mutations**: Benchmark execution performance, complex nested
+  - [x] **Queries & Mutations**: Benchmark execution performance, complex nested
     query resolution, and payload sizes over standard HTTP.
   - [ ] **Subscriptions**: Real-time event streaming and subscription load
     testing over WebSockets.
