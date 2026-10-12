@@ -76,6 +76,9 @@ class RequestOptions:
     quic_max_idle_timeout_ms: int | None = None
     sse_enabled: bool = False
     sse_max_events: int | None = None
+    graphql_query: str | None = None
+    graphql_variables: str | None = None
+    graphql_operation_name: str | None = None
     output_dir: str | None = None
     no_save: bool = False
     sys_sample_interval: int = DEFAULT_SYS_SAMPLE_INTERVAL_MS
@@ -124,6 +127,9 @@ def _build_test_config(
         quic_max_idle_timeout_ms=opts.quic_max_idle_timeout_ms,
         sse_enabled=opts.sse_enabled,
         sse_max_events=opts.sse_max_events,
+        graphql_query=opts.graphql_query,
+        graphql_variables=opts.graphql_variables,
+        graphql_operation_name=opts.graphql_operation_name,
         output_dir=opts.output_dir,
         no_save=opts.no_save,
         sys_sample_interval=opts.sys_sample_interval,

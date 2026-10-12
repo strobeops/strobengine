@@ -273,3 +273,54 @@ class TestConcurrencyLimitFFI:
         profile = LoadProfile.constant(concurrency=10001, duration_secs=1)
         with pytest.raises(ValueError, match="concurrency must be between 1 and 10000"):
             run_load_profiles(config, profile)
+
+
+class TestGraphqlConfigValidation:
+    def test_graphql_query_cannot_combine_with_body(self):
+        with pytest.raises(ValueError, match="cannot be combined with body or form"):
+            _TestConfig(
+                url="http://127.0.0.1:1",
+                concurrency=1,
+                duration_secs=1,
+                graphql_query="{ x }",
+                body="{}",
+            )
+
+    def test_graphql_variables_require_query(self):
+        with pytest.raises(ValueError, match="require graphql_query"):
+            _TestConfig(
+                url="http://127.0.0.1:1",
+                concurrency=1,
+                duration_secs=1,
+                graphql_variables='{"id": 1}',
+            )
+
+    def test_graphql_variables_must_be_json_object(self):
+        with pytest.raises(ValueError, match="must be a JSON object"):
+            _TestConfig(
+                url="http://127.0.0.1:1",
+                concurrency=1,
+                duration_secs=1,
+                graphql_query="{ x }",
+                graphql_variables="[1, 2]",
+            )
+
+    def test_graphql_query_must_not_be_empty(self):
+        with pytest.raises(ValueError, match="must not be empty"):
+            _TestConfig(
+                url="http://127.0.0.1:1",
+                concurrency=1,
+                duration_secs=1,
+                graphql_query="   ",
+            )
+
+    def test_valid_graphql_query_is_accepted(self):
+        config = _TestConfig(
+            url="http://127.0.0.1:1",
+            concurrency=1,
+            duration_secs=1,
+            graphql_query="query { x }",
+            graphql_variables='{"id": 1}',
+            graphql_operation_name="Q",
+        )
+        assert config.graphql_query == "query { x }"

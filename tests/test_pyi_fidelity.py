@@ -29,6 +29,7 @@ _RUST_SOURCES = [
 _LIB_RS = _ROOT / "src" / "lib.rs"
 
 _EXPECTED_FIDELITY_CLASSES = {
+    "GraphqlMetrics",
     "GrpcMetrics",
     "Http3Metrics",
     "QuicMetrics",

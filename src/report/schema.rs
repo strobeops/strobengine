@@ -3,7 +3,9 @@ use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 
 use crate::chaos::ChaosMetrics;
-use crate::metrics::{GrpcMetrics, Http3Metrics, QuicMetrics, SseMetrics, WebsocketMetrics};
+use crate::metrics::{
+    GraphqlMetrics, GrpcMetrics, Http3Metrics, QuicMetrics, SseMetrics, WebsocketMetrics,
+};
 
 /// Top-level report artifact persisted to disk after each load test.
 // NOTE: This struct is mirrored in Python as `build_artifact_dict` in `src/strobengine/reporter.py`.
@@ -26,6 +28,8 @@ pub struct ReportArtifact {
     pub grpc: Option<GrpcMetrics>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub http3: Option<Http3Metrics>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub graphql: Option<GraphqlMetrics>,
     #[serde(rename = "chaos_faults", skip_serializing_if = "Option::is_none")]
     pub chaos: Option<ChaosMetrics>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -238,6 +242,7 @@ impl ReportArtifact {
             websocket: summary.ws.clone(),
             grpc: summary.grpc.clone(),
             http3: summary.http3.clone(),
+            graphql: summary.graphql.clone(),
             chaos: if summary.chaos_injected_total > 0 {
                 Some(ChaosMetrics {
                     total_injected: summary.chaos_injected_total,
@@ -321,6 +326,7 @@ mod tests {
             websocket: None,
             grpc: None,
             http3: None,
+            graphql: None,
             chaos: None,
             latency_histogram: Some(std::collections::HashMap::new()),
             system_metrics: None,
@@ -443,6 +449,7 @@ mod tests {
             "websocket",
             "grpc",
             "http3",
+            "graphql",
             "chaos_faults",
             "system_metrics",
             "connection_pool",
@@ -465,6 +472,7 @@ mod tests {
         full.websocket = Some(crate::metrics::WebsocketMetrics::default());
         full.grpc = Some(crate::metrics::GrpcMetrics::default());
         full.http3 = Some(crate::metrics::Http3Metrics::default());
+        full.graphql = Some(crate::metrics::GraphqlMetrics::default());
         full.chaos = Some(ChaosMetrics {
             total_injected: 1,
             faults_by_type: std::collections::HashMap::new(),
@@ -665,6 +673,7 @@ mod tests {
             ws: None,
             grpc: None,
             http3: None,
+            graphql: None,
             chaos_injected_total: 0,
             chaos_faults_by_type: std::collections::HashMap::new(),
             std_dev_latency_ms: 0.0,
@@ -705,6 +714,9 @@ mod tests {
             false,
             None,
             false,
+            None,
+            None,
+            None,
             None,
             None,
             false,
@@ -787,6 +799,7 @@ mod tests {
             ws: None,
             grpc: None,
             http3: None,
+            graphql: None,
             chaos_injected_total: 0,
             chaos_faults_by_type: std::collections::HashMap::new(),
             std_dev_latency_ms: 0.0,
@@ -827,6 +840,9 @@ mod tests {
             false,
             None,
             false,
+            None,
+            None,
+            None,
             None,
             None,
             false,

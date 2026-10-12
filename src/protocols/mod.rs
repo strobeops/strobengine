@@ -1,3 +1,4 @@
+pub mod graphql;
 pub mod grpc;
 pub mod grpc_h2;
 pub mod grpc_parser;

@@ -61,6 +61,9 @@ class TestConfig:
     quic_max_idle_timeout_ms: int | None
     sse_enabled: bool
     sse_max_events: int | None
+    graphql_query: str | None
+    graphql_variables: str | None
+    graphql_operation_name: str | None
     output_dir: str | None
     no_save: bool
     sys_sample_interval: int
@@ -101,6 +104,9 @@ class TestConfig:
         quic_max_idle_timeout_ms: int | None = None,
         sse_enabled: bool = False,
         sse_max_events: int | None = None,
+        graphql_query: str | None = None,
+        graphql_variables: str | None = None,
+        graphql_operation_name: str | None = None,
         output_dir: str | None = None,
         no_save: bool = False,
         sys_sample_interval: int = 1000,
@@ -150,6 +156,16 @@ class SseMetrics:
     def total_events_received(self) -> int: ...
     @property
     def avg_ttfb_ms(self) -> float | None: ...
+
+class GraphqlMetrics:
+    @property
+    def operations_total(self) -> int: ...
+    @property
+    def error_responses_total(self) -> int: ...
+    @property
+    def errors_total(self) -> int: ...
+    @property
+    def operation_type(self) -> str: ...
 
 class WebsocketMetrics:
     @property
@@ -242,6 +258,8 @@ class TestSummary:
     def grpc(self) -> GrpcMetrics | None: ...
     @property
     def http3(self) -> Http3Metrics | None: ...
+    @property
+    def graphql(self) -> GraphqlMetrics | None: ...
     @property
     def chaos_injected_total(self) -> int: ...
     @property

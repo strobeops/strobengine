@@ -22,6 +22,7 @@ import sys
 from typing import cast
 
 from strobengine._strobengine import (
+    GraphqlMetrics,
     GrpcMetrics,
     Http3Metrics,
     QuicMetrics,
@@ -33,6 +34,7 @@ from strobengine._strobengine import (
 from strobengine.report_schema import (
     CliOptionsDict,
     ConnectionPoolDict,
+    GraphqlMetricsDict,
     GrpcMetricsDict,
     Http3MetricsDict,
     QuicMetricsDict,
@@ -196,6 +198,19 @@ def _format_http3(summary: TestSummary) -> Http3MetricsDict | None:
     }
 
 
+def _format_graphql(summary: TestSummary) -> GraphqlMetricsDict | None:
+    """Extract GraphQL operation/error metrics into a JSON-native dict."""
+    g = summary.graphql
+    if g is None or not isinstance(g, GraphqlMetrics):
+        return None
+    return {
+        "operations_total": g.operations_total,
+        "error_responses_total": g.error_responses_total,
+        "errors_total": g.errors_total,
+        "operation_type": g.operation_type,
+    }
+
+
 def _build_artifact_dict_fallback(
     summary: TestSummary, config: SupportsCliOptions
 ) -> ReportArtifactDict:
@@ -278,6 +293,10 @@ def _build_artifact_dict_fallback(
     http3 = _format_http3(summary)
     if http3 is not None:
         artifact["http3"] = http3
+
+    graphql = _format_graphql(summary)
+    if graphql is not None:
+        artifact["graphql"] = graphql
 
     chaos_total = summary.chaos_injected_total
     if chaos_total:

@@ -202,7 +202,10 @@ fn spawn_worker(
                 .fetch_add(metric.latency_micros as u64, Ordering::Relaxed);
             counters.latency_count.fetch_add(1, Ordering::Relaxed);
 
-            if metric.status_code == 0 || metric.status_code >= 400 {
+            if metric.status_code == 0
+                || metric.status_code >= 400
+                || metric.graphql_errors.is_some_and(|n| n > 0)
+            {
                 counters.errors.fetch_add(1, Ordering::Relaxed);
             }
 
@@ -227,6 +230,7 @@ async fn execute_test(
     strategy: ConcurrencyStrategy,
     timeout_secs: u64,
     sys_sample_interval: u64,
+    graphql_operation_type: Option<&'static str>,
 ) -> PyResult<metrics::TestSummary> {
     tracing::debug!("protocol engine initialized");
 
@@ -452,6 +456,13 @@ async fn execute_test(
         Vec::new()
     };
 
+    // Stamp the run's GraphQL operation type (constant per run) onto the
+    // aggregated section; the aggregator itself is protocol-agnostic.
+    let mut graphql_metrics = aggregated.graphql_metrics;
+    if let Some(m) = graphql_metrics.as_mut() {
+        m.operation_type = graphql_operation_type.unwrap_or("query").to_string();
+    }
+
     Ok(metrics::calculate_summary(metrics::SummaryInput {
         url,
         total_requests: total,
@@ -468,6 +479,7 @@ async fn execute_test(
         ws_metrics: aggregated.ws_metrics,
         grpc_metrics: aggregated.grpc_metrics,
         http3_metrics: aggregated.http3_metrics,
+        graphql_metrics,
         chaos_injected_total: aggregated.chaos_injected_total,
         chaos_faults_by_type: aggregated.chaos_faults_by_type,
         resource_samples,
@@ -486,6 +498,28 @@ fn build_engine(
     pool_size: usize,
 ) -> PyResult<Arc<dyn ProtocolEngine>> {
     let url = config.url.clone();
+
+    // GraphQL is an HTTP POST: select it whenever a query document is configured.
+    if let Some(query) = config.graphql_query.as_deref() {
+        let payload = protocols::graphql::build_payload(
+            query,
+            config.graphql_variables.as_deref(),
+            config.graphql_operation_name.as_deref(),
+        )
+        .map_err(pyo3::exceptions::PyValueError::new_err)?;
+
+        let mut header_map = parse_headers(config.headers.as_deref())?;
+        header_map
+            .entry(CONTENT_TYPE)
+            .or_insert(HeaderValue::from_static("application/json"));
+
+        let client = build_client(pool_size, config.timeout_secs, header_map)
+            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
+        return Ok(Arc::new(protocols::graphql::GraphqlEngine::new(
+            client, payload, chaos,
+        )));
+    }
+
     if protocols::is_protocol_url(&url) || config.sse_enabled {
         protocols::detect_protocol(&url, config, chaos)
             .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))
@@ -550,6 +584,10 @@ fn run_load_test(py: Python<'_>, config: TestConfig) -> PyResult<metrics::TestSu
             concurrency: config.concurrency,
             duration_secs: config.duration_secs,
         };
+        let graphql_operation_type = config
+            .graphql_query
+            .as_deref()
+            .map(protocols::graphql::parse_operation_type);
 
         let rt = tokio::runtime::Builder::new_multi_thread()
             .enable_all()
@@ -563,6 +601,7 @@ fn run_load_test(py: Python<'_>, config: TestConfig) -> PyResult<metrics::TestSu
             strategy,
             config.timeout_secs,
             config.sys_sample_interval,
+            graphql_operation_type,
         ))
     })
 }
@@ -580,6 +619,10 @@ fn run_load_profiles(
         let engine = build_engine(&config, chaos, profile.max_concurrency())?;
 
         let strategy = ConcurrencyStrategy::Dynamic { profile };
+        let graphql_operation_type = config
+            .graphql_query
+            .as_deref()
+            .map(protocols::graphql::parse_operation_type);
 
         let rt = tokio::runtime::Builder::new_multi_thread()
             .enable_all()
@@ -593,6 +636,7 @@ fn run_load_profiles(
             strategy,
             config.timeout_secs,
             config.sys_sample_interval,
+            graphql_operation_type,
         ))
     })
 }
@@ -630,6 +674,7 @@ fn _strobengine(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<metrics::WebsocketMetrics>()?;
     m.add_class::<metrics::GrpcMetrics>()?;
     m.add_class::<metrics::Http3Metrics>()?;
+    m.add_class::<metrics::GraphqlMetrics>()?;
     m.add_class::<metrics::system::SystemMetrics>()?;
     m.add_class::<metrics::system::ResourceSample>()?;
     m.add("HISTOGRAM_BUCKET_ORDER", metrics::HISTOGRAM_BUCKET_ORDER)?;
