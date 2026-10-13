@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 from jinja2 import Environment, FileSystemLoader
@@ -99,6 +100,19 @@ def render_html_report(
     http3 = artifact.get("http3")
     slo = artifact.get("slo")
 
+    timeline = artifact.get("timeline")
+    timeline_ctx = None
+    if timeline is not None and timeline["samples"]:
+        samples = timeline["samples"]
+        timeline_ctx = {
+            "labels": json.dumps([f"{s['elapsed_sec']:.1f}" for s in samples]),
+            "rps": json.dumps([round(s["rps"], 2) for s in samples]),
+            "error_rate": json.dumps([round(s["error_rate"], 3) for s in samples]),
+            "p50": json.dumps([us_to_ms(s["p50_us"]) for s in samples]),
+            "p95": json.dumps([us_to_ms(s["p95_us"]) for s in samples]),
+            "p99": json.dumps([us_to_ms(s["p99_us"]) for s in samples]),
+        }
+
     return _HTML_TEMPLATE.render(
         metadata=artifact["metadata"],
         summary=artifact["summary"],
@@ -110,6 +124,7 @@ def render_html_report(
         error_codes=error_codes,
         comparison=comparison,
         slo=slo,
+        timeline=timeline_ctx,
         system_metrics=system_metrics,
         websocket=websocket,
         grpc=grpc,

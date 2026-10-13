@@ -108,6 +108,13 @@
     </table>
   </div>
 
+{% if timeline %}
+  <div class="card" style="margin-bottom: 1.5rem;">
+    <h2>Throughput &amp; Latency Over Time</h2>
+    <canvas id="timelineChart"></canvas>
+  </div>
+{% endif %}
+
 {% if system_metrics and system_metrics.samples %}
   <div class="card" style="margin-bottom: 1.5rem;">
     <h2>Client Resource Footprint</h2>
@@ -288,6 +295,41 @@
       plugins: { legend: { position: 'bottom', labels: { color: '#94a3b8' } } }
     }
   });
+{% if timeline %}
+  var ctxT = document.getElementById('timelineChart');
+  if (ctxT) {
+    new Chart(ctxT.getContext('2d'), {
+      type: 'line',
+      data: {
+        labels: {{ timeline.labels | safe }},
+        datasets: [
+          { label: 'RPS', data: {{ timeline.rps | safe }}, borderColor: '#22d3ee', backgroundColor: 'rgba(34,211,238,0.1)', yAxisID: 'yRps', tension: 0.2, fill: true },
+          { label: 'P50 (ms)', data: {{ timeline.p50 | safe }}, borderColor: '#38bdf8', yAxisID: 'yLat', tension: 0.2, pointRadius: 0 },
+          { label: 'P95 (ms)', data: {{ timeline.p95 | safe }}, borderColor: '#818cf8', yAxisID: 'yLat', tension: 0.2, pointRadius: 0 },
+          { label: 'P99 (ms)', data: {{ timeline.p99 | safe }}, borderColor: '#a78bfa', yAxisID: 'yLat', tension: 0.2, pointRadius: 0 }
+        ]
+      },
+      options: {
+        responsive: true,
+        interaction: { mode: 'index', intersect: false },
+        plugins: { legend: { labels: { color: '#94a3b8' } } },
+        scales: {
+          x: { grid: { color: '#334155' }, ticks: { color: '#94a3b8' }, title: { display: true, text: 'elapsed (s)', color: '#94a3b8' } },
+          yRps: {
+            type: 'linear', position: 'left',
+            title: { display: true, text: 'RPS', color: '#22d3ee' },
+            grid: { color: '#334155' }, ticks: { color: '#94a3b8' }, suggestedMin: 0
+          },
+          yLat: {
+            type: 'linear', position: 'right',
+            title: { display: true, text: 'Latency (ms)', color: '#a78bfa' },
+            grid: { drawOnChartArea: false }, ticks: { color: '#94a3b8' }, suggestedMin: 0
+          }
+        }
+      }
+    });
+  }
+{% endif %}
 {% if system_metrics and system_metrics.samples %}
   var ctxRes = document.getElementById('resourceChart');
   if (ctxRes) {

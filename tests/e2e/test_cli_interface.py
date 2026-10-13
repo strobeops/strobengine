@@ -184,6 +184,77 @@ class TestHtmlReport:
         assert "Error Breakdown" in html
 
 
+class TestTimelineCli:
+    def test_timeline_json_export(self, cli_bin: str, mock_server: str):
+        result = _run_cli(
+            cli_bin,
+            [
+                "load",
+                f"{mock_server}/status/200",
+                "-c",
+                "2",
+                "-d",
+                "3",
+                "--timeline-interval",
+                "500",
+                "--json",
+                "--no-progress",
+            ],
+        )
+        assert result.returncode == 0, f"Process failed with stderr:\n{result.stderr}"
+        data = json.loads(result.stdout)
+        assert data["timeline"]["interval_ms"] == 500
+        assert len(data["timeline"]["samples"]) > 0
+        sample = data["timeline"]["samples"][0]
+        assert sample["rps"] >= 0
+        assert sample["p95_us"] >= 0
+
+    def test_timeline_chart_present(
+        self, cli_bin: str, mock_server: str, tmp_path: Path
+    ):
+        report = tmp_path / "timeline.html"
+        result = _run_cli(
+            cli_bin,
+            [
+                "load",
+                f"{mock_server}/status/200",
+                "-c",
+                "2",
+                "-d",
+                "3",
+                "--timeline-interval",
+                "500",
+                "--no-progress",
+                "--html",
+                str(report),
+            ],
+        )
+        assert result.returncode == 0, f"Process failed with stderr:\n{result.stderr}"
+        html = report.read_text()
+        assert "Throughput &amp; Latency Over Time" in html
+        assert "timelineChart" in html
+
+    def test_timeline_disabled(self, cli_bin: str, mock_server: str):
+        result = _run_cli(
+            cli_bin,
+            [
+                "load",
+                f"{mock_server}/status/200",
+                "-c",
+                "2",
+                "-d",
+                "2",
+                "--timeline-interval",
+                "0",
+                "--json",
+                "--no-progress",
+            ],
+        )
+        assert result.returncode == 0, f"Process failed with stderr:\n{result.stderr}"
+        data = json.loads(result.stdout)
+        assert data["timeline"] is None
+
+
 class TestSloCli:
     def test_slo_pass_badge(self, cli_bin: str, mock_server: str, tmp_path: Path):
         report = tmp_path / "pass.html"

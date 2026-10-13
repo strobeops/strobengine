@@ -35,6 +35,8 @@ pub struct ReportArtifact {
     pub graphql_ws: Option<GraphqlWsMetrics>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub slo: Option<SloResult>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub timeline: Option<crate::metrics::Timeline>,
     #[serde(rename = "chaos_faults", skip_serializing_if = "Option::is_none")]
     pub chaos: Option<ChaosMetrics>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -338,6 +340,7 @@ impl ReportArtifact {
             graphql: summary.graphql.clone(),
             graphql_ws: summary.graphql_ws.clone(),
             slo,
+            timeline: summary.timeline.clone(),
             chaos: if summary.chaos_injected_total > 0 {
                 Some(ChaosMetrics {
                     total_injected: summary.chaos_injected_total,
@@ -458,6 +461,7 @@ mod tests {
             graphql: None,
             graphql_ws: None,
             slo: None,
+            timeline: None,
             chaos: None,
             latency_histogram: Some(std::collections::HashMap::new()),
             system_metrics: None,
@@ -583,6 +587,7 @@ mod tests {
             "graphql",
             "graphql_ws",
             "slo",
+            "timeline",
             "chaos_faults",
             "system_metrics",
             "connection_pool",
@@ -610,6 +615,10 @@ mod tests {
         full.slo = Some(SloResult {
             passed: true,
             checks: Vec::new(),
+        });
+        full.timeline = Some(crate::metrics::Timeline {
+            interval_ms: 1000,
+            samples: Vec::new(),
         });
         full.chaos = Some(ChaosMetrics {
             total_injected: 1,
@@ -813,6 +822,7 @@ mod tests {
             http3: None,
             graphql: None,
             graphql_ws: None,
+            timeline: None,
             chaos_injected_total: 0,
             chaos_faults_by_type: std::collections::HashMap::new(),
             std_dev_latency_ms: 0.0,
@@ -869,6 +879,7 @@ mod tests {
             None,
             None,
             None,
+            1000u64,
         )
         .unwrap();
 
@@ -944,6 +955,7 @@ mod tests {
             http3: None,
             graphql: None,
             graphql_ws: None,
+            timeline: None,
             chaos_injected_total: 0,
             chaos_faults_by_type: std::collections::HashMap::new(),
             std_dev_latency_ms: 0.0,
@@ -1000,6 +1012,7 @@ mod tests {
             None,
             None,
             None,
+            1000u64,
         )
         .unwrap();
 

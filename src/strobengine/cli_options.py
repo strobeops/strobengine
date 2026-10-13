@@ -245,6 +245,14 @@ SloMinRpsOpt = Annotated[
     float | None,
     typer.Option("--slo-min-rps", help="Fail the run if RPS falls below this"),
 ]
+TimelineIntervalOpt = Annotated[
+    int,
+    typer.Option(
+        "--timeline-interval",
+        min=0,
+        help="Sample interval for the RPS/latency timeline in ms (0 to disable)",
+    ),
+]
 HtmlOpt = Annotated[
     str | None,
     typer.Option("--html", help="Generate standalone HTML report"),
@@ -358,6 +366,7 @@ _REQUEST_FIELDS = frozenset(
         "slo_p99_ms",
         "slo_error_rate",
         "slo_min_rps",
+        "timeline_interval_ms",
     }
 )
 
@@ -449,6 +458,7 @@ def _build_request_options(
     slo_p99_ms: float | None = RequestOptions.slo_p99_ms,
     slo_error_rate: float | None = RequestOptions.slo_error_rate,
     slo_min_rps: float | None = RequestOptions.slo_min_rps,
+    timeline_interval_ms: int = RequestOptions.timeline_interval_ms,
 ) -> RequestOptions:
     """Assemble a typed ``RequestOptions`` from the parsed CLI option values.
 
@@ -497,4 +507,5 @@ def _build_request_options(
         slo_p99_ms=slo_p99_ms,
         slo_error_rate=slo_error_rate,
         slo_min_rps=slo_min_rps,
+        timeline_interval_ms=timeline_interval_ms,
     )

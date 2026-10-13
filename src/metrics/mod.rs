@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, AtomicUsize};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 pub mod system;
 
@@ -32,6 +32,7 @@ pub struct AggregatedMetrics {
     pub http3_metrics: Option<Http3Metrics>,
     pub graphql_metrics: Option<GraphqlMetrics>,
     pub graphql_ws_metrics: Option<GraphqlWsMetrics>,
+    pub timeline: Option<Timeline>,
     pub chaos_injected_total: u64,
     pub chaos_faults_by_type: HashMap<String, u64>,
     pub total_sockets_created: u64,
@@ -67,6 +68,7 @@ impl Default for AggregatedMetrics {
             http3_metrics: None,
             graphql_metrics: None,
             graphql_ws_metrics: None,
+            timeline: None,
             chaos_injected_total: 0,
             chaos_faults_by_type: HashMap::new(),
             total_sockets_created: 0,
@@ -195,6 +197,16 @@ impl RequestMetric {
     /// disabled, rate not met, or a failure before fault selection).
     pub fn error(latency_micros: u128, chaos_fault: Option<crate::chaos::ChaosFault>) -> Self {
         Self::builder(latency_micros, chaos_fault).build()
+    }
+
+    /// Whether this iteration counts as a failure, using the same rules the
+    /// worker applies: transport error (status 0), HTTP >= 400, or a GraphQL
+    /// logical error (HTTP or WebSocket).
+    pub fn is_error(&self) -> bool {
+        self.status_code == 0
+            || self.status_code >= 400
+            || self.graphql_errors.is_some_and(|n| n > 0)
+            || self.graphql_ws_errors.is_some_and(|n| n > 0)
     }
 }
 
@@ -382,6 +394,34 @@ pub struct GraphqlWsMetrics {
     pub interval_p90_ms: f64,
     #[pyo3(get)]
     pub interval_p99_ms: f64,
+}
+
+/// One timeline sample: throughput and latency over a single interval.
+#[pyclass(from_py_object)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct TimelineSample {
+    #[pyo3(get)]
+    pub elapsed_sec: f64,
+    #[pyo3(get)]
+    pub rps: f64,
+    #[pyo3(get)]
+    pub error_rate: f64,
+    #[pyo3(get)]
+    pub p50_us: f64,
+    #[pyo3(get)]
+    pub p95_us: f64,
+    #[pyo3(get)]
+    pub p99_us: f64,
+}
+
+/// Time series of throughput/latency samples captured during a run.
+#[pyclass(from_py_object)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct Timeline {
+    #[pyo3(get)]
+    pub interval_ms: u64,
+    #[pyo3(get)]
+    pub samples: Vec<TimelineSample>,
 }
 
 /// Aggregated WebSocket heartbeat and write-buffer telemetry.
@@ -597,6 +637,8 @@ pub struct TestSummary {
     #[pyo3(get)]
     pub graphql_ws: Option<GraphqlWsMetrics>,
     #[pyo3(get)]
+    pub timeline: Option<Timeline>,
+    #[pyo3(get)]
     pub chaos_injected_total: u64,
     #[pyo3(get)]
     pub chaos_faults_by_type: HashMap<String, u64>,
@@ -718,6 +760,7 @@ pub struct SummaryInput {
     pub http3_metrics: Option<Http3Metrics>,
     pub graphql_metrics: Option<GraphqlMetrics>,
     pub graphql_ws_metrics: Option<GraphqlWsMetrics>,
+    pub timeline: Option<Timeline>,
     pub chaos_injected_total: u64,
     pub chaos_faults_by_type: HashMap<String, u64>,
     pub resource_samples: Vec<system::ResourceSample>,
@@ -727,9 +770,40 @@ pub struct SummaryInput {
     pub dns_resolution_count: u64,
 }
 
+/// Build one timeline sample from an interval's counters and histogram.
+fn make_timeline_sample(
+    elapsed_sec: f64,
+    requests: u64,
+    errors: u64,
+    interval_secs: f64,
+    histogram: &Histogram<u64>,
+) -> TimelineSample {
+    let rps = if interval_secs > 0.0 {
+        requests as f64 / interval_secs
+    } else {
+        0.0
+    };
+    let error_rate = if requests > 0 {
+        errors as f64 / requests as f64 * 100.0
+    } else {
+        0.0
+    };
+    TimelineSample {
+        elapsed_sec,
+        rps,
+        error_rate,
+        p50_us: histogram.value_at_quantile(0.50) as f64,
+        p95_us: histogram.value_at_quantile(0.95) as f64,
+        p99_us: histogram.value_at_quantile(0.99) as f64,
+    }
+}
+
 /// Finalize metric aggregation from a receiver channel.
 /// Returns aggregated metrics using fixed-memory HDR Histograms.
-pub async fn finalize_metrics(mut rx: mpsc::Receiver<RequestMetric>) -> AggregatedMetrics {
+pub async fn finalize_metrics(
+    mut rx: mpsc::Receiver<RequestMetric>,
+    timeline_interval_ms: u64,
+) -> AggregatedMetrics {
     let mut metrics = AggregatedMetrics::default();
     let mut quic_stats = QuicMetrics::default();
     let mut sse_stats = SseMetrics::default();
@@ -763,11 +837,28 @@ pub async fn finalize_metrics(mut rx: mpsc::Receiver<RequestMetric>) -> Aggregat
     let mut quic_handshake_count: u64 = 0;
     let mut sse_first_event_sum_us: u64 = 0;
     let mut sse_first_event_count: u64 = 0;
+    let timeline_enabled = timeline_interval_ms > 0;
+    let timeline_sample_interval = Duration::from_millis(timeline_interval_ms.max(1));
+    let run_start = Instant::now();
+    let mut last_sample_at = Instant::now();
+    let mut timeline_samples: Vec<TimelineSample> = Vec::new();
+    let mut interval_histogram =
+        Histogram::new_with_max(HISTOGRAM_HIGHEST_TRACKABLE, HISTOGRAM_SIGNIFICANT_FIGURES)
+            .expect("valid histogram bounds");
+    let mut interval_requests: u64 = 0;
+    let mut interval_errors: u64 = 0;
 
     while let Some(metric) = rx.recv().await {
         // Record latencies into fixed-memory histograms (safe u128->u64 clamping)
         let lat = u64::try_from(metric.latency_micros).unwrap_or(u64::MAX);
         metrics.latency_histogram.saturating_record(lat);
+        if timeline_enabled {
+            interval_histogram.saturating_record(lat);
+            interval_requests += 1;
+            if metric.is_error() {
+                interval_errors += 1;
+            }
+        }
 
         if let Some(e2e) = metric.connection.e2e_latency_us {
             let v = u64::try_from(e2e).unwrap_or(u64::MAX);
@@ -913,6 +1004,40 @@ pub async fn finalize_metrics(mut rx: mpsc::Receiver<RequestMetric>) -> Aggregat
 
         *metrics.status_codes.entry(metric.status_code).or_insert(0) += 1;
         metrics.total_bytes += metric.bytes_received;
+
+        if timeline_enabled && last_sample_at.elapsed() >= timeline_sample_interval {
+            if interval_requests > 0 {
+                timeline_samples.push(make_timeline_sample(
+                    run_start.elapsed().as_secs_f64(),
+                    interval_requests,
+                    interval_errors,
+                    last_sample_at.elapsed().as_secs_f64(),
+                    &interval_histogram,
+                ));
+            }
+            interval_histogram =
+                Histogram::new_with_max(HISTOGRAM_HIGHEST_TRACKABLE, HISTOGRAM_SIGNIFICANT_FIGURES)
+                    .expect("valid histogram bounds");
+            interval_requests = 0;
+            interval_errors = 0;
+            last_sample_at = Instant::now();
+        }
+    }
+
+    if timeline_enabled && interval_requests > 0 {
+        timeline_samples.push(make_timeline_sample(
+            run_start.elapsed().as_secs_f64(),
+            interval_requests,
+            interval_errors,
+            last_sample_at.elapsed().as_secs_f64().max(1e-9),
+            &interval_histogram,
+        ));
+    }
+    if timeline_enabled && !timeline_samples.is_empty() {
+        metrics.timeline = Some(Timeline {
+            interval_ms: timeline_interval_ms,
+            samples: timeline_samples,
+        });
     }
 
     // Compute QUIC avg handshake via O(1) running counters
@@ -1071,6 +1196,7 @@ pub fn calculate_summary(input: SummaryInput) -> TestSummary {
             http3: input.http3_metrics,
             graphql: input.graphql_metrics,
             graphql_ws: input.graphql_ws_metrics,
+            timeline: input.timeline,
             chaos_injected_total: input.chaos_injected_total,
             chaos_faults_by_type: input.chaos_faults_by_type,
             std_dev_latency_ms: 0.0,
@@ -1123,6 +1249,7 @@ pub fn calculate_summary(input: SummaryInput) -> TestSummary {
         http3: input.http3_metrics,
         graphql: input.graphql_metrics,
         graphql_ws: input.graphql_ws_metrics,
+        timeline: input.timeline,
         chaos_injected_total: input.chaos_injected_total,
         chaos_faults_by_type: input.chaos_faults_by_type,
         std_dev_latency_ms,
@@ -1189,6 +1316,7 @@ mod tests {
             http3_metrics: None,
             graphql_metrics: None,
             graphql_ws_metrics: None,
+            timeline: None,
             chaos_injected_total: 0,
             chaos_faults_by_type: HashMap::new(),
             resource_samples: Vec::new(),
@@ -1229,6 +1357,7 @@ mod tests {
             http3_metrics: None,
             graphql_metrics: None,
             graphql_ws_metrics: None,
+            timeline: None,
             chaos_injected_total: 0,
             chaos_faults_by_type: HashMap::new(),
             resource_samples: Vec::new(),
@@ -1270,6 +1399,7 @@ mod tests {
             http3_metrics: None,
             graphql_metrics: None,
             graphql_ws_metrics: None,
+            timeline: None,
             chaos_injected_total: 0,
             chaos_faults_by_type: HashMap::new(),
             resource_samples: Vec::new(),
@@ -1306,6 +1436,7 @@ mod tests {
             http3_metrics: None,
             graphql_metrics: None,
             graphql_ws_metrics: None,
+            timeline: None,
             chaos_injected_total: 0,
             chaos_faults_by_type: HashMap::new(),
             resource_samples: Vec::new(),
@@ -1343,6 +1474,7 @@ mod tests {
             http3_metrics: None,
             graphql_metrics: None,
             graphql_ws_metrics: None,
+            timeline: None,
             chaos_injected_total: 0,
             chaos_faults_by_type: HashMap::new(),
             resource_samples: Vec::new(),
@@ -1375,6 +1507,7 @@ mod tests {
             http3_metrics: None,
             graphql_metrics: None,
             graphql_ws_metrics: None,
+            timeline: None,
             chaos_injected_total: 0,
             chaos_faults_by_type: HashMap::new(),
             resource_samples: Vec::new(),
@@ -1406,6 +1539,7 @@ mod tests {
             http3_metrics: None,
             graphql_metrics: None,
             graphql_ws_metrics: None,
+            timeline: None,
             chaos_injected_total: 0,
             chaos_faults_by_type: HashMap::new(),
             resource_samples: Vec::new(),
@@ -1443,6 +1577,7 @@ mod tests {
             http3_metrics: None,
             graphql_metrics: None,
             graphql_ws_metrics: None,
+            timeline: None,
             chaos_injected_total: 0,
             chaos_faults_by_type: HashMap::new(),
             resource_samples: Vec::new(),
@@ -1482,6 +1617,7 @@ mod tests {
             http3_metrics: None,
             graphql_metrics: None,
             graphql_ws_metrics: None,
+            timeline: None,
             chaos_injected_total: 0,
             chaos_faults_by_type: HashMap::new(),
             resource_samples: Vec::new(),
@@ -1531,6 +1667,7 @@ mod tests {
             http3_metrics: None,
             graphql_metrics: None,
             graphql_ws_metrics: None,
+            timeline: None,
             chaos_injected_total: 0,
             chaos_faults_by_type: HashMap::new(),
             resource_samples: Vec::new(),
@@ -1578,7 +1715,7 @@ mod tests {
         tx.send(third).await.unwrap();
 
         drop(tx);
-        let agg = finalize_metrics(rx).await;
+        let agg = finalize_metrics(rx, 0).await;
 
         let ws = agg
             .ws_metrics
@@ -1624,7 +1761,7 @@ mod tests {
         tx.send(third).await.unwrap();
 
         drop(tx);
-        let agg = finalize_metrics(rx).await;
+        let agg = finalize_metrics(rx, 0).await;
         let grpc = agg
             .grpc_metrics
             .expect("grpc metrics present after significant samples");
@@ -1656,7 +1793,7 @@ mod tests {
         tx.send(none).await.unwrap();
         drop(tx);
 
-        let agg = finalize_metrics(rx).await;
+        let agg = finalize_metrics(rx, 0).await;
         let h = agg.http3_metrics.expect("http3 metrics present");
         // current = last significant sample (4000); min/max/mean over 2000,1000,4000.
         assert_eq!(h.cwnd_bytes_current, 4000);
@@ -1695,7 +1832,7 @@ mod tests {
         tx.send(RequestMetric::error(1000, None)).await.unwrap();
         drop(tx);
 
-        let agg = finalize_metrics(rx).await;
+        let agg = finalize_metrics(rx, 0).await;
         assert_eq!(agg.chaos_injected_total, 3);
         assert_eq!(agg.chaos_faults_by_type.get("ConnectionDrop"), Some(&2));
         assert_eq!(agg.chaos_faults_by_type.get("LatencySpike"), Some(&1));
@@ -1713,7 +1850,7 @@ mod tests {
         });
         tx.send(m).await.unwrap();
         drop(tx);
-        let agg = finalize_metrics(rx).await;
+        let agg = finalize_metrics(rx, 0).await;
         let h = agg.http3_metrics.expect("http3 present via cwnd");
         assert_eq!(h.migrations_attempted_total, 0);
         // Zero migrations attempted => trivially successful (1.0 sentinel).
@@ -1740,6 +1877,7 @@ mod tests {
             http3_metrics: None,
             graphql_metrics: None,
             graphql_ws_metrics: None,
+            timeline: None,
             chaos_injected_total: 0,
             chaos_faults_by_type: HashMap::new(),
             resource_samples: Vec::new(),
@@ -1777,6 +1915,7 @@ mod tests {
             http3_metrics: None,
             graphql_metrics: None,
             graphql_ws_metrics: None,
+            timeline: None,
             chaos_injected_total: 0,
             chaos_faults_by_type: HashMap::new(),
             resource_samples: Vec::new(),
@@ -1830,6 +1969,7 @@ mod tests {
             http3_metrics: None,
             graphql_metrics: None,
             graphql_ws_metrics: None,
+            timeline: None,
             chaos_injected_total: 0,
             chaos_faults_by_type: HashMap::new(),
             resource_samples: Vec::new(),
@@ -1863,6 +2003,7 @@ mod tests {
             http3_metrics: None,
             graphql_metrics: None,
             graphql_ws_metrics: None,
+            timeline: None,
             chaos_injected_total: 0,
             chaos_faults_by_type: HashMap::new(),
             resource_samples: Vec::new(),
@@ -1897,6 +2038,7 @@ mod tests {
             http3_metrics: None,
             graphql_metrics: None,
             graphql_ws_metrics: None,
+            timeline: None,
             chaos_injected_total: 0,
             chaos_faults_by_type: HashMap::new(),
             resource_samples: Vec::new(),
@@ -1928,6 +2070,7 @@ mod tests {
             http3_metrics: None,
             graphql_metrics: None,
             graphql_ws_metrics: None,
+            timeline: None,
             chaos_injected_total: 0,
             chaos_faults_by_type: HashMap::new(),
             resource_samples: Vec::new(),
@@ -1960,6 +2103,7 @@ mod tests {
             http3_metrics: None,
             graphql_metrics: None,
             graphql_ws_metrics: None,
+            timeline: None,
             chaos_injected_total: 0,
             chaos_faults_by_type: HashMap::new(),
             resource_samples: Vec::new(),
@@ -1991,6 +2135,7 @@ mod tests {
             http3_metrics: None,
             graphql_metrics: None,
             graphql_ws_metrics: None,
+            timeline: None,
             chaos_injected_total: 0,
             chaos_faults_by_type: HashMap::new(),
             resource_samples: Vec::new(),
@@ -2022,6 +2167,7 @@ mod tests {
             http3_metrics: None,
             graphql_metrics: None,
             graphql_ws_metrics: None,
+            timeline: None,
             chaos_injected_total: 0,
             chaos_faults_by_type: HashMap::new(),
             resource_samples: Vec::new(),
@@ -2054,6 +2200,7 @@ mod tests {
             http3_metrics: None,
             graphql_metrics: None,
             graphql_ws_metrics: None,
+            timeline: None,
             chaos_injected_total: 0,
             chaos_faults_by_type: HashMap::new(),
             resource_samples: Vec::new(),
@@ -2085,6 +2232,7 @@ mod tests {
             http3_metrics: None,
             graphql_metrics: None,
             graphql_ws_metrics: None,
+            timeline: None,
             chaos_injected_total: 0,
             chaos_faults_by_type: HashMap::new(),
             resource_samples: Vec::new(),
@@ -2094,5 +2242,37 @@ mod tests {
             dns_resolution_count: 0,
         });
         assert_eq!(s.avg_dns_resolution_ms, 0.0);
+    }
+
+    #[tokio::test]
+    async fn timeline_samples_are_emitted_when_enabled() {
+        let (tx, rx) = mpsc::channel(16);
+        for _ in 0..3 {
+            tx.send(RequestMetric::builder(1_000, None).status(200).build())
+                .await
+                .unwrap();
+        }
+        drop(tx);
+
+        let agg = finalize_metrics(rx, 1).await;
+
+        let timeline = agg.timeline.expect("timeline present when enabled");
+        assert_eq!(timeline.interval_ms, 1);
+        assert!(!timeline.samples.is_empty());
+        let last = timeline.samples.last().unwrap();
+        assert!(last.rps >= 0.0);
+        assert!(last.error_rate >= 0.0);
+    }
+
+    #[tokio::test]
+    async fn timeline_is_none_when_disabled() {
+        let (tx, rx) = mpsc::channel(4);
+        tx.send(RequestMetric::builder(1_000, None).status(200).build())
+            .await
+            .unwrap();
+        drop(tx);
+
+        let agg = finalize_metrics(rx, 0).await;
+        assert!(agg.timeline.is_none());
     }
 }

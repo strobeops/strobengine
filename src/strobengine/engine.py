@@ -91,6 +91,7 @@ class RequestOptions:
     slo_p99_ms: float | None = None
     slo_error_rate: float | None = None
     slo_min_rps: float | None = None
+    timeline_interval_ms: int = 1000
 
     def __post_init__(self) -> None:
         if self.timeout <= 0:
@@ -146,6 +147,7 @@ def _build_test_config(
         slo_p99_ms=opts.slo_p99_ms,
         slo_error_rate=opts.slo_error_rate,
         slo_min_rps=opts.slo_min_rps,
+        timeline_interval_ms=opts.timeline_interval_ms,
     )
 
 

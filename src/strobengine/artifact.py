@@ -30,6 +30,7 @@ from strobengine._strobengine import (
     SseMetrics,
     SystemMetrics,
     TestSummary,
+    Timeline,
     WebsocketMetrics,
 )
 from strobengine.report_schema import (
@@ -47,6 +48,7 @@ from strobengine.report_schema import (
     SupportsCliOptions,
     SystemInfoDict,
     SystemMetricsDict,
+    TimelineDict,
     WebsocketMetricsDict,
 )
 
@@ -235,6 +237,27 @@ def _format_graphql_ws(summary: TestSummary) -> GraphqlWsMetricsDict | None:
     }
 
 
+def _format_timeline(summary: TestSummary) -> TimelineDict | None:
+    """Extract the RPS/latency timeline into a JSON-native dict."""
+    timeline = summary.timeline
+    if timeline is None or not isinstance(timeline, Timeline):
+        return None
+    return {
+        "interval_ms": timeline.interval_ms,
+        "samples": [
+            {
+                "elapsed_sec": s.elapsed_sec,
+                "rps": s.rps,
+                "error_rate": s.error_rate,
+                "p50_us": s.p50_us,
+                "p95_us": s.p95_us,
+                "p99_us": s.p99_us,
+            }
+            for s in timeline.samples
+        ],
+    }
+
+
 def _optional_float(value: object) -> float | None:
     """Return `value` when it is a real number, else None.
 
@@ -386,6 +409,10 @@ def _build_artifact_dict_fallback(
     slo = _evaluate_slo(summary, config, rps)
     if slo is not None:
         artifact["slo"] = slo
+
+    timeline = _format_timeline(summary)
+    if timeline is not None:
+        artifact["timeline"] = timeline
 
     chaos_total = summary.chaos_injected_total
     if chaos_total:

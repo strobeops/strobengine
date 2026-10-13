@@ -39,6 +39,8 @@ _EXPECTED_FIDELITY_CLASSES = {
     "SystemMetrics",
     "TestConfig",
     "TestSummary",
+    "Timeline",
+    "TimelineSample",
     "WebsocketMetrics",
 }
 

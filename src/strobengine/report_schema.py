@@ -198,6 +198,20 @@ class SloResultDict(TypedDict):
     checks: list[SloCheckDict]
 
 
+class TimelineSampleDict(TypedDict):
+    elapsed_sec: float
+    rps: float
+    error_rate: float
+    p50_us: float
+    p95_us: float
+    p99_us: float
+
+
+class TimelineDict(TypedDict):
+    interval_ms: int
+    samples: list[TimelineSampleDict]
+
+
 class ReportArtifactDict(TypedDict):
     """Top-level report artifact persisted to disk after each load test.
 
@@ -219,6 +233,7 @@ class ReportArtifactDict(TypedDict):
     graphql: NotRequired[GraphqlMetricsDict]
     graphql_ws: NotRequired[GraphqlWsMetricsDict]
     slo: NotRequired[SloResultDict]
+    timeline: NotRequired[TimelineDict]
     chaos_faults: NotRequired[ChaosFaultsDict]
     system_metrics: NotRequired[SystemMetricsDict]
     connection_pool: NotRequired[ConnectionPoolDict]

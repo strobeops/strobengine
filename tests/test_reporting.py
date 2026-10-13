@@ -994,3 +994,62 @@ class TestSlo:
     def test_html_no_slo_banner_without_thresholds(self):
         html = render_html_report(_make_summary(), _make_config())
         assert 'class="slo-banner' not in html
+
+
+class _FakeTimelineSample:
+    elapsed_sec = 1.0
+    rps = 120.5
+    error_rate = 0.0
+    p50_us = 1000.0
+    p95_us = 2500.0
+    p99_us = 4000.0
+
+
+class _FakeTimeline:
+    interval_ms = 1000
+    samples = (_FakeTimelineSample(),)
+
+
+class TestTimeline:
+    def test_artifact_omits_timeline_when_absent(self):
+        artifact = build_artifact_dict(_make_summary(), _make_config())
+        assert "timeline" not in artifact
+
+    def test_artifact_includes_timeline_when_present(self, monkeypatch):
+        import strobengine.artifact as artifact
+
+        monkeypatch.setattr(artifact, "Timeline", _FakeTimeline)
+        summary = _make_summary()
+        summary.timeline = _FakeTimeline()
+
+        result = build_artifact_dict(summary, _make_config())
+        assert result["timeline"] == {
+            "interval_ms": 1000,
+            "samples": [
+                {
+                    "elapsed_sec": 1.0,
+                    "rps": 120.5,
+                    "error_rate": 0.0,
+                    "p50_us": 1000.0,
+                    "p95_us": 2500.0,
+                    "p99_us": 4000.0,
+                }
+            ],
+        }
+
+    def test_html_renders_timeline_chart(self, monkeypatch):
+        import strobengine.artifact as artifact
+
+        monkeypatch.setattr(artifact, "Timeline", _FakeTimeline)
+        summary = _make_summary()
+        summary.timeline = _FakeTimeline()
+
+        html = render_html_report(summary, _make_config())
+        assert "Throughput &amp; Latency Over Time" in html
+        assert "timelineChart" in html
+        assert "yRps" in html
+        assert "yLat" in html
+
+    def test_html_omits_timeline_chart_when_absent(self):
+        html = render_html_report(_make_summary(), _make_config())
+        assert "timelineChart" not in html

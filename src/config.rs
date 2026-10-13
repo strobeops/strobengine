@@ -126,6 +126,8 @@ pub struct TestConfig {
     pub slo_error_rate: Option<f64>,
     #[pyo3(get, set)]
     pub slo_min_rps: Option<f64>,
+    #[pyo3(get, set)]
+    pub timeline_interval_ms: u64,
 }
 
 #[pymethods]
@@ -177,6 +179,7 @@ impl TestConfig {
         slo_p99_ms=None,
         slo_error_rate=None,
         slo_min_rps=None,
+        timeline_interval_ms=1000u64,
     ))]
     #[allow(clippy::too_many_arguments)]
     pub fn new(
@@ -225,6 +228,7 @@ impl TestConfig {
         slo_p99_ms: Option<f64>,
         slo_error_rate: Option<f64>,
         slo_min_rps: Option<f64>,
+        timeline_interval_ms: u64,
     ) -> PyResult<Self> {
         let config = Self {
             url,
@@ -272,6 +276,7 @@ impl TestConfig {
             slo_p99_ms,
             slo_error_rate,
             slo_min_rps,
+            timeline_interval_ms,
         };
         config.validate()?;
         Ok(config)
@@ -416,6 +421,7 @@ pub struct TestConfigBuilder {
     slo_p99_ms: Option<f64>,
     slo_error_rate: Option<f64>,
     slo_min_rps: Option<f64>,
+    timeline_interval_ms: u64,
 }
 
 impl Default for TestConfigBuilder {
@@ -466,6 +472,7 @@ impl Default for TestConfigBuilder {
             slo_p99_ms: None,
             slo_error_rate: None,
             slo_min_rps: None,
+            timeline_interval_ms: 1000,
         }
     }
 }
@@ -654,6 +661,10 @@ impl TestConfigBuilder {
         self.slo_min_rps = v;
         self
     }
+    pub fn timeline_interval_ms(mut self, v: u64) -> Self {
+        self.timeline_interval_ms = v;
+        self
+    }
 
     pub fn build(self) -> TestConfig {
         TestConfig {
@@ -702,6 +713,7 @@ impl TestConfigBuilder {
             slo_p99_ms: self.slo_p99_ms,
             slo_error_rate: self.slo_error_rate,
             slo_min_rps: self.slo_min_rps,
+            timeline_interval_ms: self.timeline_interval_ms,
         }
     }
 }
@@ -976,6 +988,7 @@ mod tests {
             None,
             None,
             None,
+            1000u64,
         )
         .unwrap();
         assert_eq!(c.url, "http://127.0.0.1:8080");
@@ -1032,6 +1045,7 @@ mod tests {
             None,
             None,
             None,
+            1000u64,
         )
         .unwrap();
         assert_eq!(c.concurrency, 50);
