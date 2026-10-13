@@ -170,23 +170,23 @@ This document outlines the planned trajectory and upcoming feature epics for **s
 ### Epic: Advanced HTML Visual Reports & SLO Compliance
 *Target Focus: Executive Summaries, Timeline Telemetry & Diagnostic Visibility*
 
-- [ ] **Timeline & Trend Visualization**
-  - [ ] **RPS & Latency Over Time Charts**: Dual-axis or synchronized timeline
+- [x] **Timeline & Trend Visualization**
+  - [x] **RPS & Latency Over Time Charts**: Dual-axis or synchronized timeline
     graphs tracking Requests per Second (RPS) alongside P50/P95/P99 latency
     trends to spot warm-up phases, throttling, or performance degradation
     mid-test.
-- [ ] **SLO & Threshold Validation**
-  - [ ] **Pass/Fail Status Banner**: Configurable Service Level Objective (SLO)
+- [x] **SLO & Threshold Validation**
+  - [x] **Pass/Fail Status Banner**: Configurable Service Level Objective (SLO)
     thresholds (e.g., P95 latency < 50ms, Error Rate < 0.1%) rendered as an
     instant pass/fail badge at the top of the report.
-- [ ] **Deep-Dive Statistics & Diagnostics**
-  - [ ] **Detailed Latency Summary Table**: Comprehensive statistical breakdown
+- [x] **Deep-Dive Statistics & Diagnostics**
+  - [x] **Detailed Latency Summary Table**: Comprehensive statistical breakdown
     listing exact values for Min, Mean, P50, P90, P95, P99, P99.9, and Max.
-  - [ ] **Error Breakdown Section**: Dedicated error classification block
+  - [x] **Error Breakdown Section**: Dedicated error classification block
     tracking specific failure modes (timeouts, connection resets, or HTTP 5xx
     status code subgroups) for easier debugging.
-- [ ] **Export & Sharing Ergonomics**
-  - [ ] **Print-Friendly CSS & Actions**: Embedded print styles and a "Print to
+- [x] **Export & Sharing Ergonomics**
+  - [x] **Print-Friendly CSS & Actions**: Embedded print styles and a "Print to
     PDF" button for seamless archiving, sharing in pull requests, or inclusion
     in technical documentation.
 
