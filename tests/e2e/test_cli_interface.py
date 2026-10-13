@@ -202,3 +202,26 @@ class TestGraphqlCli:
         assert data["graphql"]["operations_total"] > 0
         assert data["graphql"]["operation_type"] == "query"
         assert data["total_errors"] == 0
+
+    def test_graphql_subscription_json_output(self, cli_bin: str, mock_server: str):
+        ws_url = mock_server.replace("http://", "ws://") + "/graphql/ws"
+        result = _run_cli(
+            cli_bin,
+            [
+                "load",
+                ws_url,
+                "-c",
+                "2",
+                "-d",
+                "2",
+                "--graphql-query",
+                "subscription { ticks }",
+                "--json",
+                "--no-progress",
+            ],
+        )
+        assert result.returncode == 0, f"Process failed with stderr:\n{result.stderr}"
+        data = json.loads(result.stdout)
+        assert data["graphql_ws"]["operations_total"] > 0
+        assert data["graphql_ws"]["messages_total"] > 0
+        assert data["total_errors"] == 0

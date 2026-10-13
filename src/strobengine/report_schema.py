@@ -103,6 +103,20 @@ class GraphqlMetricsDict(TypedDict):
     operation_type: str
 
 
+class GraphqlWsMetricsDict(TypedDict):
+    operations_total: int
+    messages_total: int
+    errors_total: int
+    ttfm_mean_ms: float
+    ttfm_p50_ms: float
+    ttfm_p90_ms: float
+    ttfm_p99_ms: float
+    interval_mean_ms: float
+    interval_p50_ms: float
+    interval_p90_ms: float
+    interval_p99_ms: float
+
+
 class WebsocketMetricsDict(TypedDict):
     pings_sent_total: int
     pings_received_total: int
@@ -182,6 +196,7 @@ class ReportArtifactDict(TypedDict):
     grpc: NotRequired[GrpcMetricsDict]
     http3: NotRequired[Http3MetricsDict]
     graphql: NotRequired[GraphqlMetricsDict]
+    graphql_ws: NotRequired[GraphqlWsMetricsDict]
     chaos_faults: NotRequired[ChaosFaultsDict]
     system_metrics: NotRequired[SystemMetricsDict]
     connection_pool: NotRequired[ConnectionPoolDict]
