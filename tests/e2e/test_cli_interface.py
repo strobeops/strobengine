@@ -178,6 +178,10 @@ class TestHtmlReport:
         # At least one chart tick label from a non-empty samples[] array
         # (default --sys-sample-interval=1000 over -d 3 => samples at ~1.0s, ~2.0s).
         assert re.search(r"'\d+\.\d+s'", html)
+        # Deep-dive diagnostics: latency summary table + error breakdown card.
+        assert "Latency Summary" in html
+        assert "P99.9" in html
+        assert "Error Breakdown" in html
 
 
 class TestGraphqlCli:

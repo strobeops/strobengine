@@ -695,6 +695,40 @@ class TestHTMLReport:
         assert "4xx" in html
         assert "5xx" in html
 
+    def test_render_html_latency_summary_table(self):
+        html = render_html_report(_make_summary(), _make_config())
+        assert "Latency Summary" in html
+        for stat in (
+            "Min",
+            "Mean",
+            "P50",
+            "P90",
+            "P95",
+            "P99",
+            "P99.9",
+            "Max",
+            "Std Dev",
+        ):
+            assert stat in html
+
+    def test_render_html_error_breakdown_card(self):
+        summary = _make_summary(
+            total_errors=10, status_codes={200: 90, 404: 5, 500: 3, 0: 2}
+        )
+        html = render_html_report(summary, _make_config())
+        assert "Error Breakdown" in html
+        assert "Transport (status 0)" in html
+        assert "4xx Client" in html
+        assert "5xx Server" in html
+        # Failed codes are listed individually.
+        assert "<td>404</td>" in html
+        assert "<td>500</td>" in html
+
+    def test_render_html_error_breakdown_no_failures(self):
+        summary = _make_summary(total_errors=0, status_codes={200: 100})
+        html = render_html_report(summary, _make_config())
+        assert "No failed requests." in html
+
     def test_render_html_omits_websocket_section_when_absent(self):
         html = render_html_report(_make_summary(), _make_config())
         assert "WebSocket Deep Metrics" not in html

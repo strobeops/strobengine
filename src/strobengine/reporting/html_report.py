@@ -41,6 +41,18 @@ def render_html_report(
         "p95": us_to_ms(lp.get("p95_us")),
         "p99": us_to_ms(lp.get("p99_us")),
     }
+    # Full statistical breakdown for the deep-dive table.
+    latency_stats = {
+        "min": us_to_ms(lp.get("min_us")),
+        "mean": us_to_ms(lp.get("mean_us")),
+        "p50": latency_ms["p50"],
+        "p90": latency_ms["p90"],
+        "p95": latency_ms["p95"],
+        "p99": latency_ms["p99"],
+        "p99_99": us_to_ms(lp.get("p99_99_us")),
+        "max": us_to_ms(lp.get("max_us")),
+        "std_dev": us_to_ms(lp.get("std_dev_us")),
+    }
 
     # Group status codes by class
     status_groups = {"2xx": 0, "4xx": 0, "5xx": 0, "other": 0}
@@ -54,6 +66,26 @@ def render_html_report(
             status_groups["5xx"] += count
         else:
             status_groups["other"] += count
+
+    # Failure classification for the error-breakdown card. A status of 0 is a
+    # transport-level failure (timeout, reset, DNS); 4xx/5xx are HTTP failures.
+    error_classes = {"transport": 0, "4xx": 0, "5xx": 0, "other": 0}
+    error_codes = []
+    for code_str, count in artifact["error_breakdown"].items():
+        code = int(code_str) if code_str.isdigit() else 0
+        if code == 0:
+            error_classes["transport"] += count
+            error_codes.append((code_str, count))
+        elif 400 <= code < 500:
+            error_classes["4xx"] += count
+            error_codes.append((code_str, count))
+        elif 500 <= code < 600:
+            error_classes["5xx"] += count
+            error_codes.append((code_str, count))
+        elif code >= 400:
+            error_classes["other"] += count
+            error_codes.append((code_str, count))
+    error_codes.sort(key=lambda x: int(x[0]) if x[0].isdigit() else 0)
 
     # Sort status codes for display
     status_codes = sorted(
@@ -70,8 +102,11 @@ def render_html_report(
         metadata=artifact["metadata"],
         summary=artifact["summary"],
         latency=latency_ms,
+        latency_stats=latency_stats,
         status_groups=status_groups,
         status_codes=status_codes,
+        error_classes=error_classes,
+        error_codes=error_codes,
         comparison=comparison,
         system_metrics=system_metrics,
         websocket=websocket,
