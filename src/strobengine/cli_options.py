@@ -226,6 +226,25 @@ Http3MigrateEveryOpt = Annotated[
         help="Perform an HTTP/3 migration every N iterations on a persistent session",
     ),
 ]
+SloP95MsOpt = Annotated[
+    float | None,
+    typer.Option("--slo-p95-ms", help="Fail the run if P95 latency exceeds this (ms)"),
+]
+SloP99MsOpt = Annotated[
+    float | None,
+    typer.Option("--slo-p99-ms", help="Fail the run if P99 latency exceeds this (ms)"),
+]
+SloErrorRateOpt = Annotated[
+    float | None,
+    typer.Option(
+        "--slo-error-rate",
+        help="Fail the run if the error rate exceeds this (percent)",
+    ),
+]
+SloMinRpsOpt = Annotated[
+    float | None,
+    typer.Option("--slo-min-rps", help="Fail the run if RPS falls below this"),
+]
 HtmlOpt = Annotated[
     str | None,
     typer.Option("--html", help="Generate standalone HTML report"),
@@ -335,6 +354,10 @@ _REQUEST_FIELDS = frozenset(
         "grpc_h2_multiplex",
         "http3_migrate",
         "http3_migrate_every",
+        "slo_p95_ms",
+        "slo_p99_ms",
+        "slo_error_rate",
+        "slo_min_rps",
     }
 )
 
@@ -422,6 +445,10 @@ def _build_request_options(
     grpc_h2_multiplex: bool = RequestOptions.grpc_h2_multiplex,
     http3_migrate: bool = RequestOptions.http3_migrate,
     http3_migrate_every: int = RequestOptions.http3_migrate_every,
+    slo_p95_ms: float | None = RequestOptions.slo_p95_ms,
+    slo_p99_ms: float | None = RequestOptions.slo_p99_ms,
+    slo_error_rate: float | None = RequestOptions.slo_error_rate,
+    slo_min_rps: float | None = RequestOptions.slo_min_rps,
 ) -> RequestOptions:
     """Assemble a typed ``RequestOptions`` from the parsed CLI option values.
 
@@ -466,4 +493,8 @@ def _build_request_options(
         grpc_h2_multiplex=grpc_h2_multiplex,
         http3_migrate=http3_migrate,
         http3_migrate_every=http3_migrate_every,
+        slo_p95_ms=slo_p95_ms,
+        slo_p99_ms=slo_p99_ms,
+        slo_error_rate=slo_error_rate,
+        slo_min_rps=slo_min_rps,
     )

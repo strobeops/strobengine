@@ -324,3 +324,37 @@ class TestGraphqlConfigValidation:
             graphql_operation_name="Q",
         )
         assert config.graphql_query == "query { x }"
+
+
+class TestSloConfigValidation:
+    def test_negative_p95_rejected(self):
+        with pytest.raises(ValueError, match="slo_p95_ms must be a non-negative"):
+            _TestConfig(
+                url="http://127.0.0.1:1",
+                concurrency=1,
+                duration_secs=1,
+                slo_p95_ms=-1.0,
+            )
+
+    def test_error_rate_above_100_rejected(self):
+        with pytest.raises(
+            ValueError, match="slo_error_rate must be between 0 and 100"
+        ):
+            _TestConfig(
+                url="http://127.0.0.1:1",
+                concurrency=1,
+                duration_secs=1,
+                slo_error_rate=150.0,
+            )
+
+    def test_valid_slo_thresholds_accepted(self):
+        config = _TestConfig(
+            url="http://127.0.0.1:1",
+            concurrency=1,
+            duration_secs=1,
+            slo_p95_ms=50.0,
+            slo_error_rate=0.1,
+            slo_min_rps=100.0,
+        )
+        assert config.slo_p95_ms == 50.0
+        assert config.slo_error_rate == 0.1

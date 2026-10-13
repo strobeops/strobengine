@@ -184,6 +184,54 @@ class TestHtmlReport:
         assert "Error Breakdown" in html
 
 
+class TestSloCli:
+    def test_slo_pass_badge(self, cli_bin: str, mock_server: str, tmp_path: Path):
+        report = tmp_path / "pass.html"
+        result = _run_cli(
+            cli_bin,
+            [
+                "load",
+                f"{mock_server}/status/200",
+                "-c",
+                "2",
+                "-d",
+                "2",
+                "--slo-p95-ms",
+                "100000",
+                "--no-progress",
+                "--html",
+                str(report),
+            ],
+        )
+        assert result.returncode == 0, f"Process failed with stderr:\n{result.stderr}"
+        html = report.read_text()
+        assert 'class="slo-banner slo-pass"' in html
+        assert ">PASS<" in html
+
+    def test_slo_fail_badge(self, cli_bin: str, mock_server: str, tmp_path: Path):
+        report = tmp_path / "fail.html"
+        result = _run_cli(
+            cli_bin,
+            [
+                "load",
+                f"{mock_server}/status/200",
+                "-c",
+                "2",
+                "-d",
+                "2",
+                "--slo-p95-ms",
+                "0.0001",
+                "--no-progress",
+                "--html",
+                str(report),
+            ],
+        )
+        assert result.returncode == 0, f"Process failed with stderr:\n{result.stderr}"
+        html = report.read_text()
+        assert 'class="slo-banner slo-fail"' in html
+        assert ">FAIL<" in html
+
+
 class TestGraphqlCli:
     def test_graphql_query_json_output(self, cli_bin: str, mock_server: str):
         result = _run_cli(

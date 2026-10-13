@@ -72,6 +72,10 @@ class TestConfig:
     grpc_h2_multiplex: bool
     http3_migrate: bool
     http3_migrate_every: int
+    slo_p95_ms: float | None
+    slo_p99_ms: float | None
+    slo_error_rate: float | None
+    slo_min_rps: float | None
     def __init__(
         self,
         url: str,
@@ -115,6 +119,10 @@ class TestConfig:
         grpc_h2_multiplex: bool = False,
         http3_migrate: bool = False,
         http3_migrate_every: int = 50,
+        slo_p95_ms: float | None = None,
+        slo_p99_ms: float | None = None,
+        slo_error_rate: float | None = None,
+        slo_min_rps: float | None = None,
     ) -> None: ...
 
 class SystemMetrics:

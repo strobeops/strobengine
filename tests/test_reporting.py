@@ -949,3 +949,48 @@ def test_is_grpc_mapped():
     assert _is_grpc_mapped({499: 1, 200: 5})
     assert not _is_grpc_mapped({200: 1, 500: 1})
     assert not _is_grpc_mapped({})
+
+
+class TestSlo:
+    def test_artifact_includes_slo_when_configured(self):
+        config = _make_config(slo_p95_ms=1000.0, slo_error_rate=5.0)
+        artifact = build_artifact_dict(_make_summary(), config)
+        assert "slo" in artifact
+        assert artifact["slo"]["passed"] is True
+        assert {c["name"] for c in artifact["slo"]["checks"]} == {
+            "p95_latency_ms",
+            "error_rate_percent",
+        }
+
+    def test_artifact_omits_slo_without_thresholds(self):
+        artifact = build_artifact_dict(_make_summary(), _make_config())
+        assert "slo" not in artifact
+
+    def test_artifact_slo_fails_when_violated(self):
+        config = _make_config(slo_p95_ms=1.0)  # baseline p95 is 3.0 ms
+        artifact = build_artifact_dict(_make_summary(), config)
+        assert artifact["slo"]["passed"] is False
+        check = artifact["slo"]["checks"][0]
+        assert check["name"] == "p95_latency_ms"
+        assert check["comparator"] == "<="
+        assert check["passed"] is False
+
+    def test_slo_recorded_in_metadata_cli_options(self):
+        config = _make_config(slo_p99_ms=250.0)
+        artifact = build_artifact_dict(_make_summary(), config)
+        assert artifact["metadata"]["cli_options"]["slo_p99_ms"] == 250.0
+        assert artifact["metadata"]["cli_options"]["slo_p95_ms"] is None
+
+    def test_html_slo_badge_pass(self):
+        html = render_html_report(_make_summary(), _make_config(slo_p95_ms=1000.0))
+        assert "slo-pass" in html
+        assert ">PASS<" in html
+
+    def test_html_slo_badge_fail(self):
+        html = render_html_report(_make_summary(), _make_config(slo_p95_ms=1.0))
+        assert "slo-fail" in html
+        assert ">FAIL<" in html
+
+    def test_html_no_slo_banner_without_thresholds(self):
+        html = render_html_report(_make_summary(), _make_config())
+        assert 'class="slo-banner' not in html

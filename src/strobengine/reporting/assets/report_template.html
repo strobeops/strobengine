@@ -29,12 +29,34 @@
   .status-table td:last-child { text-align: right; font-variant-numeric: tabular-nums; }
   .fallback { color: #f87171; background: #1e293b; border-radius: 0.5rem; padding: 1rem; margin: 1rem 0; }
   .fallback pre { color: #e2e8f0; margin-top: 0.5rem; font-size: 0.875rem; }
+  .slo-banner { display: flex; flex-wrap: wrap; align-items: center; gap: 0.75rem;
+                border-radius: 0.75rem; padding: 1rem 1.25rem; margin-bottom: 1.5rem; }
+  .slo-pass { background: #052e16; border: 1px solid #22c55e; }
+  .slo-fail { background: #450a0a; border: 1px solid #ef4444; }
+  .slo-badge { font-weight: 700; letter-spacing: 0.05em; border-radius: 0.375rem;
+               padding: 0.25rem 0.75rem; color: #0f172a; }
+  .slo-pass .slo-badge { background: #22c55e; }
+  .slo-fail .slo-badge { background: #ef4444; color: #f8fafc; }
+  .slo-checks { list-style: none; display: flex; flex-wrap: wrap; gap: 0.75rem; width: 100%; }
+  .slo-checks li { font-size: 0.875rem; }
 </style>
 </head>
 <body>
 <div class="container">
   <h1>strobengine Load Test Report</h1>
   <p class="subtitle">{{ metadata.timestamp }}</p>
+
+{% if slo %}
+  <div class="slo-banner {{ 'slo-pass' if slo.passed else 'slo-fail' }}">
+    <span class="slo-badge">{{ 'PASS' if slo.passed else 'FAIL' }}</span>
+    <span class="meta-label">SLO thresholds</span>
+    <ul class="slo-checks">
+      {% for check in slo.checks %}
+      <li>{{ check.name }} {{ check.comparator }} {{ check.threshold }} (observed {{ check.observed }})</li>
+      {% endfor %}
+    </ul>
+  </div>
+{% endif %}
 
   <div class="grid">
     <div class="card">

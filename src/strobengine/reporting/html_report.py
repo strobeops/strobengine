@@ -97,6 +97,7 @@ def render_html_report(
     websocket = artifact.get("websocket")
     grpc = artifact.get("grpc")
     http3 = artifact.get("http3")
+    slo = artifact.get("slo")
 
     return _HTML_TEMPLATE.render(
         metadata=artifact["metadata"],
@@ -108,6 +109,7 @@ def render_html_report(
         error_classes=error_classes,
         error_codes=error_codes,
         comparison=comparison,
+        slo=slo,
         system_metrics=system_metrics,
         websocket=websocket,
         grpc=grpc,

@@ -87,6 +87,10 @@ class RequestOptions:
     grpc_h2_multiplex: bool = False
     http3_migrate: bool = False
     http3_migrate_every: int = DEFAULT_HTTP3_MIGRATE_EVERY
+    slo_p95_ms: float | None = None
+    slo_p99_ms: float | None = None
+    slo_error_rate: float | None = None
+    slo_min_rps: float | None = None
 
     def __post_init__(self) -> None:
         if self.timeout <= 0:
@@ -138,6 +142,10 @@ def _build_test_config(
         grpc_h2_multiplex=opts.grpc_h2_multiplex,
         http3_migrate=opts.http3_migrate,
         http3_migrate_every=opts.http3_migrate_every,
+        slo_p95_ms=opts.slo_p95_ms,
+        slo_p99_ms=opts.slo_p99_ms,
+        slo_error_rate=opts.slo_error_rate,
+        slo_min_rps=opts.slo_min_rps,
     )
 
 

@@ -41,6 +41,8 @@ from strobengine.report_schema import (
     Http3MetricsDict,
     QuicMetricsDict,
     ReportArtifactDict,
+    SloCheckDict,
+    SloResultDict,
     SseMetricsDict,
     SupportsCliOptions,
     SystemInfoDict,
@@ -233,6 +235,59 @@ def _format_graphql_ws(summary: TestSummary) -> GraphqlWsMetricsDict | None:
     }
 
 
+def _optional_float(value: object) -> float | None:
+    """Return `value` when it is a real number, else None.
+
+    Guards against unit-test config doubles (``Mock`` auto-attributes) being
+    treated as configured thresholds.
+    """
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    return float(value)
+
+
+def _evaluate_slo(
+    summary: TestSummary, config: SupportsCliOptions, rps: float
+) -> SloResultDict | None:
+    """Evaluate configured SLO thresholds, mirroring `schema.rs`."""
+    error_rate = (
+        summary.total_errors / summary.total_requests * 100.0
+        if summary.total_requests > 0
+        else 0.0
+    )
+    checks: list[SloCheckDict] = []
+
+    def add(name: str, observed: float, threshold: float, comparator: str) -> None:
+        passed = observed >= threshold if comparator == ">=" else observed <= threshold
+        checks.append(
+            {
+                "name": name,
+                "observed": observed,
+                "threshold": threshold,
+                "comparator": comparator,
+                "passed": passed,
+            }
+        )
+
+    p95 = _optional_float(config.slo_p95_ms)
+    p99 = _optional_float(config.slo_p99_ms)
+    error_rate_threshold = _optional_float(config.slo_error_rate)
+    min_rps = _optional_float(config.slo_min_rps)
+
+    if p95 is not None:
+        add("p95_latency_ms", summary.p95_latency_ms, p95, "<=")
+    if p99 is not None:
+        add("p99_latency_ms", summary.p99_latency_ms, p99, "<=")
+    if error_rate_threshold is not None:
+        add("error_rate_percent", error_rate, error_rate_threshold, "<=")
+    if min_rps is not None:
+        add("rps", rps, min_rps, ">=")
+
+    if not checks:
+        return None
+    return {"passed": all(c["passed"] for c in checks), "checks": checks}
+
+
 def _build_artifact_dict_fallback(
     summary: TestSummary, config: SupportsCliOptions
 ) -> ReportArtifactDict:
@@ -258,6 +313,10 @@ def _build_artifact_dict_fallback(
         "chaos_rate": config.chaos_rate,
         "body": config.body,
         "headers": config.headers,
+        "slo_p95_ms": _optional_float(config.slo_p95_ms),
+        "slo_p99_ms": _optional_float(config.slo_p99_ms),
+        "slo_error_rate": _optional_float(config.slo_error_rate),
+        "slo_min_rps": _optional_float(config.slo_min_rps),
     }
 
     artifact: ReportArtifactDict = {
@@ -323,6 +382,10 @@ def _build_artifact_dict_fallback(
     graphql_ws = _format_graphql_ws(summary)
     if graphql_ws is not None:
         artifact["graphql_ws"] = graphql_ws
+
+    slo = _evaluate_slo(summary, config, rps)
+    if slo is not None:
+        artifact["slo"] = slo
 
     chaos_total = summary.chaos_injected_total
     if chaos_total:
