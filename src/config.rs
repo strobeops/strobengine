@@ -97,6 +97,12 @@ pub struct TestConfig {
     #[pyo3(get, set)]
     pub sse_max_events: Option<u64>,
     #[pyo3(get, set)]
+    pub graphql_query: Option<String>,
+    #[pyo3(get, set)]
+    pub graphql_variables: Option<String>,
+    #[pyo3(get, set)]
+    pub graphql_operation_name: Option<String>,
+    #[pyo3(get, set)]
     pub output_dir: Option<String>,
     #[pyo3(get, set)]
     pub no_save: bool,
@@ -148,6 +154,9 @@ impl TestConfig {
         quic_max_idle_timeout_ms=None,
         sse_enabled=false,
         sse_max_events=None,
+        graphql_query=None,
+        graphql_variables=None,
+        graphql_operation_name=None,
         output_dir=None,
         no_save=false,
         sys_sample_interval=1000u64,
@@ -189,6 +198,9 @@ impl TestConfig {
         quic_max_idle_timeout_ms: Option<u64>,
         sse_enabled: bool,
         sse_max_events: Option<u64>,
+        graphql_query: Option<String>,
+        graphql_variables: Option<String>,
+        graphql_operation_name: Option<String>,
         output_dir: Option<String>,
         no_save: bool,
         sys_sample_interval: u64,
@@ -229,6 +241,9 @@ impl TestConfig {
             quic_max_idle_timeout_ms,
             sse_enabled,
             sse_max_events,
+            graphql_query,
+            graphql_variables,
+            graphql_operation_name,
             output_dir,
             no_save,
             sys_sample_interval,
@@ -258,6 +273,37 @@ impl TestConfig {
             return Err(pyo3::exceptions::PyValueError::new_err(
                 "chaos_rate must be between 0.0 and 1.0",
             ));
+        }
+        if let Some(query) = self.graphql_query.as_deref() {
+            if query.trim().is_empty() {
+                return Err(pyo3::exceptions::PyValueError::new_err(
+                    "graphql_query must not be empty",
+                ));
+            }
+            if self.body.is_some() || self.form.is_some() {
+                return Err(pyo3::exceptions::PyValueError::new_err(
+                    "graphql_query cannot be combined with body or form",
+                ));
+            }
+        } else if self.graphql_variables.is_some() || self.graphql_operation_name.is_some() {
+            return Err(pyo3::exceptions::PyValueError::new_err(
+                "graphql_variables/graphql_operation_name require graphql_query",
+            ));
+        }
+        if let Some(vars) = self.graphql_variables.as_deref() {
+            match serde_json::from_str::<serde_json::Value>(vars) {
+                Ok(serde_json::Value::Object(_)) => {}
+                Ok(_) => {
+                    return Err(pyo3::exceptions::PyValueError::new_err(
+                        "graphql_variables must be a JSON object",
+                    ));
+                }
+                Err(e) => {
+                    return Err(pyo3::exceptions::PyValueError::new_err(format!(
+                        "graphql_variables is not valid JSON: {e}"
+                    )));
+                }
+            }
         }
         Ok(())
     }
@@ -315,6 +361,9 @@ pub struct TestConfigBuilder {
     quic_max_idle_timeout_ms: Option<u64>,
     sse_enabled: bool,
     sse_max_events: Option<u64>,
+    graphql_query: Option<String>,
+    graphql_variables: Option<String>,
+    graphql_operation_name: Option<String>,
     output_dir: Option<String>,
     no_save: bool,
     sys_sample_interval: u64,
@@ -358,6 +407,9 @@ impl Default for TestConfigBuilder {
             quic_max_idle_timeout_ms: None,
             sse_enabled: false,
             sse_max_events: None,
+            graphql_query: None,
+            graphql_variables: None,
+            graphql_operation_name: None,
             output_dir: None,
             no_save: false,
             sys_sample_interval: 1000,
@@ -494,6 +546,18 @@ impl TestConfigBuilder {
         self.sse_max_events = v;
         self
     }
+    pub fn graphql_query(mut self, v: Option<String>) -> Self {
+        self.graphql_query = v;
+        self
+    }
+    pub fn graphql_variables(mut self, v: Option<String>) -> Self {
+        self.graphql_variables = v;
+        self
+    }
+    pub fn graphql_operation_name(mut self, v: Option<String>) -> Self {
+        self.graphql_operation_name = v;
+        self
+    }
     pub fn output_dir(mut self, v: Option<String>) -> Self {
         self.output_dir = v;
         self
@@ -559,6 +623,9 @@ impl TestConfigBuilder {
             quic_max_idle_timeout_ms: self.quic_max_idle_timeout_ms,
             sse_enabled: self.sse_enabled,
             sse_max_events: self.sse_max_events,
+            graphql_query: self.graphql_query,
+            graphql_variables: self.graphql_variables,
+            graphql_operation_name: self.graphql_operation_name,
             output_dir: self.output_dir,
             no_save: self.no_save,
             sys_sample_interval: self.sys_sample_interval,
@@ -827,6 +894,9 @@ mod tests {
             false,
             None,
             None,
+            None,
+            None,
+            None,
             false,
             1000u64,
             1_048_576u64,
@@ -874,6 +944,9 @@ mod tests {
             false,
             None,
             false,
+            None,
+            None,
+            None,
             None,
             None,
             false,

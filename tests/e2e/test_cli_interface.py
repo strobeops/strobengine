@@ -178,3 +178,27 @@ class TestHtmlReport:
         # At least one chart tick label from a non-empty samples[] array
         # (default --sys-sample-interval=1000 over -d 3 => samples at ~1.0s, ~2.0s).
         assert re.search(r"'\d+\.\d+s'", html)
+
+
+class TestGraphqlCli:
+    def test_graphql_query_json_output(self, cli_bin: str, mock_server: str):
+        result = _run_cli(
+            cli_bin,
+            [
+                "load",
+                f"{mock_server}/graphql",
+                "-c",
+                "2",
+                "-d",
+                "2",
+                "--graphql-query",
+                "{ hero { name } }",
+                "--json",
+                "--no-progress",
+            ],
+        )
+        assert result.returncode == 0, f"Process failed with stderr:\n{result.stderr}"
+        data = json.loads(result.stdout)
+        assert data["graphql"]["operations_total"] > 0
+        assert data["graphql"]["operation_type"] == "query"
+        assert data["total_errors"] == 0

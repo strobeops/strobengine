@@ -154,6 +154,21 @@ SseMaxEventsOpt = Annotated[
     int | None,
     typer.Option("--sse-max-events", help="Maximum events to receive per connection"),
 ]
+GraphqlQueryOpt = Annotated[
+    str | None,
+    typer.Option(
+        "--graphql-query",
+        help="GraphQL query/mutation document (sent as an HTTP POST)",
+    ),
+]
+GraphqlVariablesOpt = Annotated[
+    str | None,
+    typer.Option("--graphql-variables", help="JSON object of GraphQL variables"),
+]
+GraphqlOperationNameOpt = Annotated[
+    str | None,
+    typer.Option("--graphql-operation-name", help="Named GraphQL operation to execute"),
+]
 OutputDirOpt = Annotated[
     str | None,
     typer.Option("--output-dir", help="Report output directory"),
@@ -306,6 +321,9 @@ _REQUEST_FIELDS = frozenset(
         "quic_max_idle_timeout_ms",
         "sse_enabled",
         "sse_max_events",
+        "graphql_query",
+        "graphql_variables",
+        "graphql_operation_name",
         "output_dir",
         "no_save",
         "sys_sample_interval",
@@ -390,6 +408,9 @@ def _build_request_options(
     quic_max_idle_timeout_ms: int | None = RequestOptions.quic_max_idle_timeout_ms,
     sse_enabled: bool = RequestOptions.sse_enabled,
     sse_max_events: int | None = RequestOptions.sse_max_events,
+    graphql_query: str | None = RequestOptions.graphql_query,
+    graphql_variables: str | None = RequestOptions.graphql_variables,
+    graphql_operation_name: str | None = RequestOptions.graphql_operation_name,
     output_dir: str | None = RequestOptions.output_dir,
     no_save: bool = RequestOptions.no_save,
     sys_sample_interval: int = RequestOptions.sys_sample_interval,
@@ -431,6 +452,9 @@ def _build_request_options(
         quic_max_idle_timeout_ms=quic_max_idle_timeout_ms,
         sse_enabled=sse_enabled,
         sse_max_events=sse_max_events,
+        graphql_query=graphql_query,
+        graphql_variables=graphql_variables,
+        graphql_operation_name=graphql_operation_name,
         output_dir=output_dir,
         no_save=no_save,
         sys_sample_interval=sys_sample_interval,

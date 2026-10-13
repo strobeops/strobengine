@@ -30,6 +30,7 @@ pub struct AggregatedMetrics {
     pub ws_metrics: Option<WebsocketMetrics>,
     pub grpc_metrics: Option<GrpcMetrics>,
     pub http3_metrics: Option<Http3Metrics>,
+    pub graphql_metrics: Option<GraphqlMetrics>,
     pub chaos_injected_total: u64,
     pub chaos_faults_by_type: HashMap<String, u64>,
     pub total_sockets_created: u64,
@@ -63,6 +64,7 @@ impl Default for AggregatedMetrics {
             ws_metrics: None,
             grpc_metrics: None,
             http3_metrics: None,
+            graphql_metrics: None,
             chaos_injected_total: 0,
             chaos_faults_by_type: HashMap::new(),
             total_sockets_created: 0,
@@ -139,6 +141,7 @@ pub struct RequestMetric {
     pub sse_events_received: Option<u64>,
     pub sse_first_event_us: Option<u64>,
     pub sse_event_interval_us: Option<u64>,
+    pub graphql_errors: Option<u64>,
     pub ws: Option<WsSample>,
     pub grpc: Option<GrpcSample>,
     pub http3: Option<Http3Sample>,
@@ -168,6 +171,7 @@ impl RequestMetric {
             sse_events_received: None,
             sse_first_event_us: None,
             sse_event_interval_us: None,
+            graphql_errors: None,
             ws: None,
             grpc: None,
             http3: None,
@@ -258,6 +262,14 @@ impl RequestMetricBuilder {
         self
     }
 
+    /// Record the number of entries in a GraphQL response's `"errors"` array.
+    /// `Some(n)` marks the metric as a GraphQL operation (n may be 0); `None`
+    /// means the response was not a GraphQL operation.
+    pub fn graphql(mut self, errors: Option<u64>) -> Self {
+        self.0.graphql_errors = errors;
+        self
+    }
+
     pub fn grpc(mut self, sample: Option<GrpcSample>) -> Self {
         self.0.grpc = sample;
         self
@@ -291,6 +303,24 @@ pub struct SseMetrics {
     pub total_events_received: u64,
     #[pyo3(get)]
     pub avg_ttfb_ms: Option<f64>,
+}
+
+/// Aggregated GraphQL operation telemetry.
+///
+/// GraphQL reports logical failures in an `"errors"` array on an otherwise
+/// successful HTTP 200 response; `error_responses_total` and `errors_total`
+/// expose those, while the run's `status_codes` stays truthful.
+#[pyclass(skip_from_py_object)]
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+pub struct GraphqlMetrics {
+    #[pyo3(get)]
+    pub operations_total: u64,
+    #[pyo3(get)]
+    pub error_responses_total: u64,
+    #[pyo3(get)]
+    pub errors_total: u64,
+    #[pyo3(get)]
+    pub operation_type: String,
 }
 
 /// Aggregated WebSocket heartbeat and write-buffer telemetry.
@@ -502,6 +532,8 @@ pub struct TestSummary {
     #[pyo3(get)]
     pub http3: Option<Http3Metrics>,
     #[pyo3(get)]
+    pub graphql: Option<GraphqlMetrics>,
+    #[pyo3(get)]
     pub chaos_injected_total: u64,
     #[pyo3(get)]
     pub chaos_faults_by_type: HashMap<String, u64>,
@@ -621,6 +653,7 @@ pub struct SummaryInput {
     pub ws_metrics: Option<WebsocketMetrics>,
     pub grpc_metrics: Option<GrpcMetrics>,
     pub http3_metrics: Option<Http3Metrics>,
+    pub graphql_metrics: Option<GraphqlMetrics>,
     pub chaos_injected_total: u64,
     pub chaos_faults_by_type: HashMap<String, u64>,
     pub resource_samples: Vec<system::ResourceSample>,
@@ -639,9 +672,11 @@ pub async fn finalize_metrics(mut rx: mpsc::Receiver<RequestMetric>) -> Aggregat
     let mut ws_stats = WebsocketMetrics::default();
     let mut grpc_stats = GrpcMetrics::default();
     let mut http3_stats = Http3Metrics::default();
+    let mut graphql_stats = GraphqlMetrics::default();
     let mut has_quic = false;
     let mut has_ws = false;
     let mut has_grpc = false;
+    let mut has_graphql = false;
     let mut ws_bp_sum: u64 = 0;
     let mut ws_bp_count: u64 = 0;
     let mut grpc_util_sum: f64 = 0.0;
@@ -696,6 +731,16 @@ pub async fn finalize_metrics(mut rx: mpsc::Receiver<RequestMetric>) -> Aggregat
         if let Some(first) = metric.sse_first_event_us {
             sse_first_event_sum_us += first;
             sse_first_event_count += 1;
+        }
+
+        // GraphQL aggregation
+        if let Some(errors) = metric.graphql_errors {
+            has_graphql = true;
+            graphql_stats.operations_total += 1;
+            if errors > 0 {
+                graphql_stats.error_responses_total += 1;
+            }
+            graphql_stats.errors_total += errors;
         }
 
         // WebSocket aggregation (O(1) running counters)
@@ -833,6 +878,11 @@ pub async fn finalize_metrics(mut rx: mpsc::Receiver<RequestMetric>) -> Aggregat
     metrics.ws_metrics = if has_ws { Some(ws_stats) } else { None };
     metrics.grpc_metrics = if has_grpc { Some(grpc_stats) } else { None };
     metrics.http3_metrics = if has_http3 { Some(http3_stats) } else { None };
+    metrics.graphql_metrics = if has_graphql {
+        Some(graphql_stats)
+    } else {
+        None
+    };
 
     metrics
 }
@@ -894,6 +944,7 @@ pub fn calculate_summary(input: SummaryInput) -> TestSummary {
             ws: input.ws_metrics,
             grpc: input.grpc_metrics,
             http3: input.http3_metrics,
+            graphql: input.graphql_metrics,
             chaos_injected_total: input.chaos_injected_total,
             chaos_faults_by_type: input.chaos_faults_by_type,
             std_dev_latency_ms: 0.0,
@@ -944,6 +995,7 @@ pub fn calculate_summary(input: SummaryInput) -> TestSummary {
         ws: input.ws_metrics,
         grpc: input.grpc_metrics,
         http3: input.http3_metrics,
+        graphql: input.graphql_metrics,
         chaos_injected_total: input.chaos_injected_total,
         chaos_faults_by_type: input.chaos_faults_by_type,
         std_dev_latency_ms,
@@ -1008,6 +1060,7 @@ mod tests {
             ws_metrics: None,
             grpc_metrics: None,
             http3_metrics: None,
+            graphql_metrics: None,
             chaos_injected_total: 0,
             chaos_faults_by_type: HashMap::new(),
             resource_samples: Vec::new(),
@@ -1046,6 +1099,7 @@ mod tests {
             ws_metrics: None,
             grpc_metrics: None,
             http3_metrics: None,
+            graphql_metrics: None,
             chaos_injected_total: 0,
             chaos_faults_by_type: HashMap::new(),
             resource_samples: Vec::new(),
@@ -1085,6 +1139,7 @@ mod tests {
             ws_metrics: None,
             grpc_metrics: None,
             http3_metrics: None,
+            graphql_metrics: None,
             chaos_injected_total: 0,
             chaos_faults_by_type: HashMap::new(),
             resource_samples: Vec::new(),
@@ -1119,6 +1174,7 @@ mod tests {
             ws_metrics: None,
             grpc_metrics: None,
             http3_metrics: None,
+            graphql_metrics: None,
             chaos_injected_total: 0,
             chaos_faults_by_type: HashMap::new(),
             resource_samples: Vec::new(),
@@ -1154,6 +1210,7 @@ mod tests {
             ws_metrics: None,
             grpc_metrics: None,
             http3_metrics: None,
+            graphql_metrics: None,
             chaos_injected_total: 0,
             chaos_faults_by_type: HashMap::new(),
             resource_samples: Vec::new(),
@@ -1184,6 +1241,7 @@ mod tests {
             ws_metrics: None,
             grpc_metrics: None,
             http3_metrics: None,
+            graphql_metrics: None,
             chaos_injected_total: 0,
             chaos_faults_by_type: HashMap::new(),
             resource_samples: Vec::new(),
@@ -1213,6 +1271,7 @@ mod tests {
             ws_metrics: None,
             grpc_metrics: None,
             http3_metrics: None,
+            graphql_metrics: None,
             chaos_injected_total: 0,
             chaos_faults_by_type: HashMap::new(),
             resource_samples: Vec::new(),
@@ -1248,6 +1307,7 @@ mod tests {
             ws_metrics: None,
             grpc_metrics: None,
             http3_metrics: None,
+            graphql_metrics: None,
             chaos_injected_total: 0,
             chaos_faults_by_type: HashMap::new(),
             resource_samples: Vec::new(),
@@ -1285,6 +1345,7 @@ mod tests {
             ws_metrics: None,
             grpc_metrics: None,
             http3_metrics: None,
+            graphql_metrics: None,
             chaos_injected_total: 0,
             chaos_faults_by_type: HashMap::new(),
             resource_samples: Vec::new(),
@@ -1332,6 +1393,7 @@ mod tests {
             }),
             grpc_metrics: None,
             http3_metrics: None,
+            graphql_metrics: None,
             chaos_injected_total: 0,
             chaos_faults_by_type: HashMap::new(),
             resource_samples: Vec::new(),
@@ -1539,6 +1601,7 @@ mod tests {
             ws_metrics: None,
             grpc_metrics: None,
             http3_metrics: None,
+            graphql_metrics: None,
             chaos_injected_total: 0,
             chaos_faults_by_type: HashMap::new(),
             resource_samples: Vec::new(),
@@ -1574,6 +1637,7 @@ mod tests {
             ws_metrics: None,
             grpc_metrics: None,
             http3_metrics: None,
+            graphql_metrics: None,
             chaos_injected_total: 0,
             chaos_faults_by_type: HashMap::new(),
             resource_samples: Vec::new(),
@@ -1625,6 +1689,7 @@ mod tests {
             ws_metrics: None,
             grpc_metrics: None,
             http3_metrics: None,
+            graphql_metrics: None,
             chaos_injected_total: 0,
             chaos_faults_by_type: HashMap::new(),
             resource_samples: Vec::new(),
@@ -1656,6 +1721,7 @@ mod tests {
             ws_metrics: None,
             grpc_metrics: None,
             http3_metrics: None,
+            graphql_metrics: None,
             chaos_injected_total: 0,
             chaos_faults_by_type: HashMap::new(),
             resource_samples: Vec::new(),
@@ -1688,6 +1754,7 @@ mod tests {
             ws_metrics: None,
             grpc_metrics: None,
             http3_metrics: None,
+            graphql_metrics: None,
             chaos_injected_total: 0,
             chaos_faults_by_type: HashMap::new(),
             resource_samples: Vec::new(),
@@ -1717,6 +1784,7 @@ mod tests {
             ws_metrics: None,
             grpc_metrics: None,
             http3_metrics: None,
+            graphql_metrics: None,
             chaos_injected_total: 0,
             chaos_faults_by_type: HashMap::new(),
             resource_samples: Vec::new(),
@@ -1747,6 +1815,7 @@ mod tests {
             ws_metrics: None,
             grpc_metrics: None,
             http3_metrics: None,
+            graphql_metrics: None,
             chaos_injected_total: 0,
             chaos_faults_by_type: HashMap::new(),
             resource_samples: Vec::new(),
@@ -1776,6 +1845,7 @@ mod tests {
             ws_metrics: None,
             grpc_metrics: None,
             http3_metrics: None,
+            graphql_metrics: None,
             chaos_injected_total: 0,
             chaos_faults_by_type: HashMap::new(),
             resource_samples: Vec::new(),
@@ -1805,6 +1875,7 @@ mod tests {
             ws_metrics: None,
             grpc_metrics: None,
             http3_metrics: None,
+            graphql_metrics: None,
             chaos_injected_total: 0,
             chaos_faults_by_type: HashMap::new(),
             resource_samples: Vec::new(),
@@ -1835,6 +1906,7 @@ mod tests {
             ws_metrics: None,
             grpc_metrics: None,
             http3_metrics: None,
+            graphql_metrics: None,
             chaos_injected_total: 0,
             chaos_faults_by_type: HashMap::new(),
             resource_samples: Vec::new(),
@@ -1864,6 +1936,7 @@ mod tests {
             ws_metrics: None,
             grpc_metrics: None,
             http3_metrics: None,
+            graphql_metrics: None,
             chaos_injected_total: 0,
             chaos_faults_by_type: HashMap::new(),
             resource_samples: Vec::new(),

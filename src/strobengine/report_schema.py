@@ -96,6 +96,13 @@ class SseMetricsDict(TypedDict):
     avg_ttfb_ms: float | None
 
 
+class GraphqlMetricsDict(TypedDict):
+    operations_total: int
+    error_responses_total: int
+    errors_total: int
+    operation_type: str
+
+
 class WebsocketMetricsDict(TypedDict):
     pings_sent_total: int
     pings_received_total: int
@@ -174,6 +181,7 @@ class ReportArtifactDict(TypedDict):
     websocket: NotRequired[WebsocketMetricsDict]
     grpc: NotRequired[GrpcMetricsDict]
     http3: NotRequired[Http3MetricsDict]
+    graphql: NotRequired[GraphqlMetricsDict]
     chaos_faults: NotRequired[ChaosFaultsDict]
     system_metrics: NotRequired[SystemMetricsDict]
     connection_pool: NotRequired[ConnectionPoolDict]
