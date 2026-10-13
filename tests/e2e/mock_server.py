@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from typing import Any
 
 from aiohttp import web
@@ -163,6 +164,48 @@ async def handle_graphql_errors(request: web.Request) -> web.Response:
     return web.json_response({"data": None, "errors": [{"message": "boom"}]})
 
 
+_GRAPHQL_WS_SUBPROTOCOL = "graphql-transport-ws"
+
+
+async def handle_graphql_ws(request: web.Request) -> web.WebSocketResponse:
+    """graphql-transport-ws endpoint: ack init, then stream 3 `next` + `complete`."""
+    ws = web.WebSocketResponse(protocols=(_GRAPHQL_WS_SUBPROTOCOL,))
+    await ws.prepare(request)
+    async for msg in ws:
+        if msg.type != web.WSMsgType.TEXT:
+            continue
+        data = json.loads(msg.data)
+        op_id = data.get("id", "1")
+        if data.get("type") == "connection_init":
+            await ws.send_json({"type": "connection_ack"})
+        elif data.get("type") == "subscribe":
+            for i in range(3):
+                await ws.send_json(
+                    {"id": op_id, "type": "next", "payload": {"data": {"tick": i}}}
+                )
+                await asyncio.sleep(0.01)
+            await ws.send_json({"id": op_id, "type": "complete"})
+    return ws
+
+
+async def handle_graphql_ws_errors(request: web.Request) -> web.WebSocketResponse:
+    """graphql-transport-ws endpoint that answers every `subscribe` with `error`."""
+    ws = web.WebSocketResponse(protocols=(_GRAPHQL_WS_SUBPROTOCOL,))
+    await ws.prepare(request)
+    async for msg in ws:
+        if msg.type != web.WSMsgType.TEXT:
+            continue
+        data = json.loads(msg.data)
+        op_id = data.get("id", "1")
+        if data.get("type") == "connection_init":
+            await ws.send_json({"type": "connection_ack"})
+        elif data.get("type") == "subscribe":
+            await ws.send_json(
+                {"id": op_id, "type": "error", "payload": [{"message": "boom"}]}
+            )
+    return ws
+
+
 def create_app() -> web.Application:
     app = web.Application()
     app[LAST_ECHO_KEY] = {}
@@ -179,4 +222,6 @@ def create_app() -> web.Application:
     app.router.add_get("/sse", handle_sse)
     app.router.add_route("*", "/graphql", handle_graphql)
     app.router.add_route("*", "/graphql/errors", handle_graphql_errors)
+    app.router.add_get("/graphql/ws", handle_graphql_ws)
+    app.router.add_get("/graphql/ws/errors", handle_graphql_ws_errors)
     return app
