@@ -220,6 +220,7 @@ fn spawn_worker(
     })
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn execute_test(
     engine: Arc<dyn ProtocolEngine>,
     url: String,
