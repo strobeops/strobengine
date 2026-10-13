@@ -1053,3 +1053,12 @@ class TestTimeline:
     def test_html_omits_timeline_chart_when_absent(self):
         html = render_html_report(_make_summary(), _make_config())
         assert "timelineChart" not in html
+
+
+class TestPrintErgonomics:
+    def test_render_html_has_print_styles_and_button(self):
+        html = render_html_report(_make_summary(), _make_config())
+        assert "@media print" in html
+        assert "window.print()" in html
+        assert "Print to PDF" in html
+        assert "no-print" in html
