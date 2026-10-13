@@ -202,11 +202,7 @@ fn spawn_worker(
                 .fetch_add(metric.latency_micros as u64, Ordering::Relaxed);
             counters.latency_count.fetch_add(1, Ordering::Relaxed);
 
-            if metric.status_code == 0
-                || metric.status_code >= 400
-                || metric.graphql_errors.is_some_and(|n| n > 0)
-                || metric.graphql_ws_errors.is_some_and(|n| n > 0)
-            {
+            if metric.is_error() {
                 counters.errors.fetch_add(1, Ordering::Relaxed);
             }
 
@@ -224,6 +220,7 @@ fn spawn_worker(
     })
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn execute_test(
     engine: Arc<dyn ProtocolEngine>,
     url: String,
@@ -232,6 +229,7 @@ async fn execute_test(
     timeout_secs: u64,
     sys_sample_interval: u64,
     graphql_operation_type: Option<&'static str>,
+    timeline_interval_ms: u64,
 ) -> PyResult<metrics::TestSummary> {
     tracing::debug!("protocol engine initialized");
 
@@ -266,7 +264,7 @@ async fn execute_test(
     let (tx, rx) = tokio::sync::mpsc::channel::<RequestMetric>(METRIC_CHANNEL_BUFFER);
 
     // Spawn metric collection concurrently in the background
-    let aggregator = tokio::spawn(metrics::finalize_metrics(rx));
+    let aggregator = tokio::spawn(metrics::finalize_metrics(rx, timeline_interval_ms));
 
     // Spawn resource monitor (if enabled)
     let (resource_handle, mut resource_rx) =
@@ -482,6 +480,7 @@ async fn execute_test(
         http3_metrics: aggregated.http3_metrics,
         graphql_metrics,
         graphql_ws_metrics: aggregated.graphql_ws_metrics,
+        timeline: aggregated.timeline,
         chaos_injected_total: aggregated.chaos_injected_total,
         chaos_faults_by_type: aggregated.chaos_faults_by_type,
         resource_samples,
@@ -620,6 +619,7 @@ fn run_load_test(py: Python<'_>, config: TestConfig) -> PyResult<metrics::TestSu
             config.timeout_secs,
             config.sys_sample_interval,
             graphql_operation_type,
+            config.timeline_interval_ms,
         ))
     })
 }
@@ -655,6 +655,7 @@ fn run_load_profiles(
             config.timeout_secs,
             config.sys_sample_interval,
             graphql_operation_type,
+            config.timeline_interval_ms,
         ))
     })
 }
@@ -694,6 +695,8 @@ fn _strobengine(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<metrics::Http3Metrics>()?;
     m.add_class::<metrics::GraphqlMetrics>()?;
     m.add_class::<metrics::GraphqlWsMetrics>()?;
+    m.add_class::<metrics::Timeline>()?;
+    m.add_class::<metrics::TimelineSample>()?;
     m.add_class::<metrics::system::SystemMetrics>()?;
     m.add_class::<metrics::system::ResourceSample>()?;
     m.add("HISTOGRAM_BUCKET_ORDER", metrics::HISTOGRAM_BUCKET_ORDER)?;

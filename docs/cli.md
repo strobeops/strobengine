@@ -49,6 +49,11 @@ By default, this spawns **10 concurrent workers** for **10 seconds** with a **10
 | `--graphql-query` | none | GraphQL query/mutation document (HTTP POST, or a subscription over `ws://`/`wss://`) |
 | `--graphql-variables` | none | JSON object of GraphQL variables |
 | `--graphql-operation-name` | none | Named GraphQL operation to execute |
+| `--slo-p95-ms` | none | Fail the run if P95 latency exceeds this (ms) |
+| `--slo-p99-ms` | none | Fail the run if P99 latency exceeds this (ms) |
+| `--slo-error-rate` | none | Fail the run if the error rate exceeds this (percent) |
+| `--slo-min-rps` | none | Fail the run if RPS falls below this |
+| `--timeline-interval` | `1000` | RPS/latency timeline sample interval in ms (0 disables) |
 | `--sys-sample-interval` | `1000` | Resource monitor sample interval in ms (0 to disable) |
 
 ## Stress Subcommand Options
@@ -88,6 +93,11 @@ By default, this spawns **10 concurrent workers** for **10 seconds** with a **10
 | `--graphql-query` | none | GraphQL query/mutation document (HTTP POST, or a subscription over `ws://`/`wss://`) |
 | `--graphql-variables` | none | JSON object of GraphQL variables |
 | `--graphql-operation-name` | none | Named GraphQL operation to execute |
+| `--slo-p95-ms` | none | Fail the run if P95 latency exceeds this (ms) |
+| `--slo-p99-ms` | none | Fail the run if P99 latency exceeds this (ms) |
+| `--slo-error-rate` | none | Fail the run if the error rate exceeds this (percent) |
+| `--slo-min-rps` | none | Fail the run if RPS falls below this |
+| `--timeline-interval` | `1000` | RPS/latency timeline sample interval in ms (0 disables) |
 | `--sys-sample-interval` | `1000` | Resource monitor sample interval in ms (0 to disable) |
 
 ## Spike Subcommand Options
@@ -128,6 +138,11 @@ By default, this spawns **10 concurrent workers** for **10 seconds** with a **10
 | `--graphql-query` | none | GraphQL query/mutation document (HTTP POST, or a subscription over `ws://`/`wss://`) |
 | `--graphql-variables` | none | JSON object of GraphQL variables |
 | `--graphql-operation-name` | none | Named GraphQL operation to execute |
+| `--slo-p95-ms` | none | Fail the run if P95 latency exceeds this (ms) |
+| `--slo-p99-ms` | none | Fail the run if P99 latency exceeds this (ms) |
+| `--slo-error-rate` | none | Fail the run if the error rate exceeds this (percent) |
+| `--slo-min-rps` | none | Fail the run if RPS falls below this |
+| `--timeline-interval` | `1000` | RPS/latency timeline sample interval in ms (0 disables) |
 | `--sys-sample-interval` | `1000` | Resource monitor sample interval in ms (0 to disable) |
 
 ## Global Options

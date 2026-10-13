@@ -37,6 +37,10 @@ class CliOptionsDict(TypedDict):
     chaos_rate: float
     body: str | None
     headers: list[tuple[str, str]] | None
+    slo_p95_ms: float | None
+    slo_p99_ms: float | None
+    slo_error_rate: float | None
+    slo_min_rps: float | None
 
 
 class SupportsCliOptions(Protocol):
@@ -55,6 +59,10 @@ class SupportsCliOptions(Protocol):
     chaos_rate: float
     body: str | None
     headers: list[tuple[str, str]] | None
+    slo_p95_ms: float | None
+    slo_p99_ms: float | None
+    slo_error_rate: float | None
+    slo_min_rps: float | None
 
 
 class MetadataDict(TypedDict):
@@ -177,6 +185,33 @@ class SystemMetricsDict(TypedDict):
     samples: list[SystemSampleDict]
 
 
+class SloCheckDict(TypedDict):
+    name: str
+    observed: float
+    threshold: float
+    comparator: str
+    passed: bool
+
+
+class SloResultDict(TypedDict):
+    passed: bool
+    checks: list[SloCheckDict]
+
+
+class TimelineSampleDict(TypedDict):
+    elapsed_sec: float
+    rps: float
+    error_rate: float
+    p50_us: float
+    p95_us: float
+    p99_us: float
+
+
+class TimelineDict(TypedDict):
+    interval_ms: int
+    samples: list[TimelineSampleDict]
+
+
 class ReportArtifactDict(TypedDict):
     """Top-level report artifact persisted to disk after each load test.
 
@@ -197,6 +232,8 @@ class ReportArtifactDict(TypedDict):
     http3: NotRequired[Http3MetricsDict]
     graphql: NotRequired[GraphqlMetricsDict]
     graphql_ws: NotRequired[GraphqlWsMetricsDict]
+    slo: NotRequired[SloResultDict]
+    timeline: NotRequired[TimelineDict]
     chaos_faults: NotRequired[ChaosFaultsDict]
     system_metrics: NotRequired[SystemMetricsDict]
     connection_pool: NotRequired[ConnectionPoolDict]

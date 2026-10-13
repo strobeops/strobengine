@@ -51,6 +51,8 @@ These flags appear on all three subcommands (`load`, `stress`, `spike`):
 | `http3` | `cwnd_bytes_current`, `cwnd_bytes_min`, `cwnd_bytes_max`, `cwnd_bytes_mean`, `migrations_attempted_total`, `migrations_successful_total`, `migration_success_rate` *(HTTP/3 runs; migration counters require `--http3-migrate`)* |
 | `graphql` | `operations_total`, `error_responses_total`, `errors_total`, `operation_type` *(GraphQL runs over HTTP)* |
 | `graphql_ws` | `operations_total`, `messages_total`, `errors_total`, `ttfm_*_ms`, `interval_*_ms` *(GraphQL subscriptions over WebSocket)* |
+| `slo` | `passed`, `checks[]` (`name`, `observed`, `threshold`, `comparator`, `passed`) *(when SLO thresholds are configured)* |
+| `timeline` | `interval_ms`, `samples[]` (`elapsed_sec`, `rps`, `error_rate`, `p50_us`, `p95_us`, `p99_us`) *(when `--timeline-interval > 0`)* |
 | `chaos_faults` | `injected_total`, `by_type` *(chaos-enabled runs only)* |
 | `system_metrics` | `summary` (peak/avg CPU, memory MB, threads), `samples` (time series) *(when `--sys-sample-interval > 0`)* |
 | `connection_pool` | `socket_creation_rate`, `socket_reuse_rate`, `dns_lookup_ms` *(when requests > 0)* |
@@ -58,8 +60,9 @@ These flags appear on all three subcommands (`load`, `stress`, `spike`):
 All latency values are stored in **microseconds**.
 
 Optional sections listed above (`quic`, `sse`, `websocket`, `grpc`, `http3`,
-`graphql`, `graphql_ws`, `chaos_faults`, `system_metrics`, `connection_pool`,
-`avg_connection_latency_us`) are **omitted entirely** when they do not apply —
+`graphql`, `graphql_ws`, `slo`, `timeline`, `chaos_faults`, `system_metrics`,
+`connection_pool`, `avg_connection_latency_us`) are **omitted entirely** when
+they do not apply —
 they are never written as `null`. Fields *inside* a section may still be
 `null` (e.g. `cli_options.body` when no body was sent).
 
@@ -127,9 +130,18 @@ strobengine load http://localhost:8080/api -c 10 -d 30 --html report.html
 - **Self-contained single-file HTML** — no external dependencies
 - **Embedded Chart.js** — 100% offline, no internet required
 - **Dark theme** — slate/navy color palette
+- **SLO banner** — configurable PASS/FAIL badge at the top when SLO thresholds
+  are set (`--slo-p95-ms`, `--slo-p99-ms`, `--slo-error-rate`, `--slo-min-rps`)
 - **Bar chart**: Latency percentiles (P50, P90, P95, P99) in milliseconds
 - **Doughnut chart**: Status code distribution (2xx, 4xx, 5xx, Other)
+- **Timeline chart**: RPS (left axis) alongside P50/P95/P99 latency (right axis)
+  over time, sampled every `--timeline-interval` ms
+- **Latency summary table**: Min, Mean, P50, P90, P95, P99, P99.9, Max, Std Dev
+- **Error breakdown**: failures classified as transport (status 0), 4xx, 5xx or
+  other, with the failing status codes listed individually
 - **Line chart**: Client resource footprint (CPU % + Memory RSS, dual-axis) when `--sys-sample-interval > 0`
+- **Print to PDF**: a "Print to PDF" button plus print-friendly styles for
+  archiving or attaching to pull requests
 - **Metadata grid**: Target URL, method, concurrency, duration, RPS, error rate
 
 ### Python API

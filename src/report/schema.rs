@@ -33,6 +33,10 @@ pub struct ReportArtifact {
     pub graphql: Option<GraphqlMetrics>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub graphql_ws: Option<GraphqlWsMetrics>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub slo: Option<SloResult>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub timeline: Option<crate::metrics::Timeline>,
     #[serde(rename = "chaos_faults", skip_serializing_if = "Option::is_none")]
     pub chaos: Option<ChaosMetrics>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -49,6 +53,23 @@ pub struct ConnectionPoolMetrics {
     pub socket_creation_rate: f64,
     pub socket_reuse_rate: f64,
     pub dns_lookup_ms: f64,
+}
+
+/// Outcome of evaluating configured SLO thresholds against a run.
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub struct SloResult {
+    pub passed: bool,
+    pub checks: Vec<SloCheck>,
+}
+
+/// A single SLO threshold evaluation.
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub struct SloCheck {
+    pub name: String,
+    pub observed: f64,
+    pub threshold: f64,
+    pub comparator: String,
+    pub passed: bool,
 }
 
 /// Client resource footprint in the documented report display shape.
@@ -128,6 +149,10 @@ pub struct CliOptions {
     pub chaos_rate: f32,
     pub body: Option<String>,
     pub headers: Option<Vec<(String, String)>>,
+    pub slo_p95_ms: Option<f64>,
+    pub slo_p99_ms: Option<f64>,
+    pub slo_error_rate: Option<f64>,
+    pub slo_min_rps: Option<f64>,
 }
 
 /// System information about the machine that ran the test.
@@ -188,6 +213,56 @@ fn get_system_info() -> SystemInfo {
     }
 }
 
+/// Evaluate the configured SLO thresholds against observed metrics.
+///
+/// Returns `None` when no thresholds are configured.
+fn evaluate_slo(
+    config: &crate::config::TestConfig,
+    p95_ms: f64,
+    p99_ms: f64,
+    error_rate_percent: f64,
+    rps: f64,
+) -> Option<SloResult> {
+    let mut checks = Vec::new();
+
+    let mut push = |name: &str, observed: f64, threshold: f64, comparator: &str| {
+        let passed = if comparator == ">=" {
+            observed >= threshold
+        } else {
+            observed <= threshold
+        };
+        checks.push(SloCheck {
+            name: name.to_string(),
+            observed,
+            threshold,
+            comparator: comparator.to_string(),
+            passed,
+        });
+    };
+
+    if let Some(t) = config.slo_p95_ms {
+        push("p95_latency_ms", p95_ms, t, "<=");
+    }
+    if let Some(t) = config.slo_p99_ms {
+        push("p99_latency_ms", p99_ms, t, "<=");
+    }
+    if let Some(t) = config.slo_error_rate {
+        push("error_rate_percent", error_rate_percent, t, "<=");
+    }
+    if let Some(t) = config.slo_min_rps {
+        push("rps", rps, t, ">=");
+    }
+
+    if checks.is_empty() {
+        None
+    } else {
+        Some(SloResult {
+            passed: checks.iter().all(|c| c.passed),
+            checks,
+        })
+    }
+}
+
 impl ReportArtifact {
     /// Build a ReportArtifact from an enriched TestSummary and TestConfig.
     ///
@@ -210,6 +285,19 @@ impl ReportArtifact {
             .map(|(&k, &v)| (k.to_string(), v))
             .collect();
 
+        let error_rate_percent = if summary.total_requests > 0 {
+            summary.total_errors as f64 / summary.total_requests as f64 * 100.0
+        } else {
+            0.0
+        };
+
+        let slo = evaluate_slo(
+            config,
+            summary.p95_latency_ms,
+            summary.p99_latency_ms,
+            error_rate_percent,
+            rps,
+        );
         ReportArtifact {
             metadata: ReportMetadata {
                 timestamp: summary.timestamp.clone(),
@@ -223,6 +311,10 @@ impl ReportArtifact {
                     chaos_rate: config.chaos_rate,
                     body: config.body.clone(),
                     headers: config.headers.clone(),
+                    slo_p95_ms: config.slo_p95_ms,
+                    slo_p99_ms: config.slo_p99_ms,
+                    slo_error_rate: config.slo_error_rate,
+                    slo_min_rps: config.slo_min_rps,
                 },
                 system_info: get_system_info(),
             },
@@ -247,6 +339,8 @@ impl ReportArtifact {
             http3: summary.http3.clone(),
             graphql: summary.graphql.clone(),
             graphql_ws: summary.graphql_ws.clone(),
+            slo,
+            timeline: summary.timeline.clone(),
             chaos: if summary.chaos_injected_total > 0 {
                 Some(ChaosMetrics {
                     total_injected: summary.chaos_injected_total,
@@ -277,6 +371,36 @@ impl ReportArtifact {
 mod tests {
     use super::*;
 
+    #[test]
+    fn evaluate_slo_passes_when_all_thresholds_met() {
+        let config = crate::config::TestConfig::builder("http://x".into())
+            .slo_p95_ms(Some(50.0))
+            .slo_error_rate(Some(0.1))
+            .slo_min_rps(Some(100.0))
+            .build();
+        let result = evaluate_slo(&config, 40.0, 0.0, 0.05, 200.0).unwrap();
+        assert!(result.passed);
+        assert_eq!(result.checks.len(), 3);
+        assert!(result.checks.iter().all(|c| c.passed));
+    }
+
+    #[test]
+    fn evaluate_slo_fails_when_a_threshold_is_violated() {
+        let config = crate::config::TestConfig::builder("http://x".into())
+            .slo_p95_ms(Some(50.0))
+            .build();
+        let result = evaluate_slo(&config, 80.0, 0.0, 0.0, 0.0).unwrap();
+        assert!(!result.passed);
+        assert_eq!(result.checks[0].name, "p95_latency_ms");
+        assert!(!result.checks[0].passed);
+    }
+
+    #[test]
+    fn evaluate_slo_none_without_thresholds() {
+        let config = crate::config::TestConfig::builder("http://x".into()).build();
+        assert!(evaluate_slo(&config, 10.0, 10.0, 0.0, 10.0).is_none());
+    }
+
     fn sample_artifact() -> ReportArtifact {
         let mut error_breakdown = HashMap::new();
         error_breakdown.insert("200".to_string(), 95);
@@ -298,6 +422,10 @@ mod tests {
                         "Authorization".to_string(),
                         "Bearer tok".to_string(),
                     )]),
+                    slo_p95_ms: None,
+                    slo_p99_ms: None,
+                    slo_error_rate: None,
+                    slo_min_rps: None,
                 },
                 system_info: SystemInfo {
                     hostname: "test-host".to_string(),
@@ -332,6 +460,8 @@ mod tests {
             http3: None,
             graphql: None,
             graphql_ws: None,
+            slo: None,
+            timeline: None,
             chaos: None,
             latency_histogram: Some(std::collections::HashMap::new()),
             system_metrics: None,
@@ -456,6 +586,8 @@ mod tests {
             "http3",
             "graphql",
             "graphql_ws",
+            "slo",
+            "timeline",
             "chaos_faults",
             "system_metrics",
             "connection_pool",
@@ -480,6 +612,14 @@ mod tests {
         full.http3 = Some(crate::metrics::Http3Metrics::default());
         full.graphql = Some(crate::metrics::GraphqlMetrics::default());
         full.graphql_ws = Some(crate::metrics::GraphqlWsMetrics::default());
+        full.slo = Some(SloResult {
+            passed: true,
+            checks: Vec::new(),
+        });
+        full.timeline = Some(crate::metrics::Timeline {
+            interval_ms: 1000,
+            samples: Vec::new(),
+        });
         full.chaos = Some(ChaosMetrics {
             total_injected: 1,
             faults_by_type: std::collections::HashMap::new(),
@@ -682,6 +822,7 @@ mod tests {
             http3: None,
             graphql: None,
             graphql_ws: None,
+            timeline: None,
             chaos_injected_total: 0,
             chaos_faults_by_type: std::collections::HashMap::new(),
             std_dev_latency_ms: 0.0,
@@ -734,6 +875,11 @@ mod tests {
             false,
             false,
             50u64,
+            None,
+            None,
+            None,
+            None,
+            1000u64,
         )
         .unwrap();
 
@@ -809,6 +955,7 @@ mod tests {
             http3: None,
             graphql: None,
             graphql_ws: None,
+            timeline: None,
             chaos_injected_total: 0,
             chaos_faults_by_type: std::collections::HashMap::new(),
             std_dev_latency_ms: 0.0,
@@ -861,6 +1008,11 @@ mod tests {
             false,
             false,
             50u64,
+            None,
+            None,
+            None,
+            None,
+            1000u64,
         )
         .unwrap();
 

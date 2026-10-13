@@ -118,6 +118,16 @@ pub struct TestConfig {
     pub http3_migrate: bool,
     #[pyo3(get, set)]
     pub http3_migrate_every: u64,
+    #[pyo3(get, set)]
+    pub slo_p95_ms: Option<f64>,
+    #[pyo3(get, set)]
+    pub slo_p99_ms: Option<f64>,
+    #[pyo3(get, set)]
+    pub slo_error_rate: Option<f64>,
+    #[pyo3(get, set)]
+    pub slo_min_rps: Option<f64>,
+    #[pyo3(get, set)]
+    pub timeline_interval_ms: u64,
 }
 
 #[pymethods]
@@ -165,6 +175,11 @@ impl TestConfig {
         grpc_h2_multiplex=false,
         http3_migrate=false,
         http3_migrate_every=50u64,
+        slo_p95_ms=None,
+        slo_p99_ms=None,
+        slo_error_rate=None,
+        slo_min_rps=None,
+        timeline_interval_ms=1000u64,
     ))]
     #[allow(clippy::too_many_arguments)]
     pub fn new(
@@ -209,6 +224,11 @@ impl TestConfig {
         grpc_h2_multiplex: bool,
         http3_migrate: bool,
         http3_migrate_every: u64,
+        slo_p95_ms: Option<f64>,
+        slo_p99_ms: Option<f64>,
+        slo_error_rate: Option<f64>,
+        slo_min_rps: Option<f64>,
+        timeline_interval_ms: u64,
     ) -> PyResult<Self> {
         let config = Self {
             url,
@@ -252,6 +272,11 @@ impl TestConfig {
             grpc_h2_multiplex,
             http3_migrate,
             http3_migrate_every,
+            slo_p95_ms,
+            slo_p99_ms,
+            slo_error_rate,
+            slo_min_rps,
+            timeline_interval_ms,
         };
         config.validate()?;
         Ok(config)
@@ -304,6 +329,26 @@ impl TestConfig {
                     )));
                 }
             }
+        }
+        for (name, value) in [
+            ("slo_p95_ms", self.slo_p95_ms),
+            ("slo_p99_ms", self.slo_p99_ms),
+            ("slo_min_rps", self.slo_min_rps),
+        ] {
+            if let Some(v) = value
+                && (!v.is_finite() || v < 0.0)
+            {
+                return Err(pyo3::exceptions::PyValueError::new_err(format!(
+                    "{name} must be a non-negative number"
+                )));
+            }
+        }
+        if let Some(rate) = self.slo_error_rate
+            && (!rate.is_finite() || !(0.0..=100.0).contains(&rate))
+        {
+            return Err(pyo3::exceptions::PyValueError::new_err(
+                "slo_error_rate must be between 0 and 100 (percent)",
+            ));
         }
         Ok(())
     }
@@ -372,6 +417,11 @@ pub struct TestConfigBuilder {
     grpc_h2_multiplex: bool,
     http3_migrate: bool,
     http3_migrate_every: u64,
+    slo_p95_ms: Option<f64>,
+    slo_p99_ms: Option<f64>,
+    slo_error_rate: Option<f64>,
+    slo_min_rps: Option<f64>,
+    timeline_interval_ms: u64,
 }
 
 impl Default for TestConfigBuilder {
@@ -418,6 +468,11 @@ impl Default for TestConfigBuilder {
             grpc_h2_multiplex: false,
             http3_migrate: false,
             http3_migrate_every: 50,
+            slo_p95_ms: None,
+            slo_p99_ms: None,
+            slo_error_rate: None,
+            slo_min_rps: None,
+            timeline_interval_ms: 1000,
         }
     }
 }
@@ -590,6 +645,26 @@ impl TestConfigBuilder {
         self.http3_migrate_every = v;
         self
     }
+    pub fn slo_p95_ms(mut self, v: Option<f64>) -> Self {
+        self.slo_p95_ms = v;
+        self
+    }
+    pub fn slo_p99_ms(mut self, v: Option<f64>) -> Self {
+        self.slo_p99_ms = v;
+        self
+    }
+    pub fn slo_error_rate(mut self, v: Option<f64>) -> Self {
+        self.slo_error_rate = v;
+        self
+    }
+    pub fn slo_min_rps(mut self, v: Option<f64>) -> Self {
+        self.slo_min_rps = v;
+        self
+    }
+    pub fn timeline_interval_ms(mut self, v: u64) -> Self {
+        self.timeline_interval_ms = v;
+        self
+    }
 
     pub fn build(self) -> TestConfig {
         TestConfig {
@@ -634,6 +709,11 @@ impl TestConfigBuilder {
             grpc_h2_multiplex: self.grpc_h2_multiplex,
             http3_migrate: self.http3_migrate,
             http3_migrate_every: self.http3_migrate_every,
+            slo_p95_ms: self.slo_p95_ms,
+            slo_p99_ms: self.slo_p99_ms,
+            slo_error_rate: self.slo_error_rate,
+            slo_min_rps: self.slo_min_rps,
+            timeline_interval_ms: self.timeline_interval_ms,
         }
     }
 }
@@ -904,6 +984,11 @@ mod tests {
             false,
             false,
             50u64,
+            None,
+            None,
+            None,
+            None,
+            1000u64,
         )
         .unwrap();
         assert_eq!(c.url, "http://127.0.0.1:8080");
@@ -956,6 +1041,11 @@ mod tests {
             false,
             false,
             50u64,
+            None,
+            None,
+            None,
+            None,
+            1000u64,
         )
         .unwrap();
         assert_eq!(c.concurrency, 50);

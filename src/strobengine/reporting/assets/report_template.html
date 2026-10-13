@@ -29,12 +29,53 @@
   .status-table td:last-child { text-align: right; font-variant-numeric: tabular-nums; }
   .fallback { color: #f87171; background: #1e293b; border-radius: 0.5rem; padding: 1rem; margin: 1rem 0; }
   .fallback pre { color: #e2e8f0; margin-top: 0.5rem; font-size: 0.875rem; }
+  .slo-banner { display: flex; flex-wrap: wrap; align-items: center; gap: 0.75rem;
+                border-radius: 0.75rem; padding: 1rem 1.25rem; margin-bottom: 1.5rem; }
+  .slo-pass { background: #052e16; border: 1px solid #22c55e; }
+  .slo-fail { background: #450a0a; border: 1px solid #ef4444; }
+  .slo-badge { font-weight: 700; letter-spacing: 0.05em; border-radius: 0.375rem;
+               padding: 0.25rem 0.75rem; color: #0f172a; }
+  .slo-pass .slo-badge { background: #22c55e; }
+  .slo-fail .slo-badge { background: #ef4444; color: #f8fafc; }
+  .slo-checks { list-style: none; display: flex; flex-wrap: wrap; gap: 0.75rem; width: 100%; }
+  .slo-checks li { font-size: 0.875rem; }
+  .toolbar { display: flex; justify-content: flex-end; margin-bottom: 1rem; }
+  .print-btn { background: #1d4ed8; color: #f8fafc; border: none; border-radius: 0.5rem;
+               padding: 0.5rem 1rem; font-size: 0.875rem; cursor: pointer; }
+  .print-btn:hover { background: #2563eb; }
+
+  /* Print / PDF: light theme, no interactive controls, keep cards intact. */
+  @media print {
+    body { background: #ffffff; color: #0f172a; padding: 0; }
+    .container { max-width: none; }
+    h1, .meta-value, .slo-checks li { color: #0f172a; }
+    .subtitle, .card h2, .meta-label, .status-table th { color: #475569; }
+    .card { background: #ffffff; border: 1px solid #cbd5e1; break-inside: avoid; }
+    .meta-row, .status-table td, .status-table th { border-color: #e2e8f0; }
+    .no-print { display: none !important; }
+    canvas { max-width: 100% !important; }
+  }
 </style>
 </head>
 <body>
 <div class="container">
+  <div class="toolbar no-print">
+    <button class="print-btn" type="button" onclick="window.print()">Print to PDF</button>
+  </div>
   <h1>strobengine Load Test Report</h1>
   <p class="subtitle">{{ metadata.timestamp }}</p>
+
+{% if slo %}
+  <div class="slo-banner {{ 'slo-pass' if slo.passed else 'slo-fail' }}">
+    <span class="slo-badge">{{ 'PASS' if slo.passed else 'FAIL' }}</span>
+    <span class="meta-label">SLO thresholds</span>
+    <ul class="slo-checks">
+      {% for check in slo.checks %}
+      <li>{{ check.name }} {{ check.comparator }} {{ check.threshold }} (observed {{ check.observed }})</li>
+      {% endfor %}
+    </ul>
+  </div>
+{% endif %}
 
   <div class="grid">
     <div class="card">
@@ -67,6 +108,31 @@
       <canvas id="statusChart"></canvas>
     </div>
   </div>
+
+  <div class="card" style="margin-bottom: 1.5rem;">
+    <h2>Latency Summary</h2>
+    <table class="status-table">
+      <thead><tr><th>Statistic</th><th>Latency (ms)</th></tr></thead>
+      <tbody>
+        <tr><td>Min</td><td>{{ latency_stats.min }}</td></tr>
+        <tr><td>Mean</td><td>{{ latency_stats.mean }}</td></tr>
+        <tr><td>P50</td><td>{{ latency_stats.p50 }}</td></tr>
+        <tr><td>P90</td><td>{{ latency_stats.p90 }}</td></tr>
+        <tr><td>P95</td><td>{{ latency_stats.p95 }}</td></tr>
+        <tr><td>P99</td><td>{{ latency_stats.p99 }}</td></tr>
+        <tr><td>P99.9</td><td>{{ latency_stats.p99_99 }}</td></tr>
+        <tr><td>Max</td><td>{{ latency_stats.max }}</td></tr>
+        <tr><td>Std Dev</td><td>{{ latency_stats.std_dev }}</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+{% if timeline %}
+  <div class="card" style="margin-bottom: 1.5rem;">
+    <h2>Throughput &amp; Latency Over Time</h2>
+    <canvas id="timelineChart"></canvas>
+  </div>
+{% endif %}
 
 {% if system_metrics and system_metrics.samples %}
   <div class="card" style="margin-bottom: 1.5rem;">
@@ -131,6 +197,28 @@
     </div>
   </div>
 {% endif %}
+
+  <div class="card" style="margin-bottom: 1.5rem;">
+    <h2>Error Breakdown</h2>
+    <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem; margin-bottom: 1rem;">
+      <div class="meta-row"><span class="meta-label">Transport (status 0)</span><span class="meta-value">{{ error_classes.transport }}</span></div>
+      <div class="meta-row"><span class="meta-label">4xx Client</span><span class="meta-value">{{ error_classes["4xx"] }}</span></div>
+      <div class="meta-row"><span class="meta-label">5xx Server</span><span class="meta-value">{{ error_classes["5xx"] }}</span></div>
+      <div class="meta-row"><span class="meta-label">Other</span><span class="meta-value">{{ error_classes.other }}</span></div>
+    </div>
+    {% if error_codes %}
+    <table class="status-table">
+      <thead><tr><th>Code</th><th>Count</th></tr></thead>
+      <tbody>
+        {% for code, count in error_codes %}
+        <tr><td>{{ code }}</td><td>{{ count }}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <p class="meta-label">No failed requests.</p>
+    {% endif %}
+  </div>
 
   <div class="card">
     <h2>Status Codes</h2>
@@ -226,6 +314,41 @@
       plugins: { legend: { position: 'bottom', labels: { color: '#94a3b8' } } }
     }
   });
+{% if timeline %}
+  var ctxT = document.getElementById('timelineChart');
+  if (ctxT) {
+    new Chart(ctxT.getContext('2d'), {
+      type: 'line',
+      data: {
+        labels: {{ timeline.labels | safe }},
+        datasets: [
+          { label: 'RPS', data: {{ timeline.rps | safe }}, borderColor: '#22d3ee', backgroundColor: 'rgba(34,211,238,0.1)', yAxisID: 'yRps', tension: 0.2, fill: true },
+          { label: 'P50 (ms)', data: {{ timeline.p50 | safe }}, borderColor: '#38bdf8', yAxisID: 'yLat', tension: 0.2, pointRadius: 0 },
+          { label: 'P95 (ms)', data: {{ timeline.p95 | safe }}, borderColor: '#818cf8', yAxisID: 'yLat', tension: 0.2, pointRadius: 0 },
+          { label: 'P99 (ms)', data: {{ timeline.p99 | safe }}, borderColor: '#a78bfa', yAxisID: 'yLat', tension: 0.2, pointRadius: 0 }
+        ]
+      },
+      options: {
+        responsive: true,
+        interaction: { mode: 'index', intersect: false },
+        plugins: { legend: { labels: { color: '#94a3b8' } } },
+        scales: {
+          x: { grid: { color: '#334155' }, ticks: { color: '#94a3b8' }, title: { display: true, text: 'elapsed (s)', color: '#94a3b8' } },
+          yRps: {
+            type: 'linear', position: 'left',
+            title: { display: true, text: 'RPS', color: '#22d3ee' },
+            grid: { color: '#334155' }, ticks: { color: '#94a3b8' }, suggestedMin: 0
+          },
+          yLat: {
+            type: 'linear', position: 'right',
+            title: { display: true, text: 'Latency (ms)', color: '#a78bfa' },
+            grid: { drawOnChartArea: false }, ticks: { color: '#94a3b8' }, suggestedMin: 0
+          }
+        }
+      }
+    });
+  }
+{% endif %}
 {% if system_metrics and system_metrics.samples %}
   var ctxRes = document.getElementById('resourceChart');
   if (ctxRes) {

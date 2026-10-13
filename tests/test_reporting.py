@@ -695,6 +695,40 @@ class TestHTMLReport:
         assert "4xx" in html
         assert "5xx" in html
 
+    def test_render_html_latency_summary_table(self):
+        html = render_html_report(_make_summary(), _make_config())
+        assert "Latency Summary" in html
+        for stat in (
+            "Min",
+            "Mean",
+            "P50",
+            "P90",
+            "P95",
+            "P99",
+            "P99.9",
+            "Max",
+            "Std Dev",
+        ):
+            assert stat in html
+
+    def test_render_html_error_breakdown_card(self):
+        summary = _make_summary(
+            total_errors=10, status_codes={200: 90, 404: 5, 500: 3, 0: 2}
+        )
+        html = render_html_report(summary, _make_config())
+        assert "Error Breakdown" in html
+        assert "Transport (status 0)" in html
+        assert "4xx Client" in html
+        assert "5xx Server" in html
+        # Failed codes are listed individually.
+        assert "<td>404</td>" in html
+        assert "<td>500</td>" in html
+
+    def test_render_html_error_breakdown_no_failures(self):
+        summary = _make_summary(total_errors=0, status_codes={200: 100})
+        html = render_html_report(summary, _make_config())
+        assert "No failed requests." in html
+
     def test_render_html_omits_websocket_section_when_absent(self):
         html = render_html_report(_make_summary(), _make_config())
         assert "WebSocket Deep Metrics" not in html
@@ -915,3 +949,116 @@ def test_is_grpc_mapped():
     assert _is_grpc_mapped({499: 1, 200: 5})
     assert not _is_grpc_mapped({200: 1, 500: 1})
     assert not _is_grpc_mapped({})
+
+
+class TestSlo:
+    def test_artifact_includes_slo_when_configured(self):
+        config = _make_config(slo_p95_ms=1000.0, slo_error_rate=5.0)
+        artifact = build_artifact_dict(_make_summary(), config)
+        assert "slo" in artifact
+        assert artifact["slo"]["passed"] is True
+        assert {c["name"] for c in artifact["slo"]["checks"]} == {
+            "p95_latency_ms",
+            "error_rate_percent",
+        }
+
+    def test_artifact_omits_slo_without_thresholds(self):
+        artifact = build_artifact_dict(_make_summary(), _make_config())
+        assert "slo" not in artifact
+
+    def test_artifact_slo_fails_when_violated(self):
+        config = _make_config(slo_p95_ms=1.0)  # baseline p95 is 3.0 ms
+        artifact = build_artifact_dict(_make_summary(), config)
+        assert artifact["slo"]["passed"] is False
+        check = artifact["slo"]["checks"][0]
+        assert check["name"] == "p95_latency_ms"
+        assert check["comparator"] == "<="
+        assert check["passed"] is False
+
+    def test_slo_recorded_in_metadata_cli_options(self):
+        config = _make_config(slo_p99_ms=250.0)
+        artifact = build_artifact_dict(_make_summary(), config)
+        assert artifact["metadata"]["cli_options"]["slo_p99_ms"] == 250.0
+        assert artifact["metadata"]["cli_options"]["slo_p95_ms"] is None
+
+    def test_html_slo_badge_pass(self):
+        html = render_html_report(_make_summary(), _make_config(slo_p95_ms=1000.0))
+        assert "slo-pass" in html
+        assert ">PASS<" in html
+
+    def test_html_slo_badge_fail(self):
+        html = render_html_report(_make_summary(), _make_config(slo_p95_ms=1.0))
+        assert "slo-fail" in html
+        assert ">FAIL<" in html
+
+    def test_html_no_slo_banner_without_thresholds(self):
+        html = render_html_report(_make_summary(), _make_config())
+        assert 'class="slo-banner' not in html
+
+
+class _FakeTimelineSample:
+    elapsed_sec = 1.0
+    rps = 120.5
+    error_rate = 0.0
+    p50_us = 1000.0
+    p95_us = 2500.0
+    p99_us = 4000.0
+
+
+class _FakeTimeline:
+    interval_ms = 1000
+    samples = (_FakeTimelineSample(),)
+
+
+class TestTimeline:
+    def test_artifact_omits_timeline_when_absent(self):
+        artifact = build_artifact_dict(_make_summary(), _make_config())
+        assert "timeline" not in artifact
+
+    def test_artifact_includes_timeline_when_present(self, monkeypatch):
+        import strobengine.artifact as artifact
+
+        monkeypatch.setattr(artifact, "Timeline", _FakeTimeline)
+        summary = _make_summary()
+        summary.timeline = _FakeTimeline()
+
+        result = build_artifact_dict(summary, _make_config())
+        assert result["timeline"] == {
+            "interval_ms": 1000,
+            "samples": [
+                {
+                    "elapsed_sec": 1.0,
+                    "rps": 120.5,
+                    "error_rate": 0.0,
+                    "p50_us": 1000.0,
+                    "p95_us": 2500.0,
+                    "p99_us": 4000.0,
+                }
+            ],
+        }
+
+    def test_html_renders_timeline_chart(self, monkeypatch):
+        import strobengine.artifact as artifact
+
+        monkeypatch.setattr(artifact, "Timeline", _FakeTimeline)
+        summary = _make_summary()
+        summary.timeline = _FakeTimeline()
+
+        html = render_html_report(summary, _make_config())
+        assert "Throughput &amp; Latency Over Time" in html
+        assert "timelineChart" in html
+        assert "yRps" in html
+        assert "yLat" in html
+
+    def test_html_omits_timeline_chart_when_absent(self):
+        html = render_html_report(_make_summary(), _make_config())
+        assert "timelineChart" not in html
+
+
+class TestPrintErgonomics:
+    def test_render_html_has_print_styles_and_button(self):
+        html = render_html_report(_make_summary(), _make_config())
+        assert "@media print" in html
+        assert "window.print()" in html
+        assert "Print to PDF" in html
+        assert "no-print" in html

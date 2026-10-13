@@ -72,6 +72,11 @@ class TestConfig:
     grpc_h2_multiplex: bool
     http3_migrate: bool
     http3_migrate_every: int
+    slo_p95_ms: float | None
+    slo_p99_ms: float | None
+    slo_error_rate: float | None
+    slo_min_rps: float | None
+    timeline_interval_ms: int
     def __init__(
         self,
         url: str,
@@ -115,6 +120,11 @@ class TestConfig:
         grpc_h2_multiplex: bool = False,
         http3_migrate: bool = False,
         http3_migrate_every: int = 50,
+        slo_p95_ms: float | None = None,
+        slo_p99_ms: float | None = None,
+        slo_error_rate: float | None = None,
+        slo_min_rps: float | None = None,
+        timeline_interval_ms: int = 1000,
     ) -> None: ...
 
 class SystemMetrics:
@@ -190,6 +200,26 @@ class GraphqlWsMetrics:
     def interval_p90_ms(self) -> float: ...
     @property
     def interval_p99_ms(self) -> float: ...
+
+class TimelineSample:
+    @property
+    def elapsed_sec(self) -> float: ...
+    @property
+    def rps(self) -> float: ...
+    @property
+    def error_rate(self) -> float: ...
+    @property
+    def p50_us(self) -> float: ...
+    @property
+    def p95_us(self) -> float: ...
+    @property
+    def p99_us(self) -> float: ...
+
+class Timeline:
+    @property
+    def interval_ms(self) -> int: ...
+    @property
+    def samples(self) -> list[TimelineSample]: ...
 
 class WebsocketMetrics:
     @property
@@ -286,6 +316,8 @@ class TestSummary:
     def graphql(self) -> GraphqlMetrics | None: ...
     @property
     def graphql_ws(self) -> GraphqlWsMetrics | None: ...
+    @property
+    def timeline(self) -> Timeline | None: ...
     @property
     def chaos_injected_total(self) -> int: ...
     @property
