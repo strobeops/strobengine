@@ -30,6 +30,7 @@ _LIB_RS = _ROOT / "src" / "lib.rs"
 
 _EXPECTED_FIDELITY_CLASSES = {
     "GraphqlMetrics",
+    "GraphqlWsMetrics",
     "GrpcMetrics",
     "Http3Metrics",
     "QuicMetrics",

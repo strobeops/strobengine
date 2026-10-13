@@ -205,6 +205,7 @@ fn spawn_worker(
             if metric.status_code == 0
                 || metric.status_code >= 400
                 || metric.graphql_errors.is_some_and(|n| n > 0)
+                || metric.graphql_ws_errors.is_some_and(|n| n > 0)
             {
                 counters.errors.fetch_add(1, Ordering::Relaxed);
             }
@@ -480,6 +481,7 @@ async fn execute_test(
         grpc_metrics: aggregated.grpc_metrics,
         http3_metrics: aggregated.http3_metrics,
         graphql_metrics,
+        graphql_ws_metrics: aggregated.graphql_ws_metrics,
         chaos_injected_total: aggregated.chaos_injected_total,
         chaos_faults_by_type: aggregated.chaos_faults_by_type,
         resource_samples,
@@ -499,8 +501,24 @@ fn build_engine(
 ) -> PyResult<Arc<dyn ProtocolEngine>> {
     let url = config.url.clone();
 
-    // GraphQL is an HTTP POST: select it whenever a query document is configured.
+    // GraphQL over a ws(s):// URL is a subscription; over http(s):// it is a
+    // regular query/mutation POST.
     if let Some(query) = config.graphql_query.as_deref() {
+        if url.starts_with("ws://") || url.starts_with("wss://") {
+            let payload = protocols::graphql_ws::SubscriptionPayload {
+                query: query.to_string(),
+                variables: config.graphql_variables.clone(),
+                operation_name: config.graphql_operation_name.clone(),
+            };
+            let headers = config.headers.clone().unwrap_or_default();
+            return Ok(Arc::new(protocols::graphql_ws::GraphqlWsEngine::new(
+                payload,
+                headers,
+                chaos,
+                config.timeout_secs,
+            )));
+        }
+
         let payload = protocols::graphql::build_payload(
             query,
             config.graphql_variables.as_deref(),
@@ -675,6 +693,7 @@ fn _strobengine(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<metrics::GrpcMetrics>()?;
     m.add_class::<metrics::Http3Metrics>()?;
     m.add_class::<metrics::GraphqlMetrics>()?;
+    m.add_class::<metrics::GraphqlWsMetrics>()?;
     m.add_class::<metrics::system::SystemMetrics>()?;
     m.add_class::<metrics::system::ResourceSample>()?;
     m.add("HISTOGRAM_BUCKET_ORDER", metrics::HISTOGRAM_BUCKET_ORDER)?;

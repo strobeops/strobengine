@@ -23,6 +23,7 @@ from typing import cast
 
 from strobengine._strobengine import (
     GraphqlMetrics,
+    GraphqlWsMetrics,
     GrpcMetrics,
     Http3Metrics,
     QuicMetrics,
@@ -35,6 +36,7 @@ from strobengine.report_schema import (
     CliOptionsDict,
     ConnectionPoolDict,
     GraphqlMetricsDict,
+    GraphqlWsMetricsDict,
     GrpcMetricsDict,
     Http3MetricsDict,
     QuicMetricsDict,
@@ -211,6 +213,26 @@ def _format_graphql(summary: TestSummary) -> GraphqlMetricsDict | None:
     }
 
 
+def _format_graphql_ws(summary: TestSummary) -> GraphqlWsMetricsDict | None:
+    """Extract GraphQL-over-WebSocket subscription metrics into a JSON-native dict."""
+    g = summary.graphql_ws
+    if g is None or not isinstance(g, GraphqlWsMetrics):
+        return None
+    return {
+        "operations_total": g.operations_total,
+        "messages_total": g.messages_total,
+        "errors_total": g.errors_total,
+        "ttfm_mean_ms": g.ttfm_mean_ms,
+        "ttfm_p50_ms": g.ttfm_p50_ms,
+        "ttfm_p90_ms": g.ttfm_p90_ms,
+        "ttfm_p99_ms": g.ttfm_p99_ms,
+        "interval_mean_ms": g.interval_mean_ms,
+        "interval_p50_ms": g.interval_p50_ms,
+        "interval_p90_ms": g.interval_p90_ms,
+        "interval_p99_ms": g.interval_p99_ms,
+    }
+
+
 def _build_artifact_dict_fallback(
     summary: TestSummary, config: SupportsCliOptions
 ) -> ReportArtifactDict:
@@ -297,6 +319,10 @@ def _build_artifact_dict_fallback(
     graphql = _format_graphql(summary)
     if graphql is not None:
         artifact["graphql"] = graphql
+
+    graphql_ws = _format_graphql_ws(summary)
+    if graphql_ws is not None:
+        artifact["graphql_ws"] = graphql_ws
 
     chaos_total = summary.chaos_injected_total
     if chaos_total:

@@ -158,7 +158,10 @@ GraphqlQueryOpt = Annotated[
     str | None,
     typer.Option(
         "--graphql-query",
-        help="GraphQL query/mutation document (sent as an HTTP POST)",
+        help=(
+            "GraphQL query/mutation document (HTTP POST, or a subscription "
+            "when the URL is ws:// or wss://)"
+        ),
     ),
 ]
 GraphqlVariablesOpt = Annotated[
