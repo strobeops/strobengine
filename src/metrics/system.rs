@@ -186,16 +186,21 @@ mod tests {
 
     #[tokio::test]
     async fn sampler_produces_samples() {
-        let (handle, mut rx) = start(100).unwrap();
-        tokio::time::sleep(Duration::from_millis(250)).await;
+        let (handle, mut rx) = start(50).unwrap();
+
+        // Wait for the first sample deterministically. A fixed sleep races the
+        // sampler task: under parallel/loaded test execution the test task can
+        // wake and cancel before the sampler task has run its send.
+        let sample = tokio::time::timeout(Duration::from_secs(10), rx.recv())
+            .await
+            .expect("sampler produced no sample within 10s")
+            .expect("sampler dropped its channel before producing a sample");
+
         handle.cancel.cancel();
-        let mut samples = Vec::new();
-        while let Some(s) = rx.recv().await {
-            samples.push(s);
-        }
-        assert!(!samples.is_empty());
-        assert!(samples[0].cpu_usage_percent >= 0.0);
-        assert!(samples[0].memory_rss_bytes > 0);
+
+        assert!(sample.cpu_usage_percent.is_finite() && sample.cpu_usage_percent >= 0.0);
+        assert!(sample.memory_rss_bytes > 0);
+        assert!(sample.thread_count >= 1);
     }
 
     #[test]
