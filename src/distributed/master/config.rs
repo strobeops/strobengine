@@ -38,7 +38,7 @@ pub struct MasterConfig {
     pub cluster_id: String,
 
     /// Address to bind the gRPC server to.
-    #[arg(long, env = "STROBENGINE_BIND", default_value = "0.0.0.0")]
+    #[arg(long = "bind", env = "STROBENGINE_BIND", default_value = "0.0.0.0")]
     pub bind_address: String,
 
     /// Port to bind the gRPC server to.
