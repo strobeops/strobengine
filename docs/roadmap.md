@@ -156,11 +156,11 @@ This document outlines the planned trajectory and upcoming feature epics for **s
 ### Epic: Distributed Load Testing
 *Target Focus: Multi-Node Coordination & High-Scale Concurrency*
 
-- [ ] **Distributed Runner Architecture**
-  - [ ] **Master-Worker Coordination**: Orchestrate multi-node load test runs
+- [x] **Distributed Runner Architecture**
+  - [x] **Master-Worker Coordination**: Orchestrate multi-node load test runs
     from a central controller node to generate massive traffic loads beyond
     single-machine thread/socket limits.
-  - [ ] **Aggregated Telemetry Sync**: Real-time metric synchronization, health
+  - [x] **Aggregated Telemetry Sync**: Real-time metric synchronization, health
     checks, and unified final reporting from distributed worker nodes.
 
 ---
