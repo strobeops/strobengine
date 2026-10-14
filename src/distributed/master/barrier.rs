@@ -42,7 +42,7 @@ impl BarrierCoordinator {
         loop {
             let ready = {
                 let registry = self.registry.lock().await;
-                let mut ready = registry.ready_workers();
+                let mut ready = registry.allocatable_workers();
                 ready.sort();
                 ready
             };
@@ -90,6 +90,12 @@ mod tests {
             .unwrap();
     }
 
+    /// Attach a command stream (readiness for allocation requires one).
+    fn attach(registry: &mut Registry, id: &str) {
+        let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
+        registry.attach_commands(id, tx).unwrap();
+    }
+
     #[tokio::test]
     async fn resolves_once_expected_workers_are_ready() {
         let registry = Arc::new(Mutex::new(Registry::new()));
@@ -100,12 +106,13 @@ mod tests {
             let mut guard = registry.lock().await;
             register(&mut guard, "w1");
             register(&mut guard, "w2");
+            attach(&mut guard, "w1");
             guard
                 .record_heartbeat("w1", WorkerState::Ready, 0, String::new())
                 .unwrap();
         }
 
-        // Only one ready, but two expected: must wait.
+        // Only one allocatable, but two expected: must wait.
         let barrier_task = {
             let barrier = barrier.clone();
             tokio::spawn(async move { barrier.wait_for_ready(2, Duration::from_secs(5)).await })
@@ -114,6 +121,7 @@ mod tests {
         tokio::time::sleep(Duration::from_millis(50)).await;
         {
             let mut guard = registry.lock().await;
+            attach(&mut guard, "w2");
             guard
                 .record_heartbeat("w2", WorkerState::Ready, 0, String::new())
                 .unwrap();
@@ -145,6 +153,8 @@ mod tests {
             let mut guard = registry.lock().await;
             register(&mut guard, "w1");
             register(&mut guard, "w2");
+            attach(&mut guard, "w1");
+            attach(&mut guard, "w2");
             guard
                 .record_heartbeat("w1", WorkerState::Ready, 0, String::new())
                 .unwrap();

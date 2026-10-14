@@ -219,6 +219,16 @@ impl Registry {
             .collect()
     }
 
+    /// Ids of workers that are `READY` *and* have a live command stream, i.e.
+    /// workers the master can actually dispatch a run to.
+    pub fn allocatable_workers(&self) -> Vec<String> {
+        self.workers
+            .values()
+            .filter(|w| w.status == WorkerStatus::Ready && w.command_tx.is_some())
+            .map(|w| w.worker_id.clone())
+            .collect()
+    }
+
     /// Ids of all workers currently reporting `RUNNING`.
     pub fn running_workers(&self) -> Vec<String> {
         self.workers
