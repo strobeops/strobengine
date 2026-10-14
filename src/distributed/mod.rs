@@ -1,9 +1,9 @@
 //! Distributed load-testing control plane.
 //!
 //! This module hosts the wire types generated from
-//! `proto/loadtesting/v1/load_test_controller.proto` (see `build.rs`). The
-//! master/worker runtime logic will build on these types; for now only the
-//! generated contract is exposed.
+//! `proto/loadtesting/v1/load_test_controller.proto` (see `build.rs`) plus the
+//! worker daemon that registers with a master, executes commands, and streams
+//! telemetry back.
 
 #[allow(clippy::all, dead_code)]
 pub mod proto {
@@ -11,6 +11,16 @@ pub mod proto {
     // `<package>.rs` inside `OUT_DIR`.
     tonic::include_proto!("loadtesting.v1");
 }
+
+pub mod backoff;
+pub mod config;
+pub mod error;
+pub mod state;
+
+pub use backoff::Backoff;
+pub use config::WorkerConfig;
+pub use error::{WorkerError, WorkerResult};
+pub use state::{WorkerState, WorkerStateMachine};
 
 #[cfg(test)]
 mod tests {

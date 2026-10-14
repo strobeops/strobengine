@@ -22,7 +22,7 @@ http = "1"
 bytes = "1"
 tokio = { version = "1.53.0", features = ["sync", "time", "rt", "rt-multi-thread", "macros", "signal"] }
 tokio-util = { version = "0.7", features = ["rt"] }
-tokio-stream = "0.1"
+tokio-stream = { version = "0.1", features = ["sync"] }
 tokio-tungstenite = { version = "0.26", features = ["rustls-tls-webpki-roots"] }
 async-trait = "0.1"
 tracing = "0.1"
@@ -49,6 +49,8 @@ webpki-roots = "0.26"
 hdrhistogram = "7"
 sysinfo = "0.34"
 h2 = "0.4"
+clap = { version = "4", features = ["derive", "env"] }
+thiserror = "2"
 
 [dev-dependencies]
 criterion = "0.5"
