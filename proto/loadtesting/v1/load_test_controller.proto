@@ -1,0 +1,320 @@
+// Control-plane and telemetry contract for the distributed load testing
+// framework.
+//
+// A single Master (Controller) node coordinates many Worker nodes. Workers
+// register, send periodic heartbeats, receive lifecycle commands, and stream
+// aggregated metrics back to the master. All RPCs run over gRPC/HTTP2.
+//
+// Conventions:
+//   * All latency values are milliseconds (ms) unless a field name says
+//     otherwise; byte counts are bytes; timestamps are Unix epoch milliseconds.
+//   * Enumerations use a zero value named after the enum so that the default is
+//     always unambiguous.
+
+syntax = "proto3";
+
+package loadtesting.v1;
+
+import "google/protobuf/duration.proto";
+import "google/protobuf/empty.proto";
+import "google/protobuf/timestamp.proto";
+
+// =============================================================================
+// Enumerations
+// =============================================================================
+
+// Lifecycle state reported by a worker in each heartbeat.
+enum WorkerState {
+  WORKER_STATE_UNSPECIFIED = 0;   // Not yet reported.
+  WORKER_STATE_READY = 1;         // Idle and available for assignment.
+  WORKER_STATE_RUNNING = 2;       // Actively executing a test.
+  WORKER_STATE_DRAINING = 3;      // Finishing in-flight work; no new work.
+  WORKER_STATE_ERROR = 4;         // Faulted; requires operator attention.
+  WORKER_STATE_UNREGISTERED = 5;  // Deregistered or shutting down.
+}
+
+// Lifecycle command issued by the master to a worker.
+enum CommandType {
+  COMMAND_TYPE_UNSPECIFIED = 0;
+  COMMAND_TYPE_START = 1;  // Begin a run; carries a TestConfiguration.
+  COMMAND_TYPE_STOP = 2;   // Graceful stop after the current iteration.
+  COMMAND_TYPE_ABORT = 3;  // Immediate, best-effort termination.
+}
+
+// Lightweight directive piggybacked on every heartbeat response.
+enum HeartbeatDirective {
+  HEARTBEAT_DIRECTIVE_UNSPECIFIED = 0;
+  HEARTBEAT_DIRECTIVE_CONTINUE = 1;     // Keep operating normally.
+  HEARTBEAT_DIRECTIVE_SYNCHRONIZE = 2;  // Re-align timing / clock with master.
+  HEARTBEAT_DIRECTIVE_ABORT = 3;        // Abort any active run immediately.
+}
+
+// Outcome of a registration attempt.
+enum RegistrationStatus {
+  REGISTRATION_STATUS_UNSPECIFIED = 0;
+  REGISTRATION_STATUS_ACCEPTED = 1;
+  REGISTRATION_STATUS_REJECTED = 2;
+}
+
+// Worker-reported outcome of a lifecycle command.
+enum CommandStatus {
+  COMMAND_STATUS_UNSPECIFIED = 0;
+  COMMAND_STATUS_ACKNOWLEDGED = 1;  // Received, will act on it.
+  COMMAND_STATUS_COMPLETED = 2;     // Terminal; finished successfully.
+  COMMAND_STATUS_FAILED = 3;        // Terminal; failed (see error_message).
+  COMMAND_STATUS_REJECTED = 4;      // Not applicable / not accepted.
+}
+
+// Shape of the ramp-up schedule.
+enum RampShape {
+  RAMP_SHAPE_UNSPECIFIED = 0;
+  RAMP_SHAPE_LINEAR = 1;
+  RAMP_SHAPE_STEP = 2;
+  RAMP_SHAPE_EXPONENTIAL = 3;
+}
+
+// Classification of a failed request, used for error breakdowns.
+// Values are intentionally coarse so workers stay comparable cluster-wide.
+enum ErrorClass {
+  ERROR_CLASS_UNSPECIFIED = 0;
+  ERROR_CLASS_TIMEOUT = 1;             // Deadline / read timeout.
+  ERROR_CLASS_CONNECTION_REFUSED = 2;  // TCP connect refused.
+  ERROR_CLASS_CONNECTION_RESET = 3;    // Peer reset the connection.
+  ERROR_CLASS_DNS_FAILURE = 4;         // Name resolution failed.
+  ERROR_CLASS_TLS_ERROR = 5;           // Handshake / certificate failure.
+  ERROR_CLASS_HTTP_4XX = 6;            // Client error status family.
+  ERROR_CLASS_HTTP_5XX = 7;            // Server error status family.
+  ERROR_CLASS_PROTOCOL_ERROR = 8;      // Malformed response / framing error.
+  ERROR_CLASS_PAYLOAD_ERROR = 9;       // Request build / encode failure.
+  ERROR_CLASS_OTHER = 10;              // Anything not covered above.
+}
+
+// =============================================================================
+// MasterController: worker lifecycle, heartbeats, and control commands.
+// =============================================================================
+
+service MasterController {
+  // Register a worker with the cluster. Called exactly once per worker start.
+  rpc RegisterWorker(RegisterWorkerRequest) returns (RegisterWorkerResponse);
+
+  // Periodic liveness + resource report. The recommended interval is supplied
+  // in ClusterConfiguration.heartbeat_interval_ms.
+  rpc Heartbeat(HeartbeatRequest) returns (HeartbeatResponse);
+
+  // Long-lived, server-streaming subscription to lifecycle commands. The master
+  // pushes START/STOP/ABORT commands on this stream as they are issued.
+  rpc WatchCommands(WatchCommandsRequest) returns (stream CommandRequest);
+
+  // Worker acknowledgement of a command previously received on WatchCommands.
+  rpc AcknowledgeCommand(CommandResponse) returns (google.protobuf.Empty);
+}
+
+// =============================================================================
+// TelemetryService: real-time metric streaming from workers to the master.
+// =============================================================================
+
+service TelemetryService {
+  // Client-streaming upload of time-windowed metric batches. The master returns
+  // a single StreamAcknowledgment once the client half-closes the stream.
+  rpc StreamMetrics(stream MetricBatch) returns (StreamAcknowledgment);
+}
+
+// =============================================================================
+// Registration & heartbeat messages
+// =============================================================================
+
+// Resource capacity advertised by a worker at registration time.
+message ResourceCapacity {
+  uint32 cpu_cores = 1;               // Logical CPU cores available to the agent.
+  uint64 total_memory_bytes = 2;      // Total physical memory, in bytes.
+  uint64 available_memory_bytes = 3;  // Memory free for load generation, in bytes.
+  float available_cpu_percent = 4;    // Currently idle CPU, 0.0-100.0.
+}
+
+message RegisterWorkerRequest {
+  string worker_id = 1;          // Stable, cluster-unique worker identifier.
+  string hostname = 2;           // Reported host name (informational).
+  string ip_address = 3;         // Reachable IPv4 or IPv6 address.
+  uint32 max_concurrency_vus = 4;  // Maximum virtual users this worker supports.
+  ResourceCapacity capacity = 5;   // CPU/RAM capacity snapshot.
+  string agent_version = 6;        // Semver of the worker agent build.
+  map<string, string> labels = 7;  // Arbitrary operator tags (zone, pool, ...).
+  google.protobuf.Timestamp registered_at = 8;  // Worker clock at registration.
+}
+
+// Cluster-wide parameters handed to a worker on acceptance.
+message ClusterConfiguration {
+  string cluster_id = 1;                // Identifier of the cluster.
+  string master_endpoint = 2;           // Canonical master host:port.
+  uint32 heartbeat_interval_ms = 3;     // Recommended heartbeat cadence.
+  uint32 metric_flush_interval_ms = 4;  // Recommended telemetry batch window.
+  uint32 max_batch_size = 5;            // Max MetricBatch messages per stream flush.
+  bool tls_required = 6;                // Whether workers must use TLS.
+  uint32 histogram_bucket_count = 7;    // Buckets per latency histogram (see LatencySummary).
+  map<string, string> cluster_labels = 8;  // Cluster-level labels/metadata.
+}
+
+message RegisterWorkerResponse {
+  RegistrationStatus status = 1;            // ACCEPTED / REJECTED.
+  string acknowledgment_id = 2;             // Correlation id for this registration.
+  ClusterConfiguration cluster_config = 3;  // Present only when accepted.
+  string message = 4;                       // Human-readable detail (esp. on reject).
+}
+
+// Utilisation snapshot reported with each heartbeat.
+message ResourceUsage {
+  float cpu_utilization_percent = 1;     // Process CPU usage, 0.0-100.0.
+  float memory_utilization_percent = 2;  // Process RSS as % of available RAM.
+  uint64 memory_used_bytes = 3;          // Resident memory in bytes.
+  uint32 thread_count = 4;               // OS threads currently in use.
+}
+
+message HeartbeatRequest {
+  string worker_id = 1;                   // Must match the registered worker.
+  WorkerState state = 2;                  // Current lifecycle state.
+  uint32 active_vus = 3;                  // Virtual users currently executing.
+  ResourceUsage usage = 4;                // CPU/memory snapshot.
+  google.protobuf.Timestamp sent_at = 5;  // Worker clock when sent.
+  string test_run_id = 6;                 // Active run id, empty when idle.
+}
+
+message HeartbeatResponse {
+  HeartbeatDirective directive = 1;           // CONTINUE / SYNCHRONIZE / ABORT.
+  uint32 next_heartbeat_interval_ms = 2;      // Server-suggested next cadence.
+  string message = 3;                         // Optional operator-facing note.
+  string pending_command_id = 4;              // Non-empty if a command is queued.
+  google.protobuf.Timestamp server_time = 5;  // Master clock for skew correction.
+}
+
+// =============================================================================
+// Test configuration & lifecycle commands
+// =============================================================================
+
+// A single HTTP header applied to generated requests.
+message Header {
+  string name = 1;   // Header name.
+  string value = 2;  // Header value.
+}
+
+// One target endpoint participating in a run.
+message TargetEndpoint {
+  string url = 1;     // Fully-qualified URL (scheme://host:port/path).
+  string method = 2;  // HTTP method (GET, POST, ...); empty => config default.
+  float weight = 3;   // Relative traffic share, >= 0.0 (0 => unset/equal).
+}
+
+// Reusable request body template.
+message PayloadTemplate {
+  string name = 1;              // Template identifier.
+  string content_type = 2;      // MIME type of `body`.
+  bytes body = 3;               // Raw request body bytes.
+  float weight = 4;             // Relative selection weight, >= 0.0.
+  repeated Header headers = 5;  // Per-template header overrides.
+}
+
+// Ramp-up / steady-state schedule.
+message RampUpSchedule {
+  uint32 start_vus = 1;                        // VUs at t=0.
+  uint32 target_vus = 2;                       // VUs to reach after ramp-up.
+  RampShape shape = 3;                         // Interpolation shape.
+  google.protobuf.Duration ramp_duration = 4;  // Time to go start -> target.
+  google.protobuf.Duration hold_duration = 5;  // Time held at target VUs.
+}
+
+// Full description of a single distributed test run.
+message TestConfiguration {
+  string test_run_id = 1;                  // Cluster-unique run identifier.
+  repeated TargetEndpoint targets = 2;     // One or more target endpoints.
+  RampUpSchedule ramp_up = 3;              // Load ramp-up schedule.
+  google.protobuf.Duration duration = 4;   // Total run duration (incl. ramp).
+  uint32 virtual_users = 5;                // Baseline VUs per worker here.
+  uint32 request_timeout_ms = 6;           // Per-request timeout, milliseconds.
+  repeated Header headers = 7;             // Headers applied to all requests.
+  repeated PayloadTemplate payloads = 8;   // Body templates (may be empty).
+  string http_method = 9;                  // Default method when target omits it.
+  map<string, string> metadata = 10;       // Free-form run metadata/labels.
+}
+
+message CommandRequest {
+  CommandType command = 1;                  // START / STOP / ABORT.
+  string command_id = 2;                    // Unique id for ack correlation.
+  string test_run_id = 3;                   // Run this command applies to.
+  TestConfiguration config = 4;             // Required for START; ignored otherwise.
+  google.protobuf.Timestamp issued_at = 5;  // Master clock at issue time.
+  uint32 command_timeout_ms = 6;            // 0 => no deadline.
+}
+
+message CommandResponse {
+  string command_id = 1;                         // Echoes CommandRequest.command_id.
+  string worker_id = 2;                          // Reporting worker.
+  CommandStatus status = 3;                      // ACKNOWLEDGED / COMPLETED / FAILED / REJECTED.
+  string error_message = 4;                      // Populated when status is not success.
+  google.protobuf.Timestamp acknowledged_at = 5; // Worker clock at ack time.
+}
+
+message WatchCommandsRequest {
+  string worker_id = 1;        // Subscribing worker.
+  string last_command_id = 2;  // Resume-after id for at-least-once delivery.
+}
+
+// =============================================================================
+// Telemetry streaming messages
+// =============================================================================
+
+// Aggregated error counts for one error class within a batch.
+message ErrorBreakdown {
+  ErrorClass error_class = 1;  // Coarse failure classification.
+  uint64 count = 2;            // Number of requests in this class.
+  string detail = 3;           // Optional exemplar/detail (e.g. status token).
+}
+
+// Latency distribution for a metric window.
+message LatencySummary {
+  float p50_ms = 1;        // 50th percentile latency, milliseconds.
+  float p90_ms = 2;        // 90th percentile latency, milliseconds.
+  float p95_ms = 3;        // 95th percentile latency, milliseconds.
+  float p99_ms = 4;        // 99th percentile latency, milliseconds.
+  float min_ms = 5;        // Minimum observed latency, milliseconds.
+  float max_ms = 6;        // Maximum observed latency, milliseconds.
+  float mean_ms = 7;       // Arithmetic mean latency, milliseconds.
+  double std_dev_ms = 8;   // Standard deviation of latency, milliseconds.
+  uint64 sample_count = 9; // Number of latency samples in this window.
+
+  // Fixed-width latency histogram. `bucket_counts` is packed and its length
+  // MUST equal ClusterConfiguration.histogram_bucket_count; bucket i covers the
+  // half-open range [bounds[i], bounds[i+1]). The default 10 buckets mirror the
+  // engine's HISTOGRAM_BUCKET_ORDER:
+  //   <1, 1-5, 5-10, 10-25, 25-50, 50-100, 100-250, 250-500, 500-1000, >1000 ms
+  repeated uint64 bucket_counts = 10 [packed = true];
+}
+
+// A time-windowed aggregate of worker activity, uploaded via client streaming.
+message MetricBatch {
+  string worker_id = 1;             // Emitting worker.
+  string test_run_id = 2;           // Run this window belongs to.
+  string batch_id = 3;              // Monotonic id, unique per worker (dedup).
+  int64 window_start_unix_ms = 4;   // Window start, Unix epoch milliseconds (UTC).
+  uint32 window_duration_ms = 5;    // Window length, milliseconds.
+  uint64 total_requests = 6;        // Requests completed in the window.
+  uint64 success_count = 7;         // Requests with a successful outcome.
+  uint64 failure_count = 8;         // Requests counted as errors.
+  uint64 bytes_received = 9;        // Response bytes received in the window.
+  uint64 bytes_sent = 10;           // Request bytes sent in the window.
+  uint32 active_vus = 11;           // VUs active at the end of the window.
+  LatencySummary latency = 12;      // Latency distribution for the window.
+  repeated ErrorBreakdown errors = 13;  // Per-class error counts.
+  double requests_per_second = 14;  // Convenience RPS for the window (derived).
+
+  // Next free tag: 15.
+}
+
+// Master's response to a completed StreamMetrics call.
+message StreamAcknowledgment {
+  string worker_id = 1;                        // Worker that owned the stream.
+  uint32 accepted_batches = 2;                 // Batches successfully ingested.
+  uint64 accepted_requests = 3;                // Total requests across those batches.
+  bool resync_required = 4;                    // True if the worker should re-send from last_batch_id.
+  string message = 5;                          // Human-readable detail.
+  google.protobuf.Timestamp processed_at = 6;  // Master clock at completion.
+  string last_batch_id = 7;                    // Highest contiguous batch id ingested.
+}
