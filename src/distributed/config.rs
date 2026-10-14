@@ -105,13 +105,16 @@ impl WorkerConfig {
         Ok(map)
     }
 
-    /// Normalised endpoint URI (`host:port` is prefixed with `http://`).
+    /// Normalised endpoint URI (`host:port` is prefixed with a scheme).
+    ///
+    /// An explicit `scheme://` is preserved; otherwise the scheme is `https`
+    /// when `--tls` is set and `http` otherwise.
     pub fn endpoint_uri(&self) -> String {
         if self.master_endpoint.contains("://") {
-            self.master_endpoint.clone()
-        } else {
-            format!("http://{}", self.master_endpoint)
+            return self.master_endpoint.clone();
         }
+        let scheme = if self.tls { "https" } else { "http" };
+        format!("{scheme}://{}", self.master_endpoint)
     }
 
     /// The worker id, falling back to the resolved hostname.

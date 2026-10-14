@@ -9,6 +9,10 @@ name = "_strobengine"
 # "rlib" is needed for `cargo test` to build the test harness.
 crate-type = ["cdylib", "rlib"]
 
+[[bin]]
+name = "strobengine-worker"
+path = "src/bin/strobengine-worker.rs"
+
 [dependencies]
 # "abi3-py311" tells pyo3 (and maturin) to build using the stable ABI with
 # minimum Python version 3.11.

@@ -15,14 +15,18 @@ pub mod proto {
 pub mod backoff;
 pub mod config;
 pub mod error;
+pub mod executor;
 pub mod state;
 pub mod telemetry;
+pub mod worker;
 
 pub use backoff::Backoff;
 pub use config::WorkerConfig;
 pub use error::{WorkerError, WorkerResult};
+pub use executor::ExecutionPlan;
 pub use state::{WorkerState, WorkerStateMachine};
 pub use telemetry::WindowedCollector;
+pub use worker::Worker;
 
 #[cfg(test)]
 mod tests {
