@@ -16,11 +16,13 @@ pub mod backoff;
 pub mod config;
 pub mod error;
 pub mod state;
+pub mod telemetry;
 
 pub use backoff::Backoff;
 pub use config::WorkerConfig;
 pub use error::{WorkerError, WorkerResult};
 pub use state::{WorkerState, WorkerStateMachine};
+pub use telemetry::WindowedCollector;
 
 #[cfg(test)]
 mod tests {

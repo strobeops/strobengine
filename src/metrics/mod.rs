@@ -14,6 +14,7 @@ pub const MICROS_PER_MILLI: f64 = 1_000.0;
 
 /// Highest trackable value for HDR histograms (1 hour in microseconds).
 const HISTOGRAM_HIGHEST_TRACKABLE: u64 = 3_600_000_000;
+
 /// Significant figures for HDR histogram precision.
 const HISTOGRAM_SIGNIFICANT_FIGURES: u8 = 3;
 
@@ -739,6 +740,19 @@ fn calculate_histogram_from_hdr(hist: &Histogram<u64>) -> HashMap<String, u64> {
         *buckets.entry(bucket_key.to_string()).or_insert(0) += v.count_at_value();
     }
     buckets
+}
+
+/// Convert an HDR histogram into a fixed-width vector of bucket counts ordered
+/// by [`HISTOGRAM_BUCKET_ORDER`].
+///
+/// The vector is index-aligned across the fleet so a master can aggregate
+/// distributions by element-wise summation without shipping bucket bounds.
+pub fn histogram_buckets(hist: &Histogram<u64>) -> Vec<u64> {
+    let buckets = calculate_histogram_from_hdr(hist);
+    HISTOGRAM_BUCKET_ORDER
+        .iter()
+        .map(|key| buckets.get(*key).copied().unwrap_or(0))
+        .collect()
 }
 
 /// Input parameters for summary calculation.
