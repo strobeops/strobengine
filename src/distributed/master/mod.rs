@@ -5,6 +5,8 @@ pub mod aggregator;
 pub mod barrier;
 pub mod config;
 pub mod error;
+#[cfg(test)]
+mod integration;
 pub mod registry;
 pub mod run;
 pub mod server;
