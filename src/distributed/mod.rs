@@ -18,6 +18,7 @@ pub mod error;
 pub mod executor;
 #[cfg(test)]
 mod integration;
+pub mod master;
 pub mod state;
 pub mod telemetry;
 pub mod worker;
