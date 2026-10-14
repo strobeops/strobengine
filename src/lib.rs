@@ -5,6 +5,7 @@ static GLOBAL: MiMalloc = MiMalloc;
 
 mod chaos;
 mod config;
+mod distributed;
 mod logging;
 mod metrics;
 mod progress;
