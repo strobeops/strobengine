@@ -379,7 +379,13 @@ async fn handle_command(
             Some(config) => {
                 match ExecutionPlan::from_proto(config, params.max_vus, params.request_timeout) {
                     Err(e) => (CommandStatus::Failed, e.to_string()),
-                    Ok(plan) => start_run(channel.clone(), shared.clone(), params.clone(), plan),
+                    Ok(plan) => start_run(
+                        channel.clone(),
+                        shared.clone(),
+                        params.clone(),
+                        plan,
+                        command.test_run_id.clone(),
+                    ),
                 }
             }
         },
@@ -413,9 +419,14 @@ fn start_run(
     shared: Arc<Shared>,
     params: RunParams,
     plan: ExecutionPlan,
+    test_run_id: String,
 ) -> (CommandStatus, String) {
     let cancel = CancellationToken::new();
-    let test_run_id = format!("{}-{}", params.worker_id, now_timestamp().seconds);
+    let test_run_id = if test_run_id.is_empty() {
+        format!("{}-{}", params.worker_id, now_timestamp().seconds)
+    } else {
+        test_run_id
+    };
     let virtual_users = plan.virtual_users as u32;
 
     let run = RunControl {

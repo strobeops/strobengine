@@ -16,6 +16,8 @@ pub mod backoff;
 pub mod config;
 pub mod error;
 pub mod executor;
+#[cfg(test)]
+mod integration;
 pub mod state;
 pub mod telemetry;
 pub mod worker;
