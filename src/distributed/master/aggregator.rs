@@ -7,8 +7,6 @@
 
 use std::collections::HashMap;
 
-use serde::Serialize;
-
 use crate::distributed::proto::{ErrorClass, MetricBatch};
 
 /// Upper bounds (ms) of the engine's fixed 10 latency buckets, matching
@@ -28,66 +26,7 @@ pub const BUCKET_BOUNDS_MS: [f64; 11] = [
     f64::INFINITY,
 ];
 
-/// Latency statistics merged across all workers for a run.
-#[derive(Debug, Clone, Serialize)]
-pub struct GlobalLatency {
-    /// Approximate 50th percentile, milliseconds.
-    pub p50_ms: f64,
-    /// Approximate 90th percentile, milliseconds.
-    pub p90_ms: f64,
-    /// Approximate 95th percentile, milliseconds.
-    pub p95_ms: f64,
-    /// Approximate 99th percentile, milliseconds.
-    pub p99_ms: f64,
-    /// Minimum latency reported by any worker, milliseconds.
-    pub min_ms: f64,
-    /// Maximum latency reported by any worker, milliseconds.
-    pub max_ms: f64,
-    /// Total latency samples across workers.
-    pub sample_count: u64,
-    /// Merged latency histogram (element-wise sum of worker buckets).
-    pub bucket_counts: Vec<u64>,
-}
-
-/// Per-error-class count for the global report.
-#[derive(Debug, Clone, Serialize)]
-pub struct ErrorClassCount {
-    /// Human-readable error class name.
-    pub error_class: String,
-    /// Number of requests in this class.
-    pub count: u64,
-}
-
-/// Aggregated result of a distributed run.
-#[derive(Debug, Clone, Serialize)]
-pub struct GlobalReport {
-    /// Run identifier.
-    pub test_run_id: String,
-    /// Participating worker ids (sorted).
-    pub workers: Vec<String>,
-    /// Number of workers that contributed telemetry.
-    pub worker_count: usize,
-    /// Metric batches ingested.
-    pub batches: u64,
-    /// Total requests across all workers.
-    pub total_requests: u64,
-    /// Successful requests.
-    pub success_count: u64,
-    /// Failed requests.
-    pub failure_count: u64,
-    /// Error rate as a percentage.
-    pub error_rate_percent: f64,
-    /// Total response bytes received.
-    pub bytes_received: u64,
-    /// Aggregate requests per second over the observed window.
-    pub rps: f64,
-    /// Observed wall-clock span in seconds.
-    pub duration_secs: f64,
-    /// Merged latency statistics.
-    pub latency: GlobalLatency,
-    /// Per-error-class breakdown.
-    pub error_breakdown: Vec<ErrorClassCount>,
-}
+use super::reporting::{ErrorClassCount, GlobalLatency, GlobalReport};
 
 /// Merges `MetricBatch` windows from every worker into one run aggregate.
 #[derive(Debug)]
@@ -244,6 +183,8 @@ impl RunAggregator {
             duration_secs,
             latency,
             error_breakdown,
+            timeline: Vec::new(),
+            worker_shares: Vec::new(),
         }
     }
 }

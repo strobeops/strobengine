@@ -15,11 +15,12 @@ use crate::distributed::proto::{
     TestConfiguration,
 };
 
-use super::aggregator::{GlobalReport, RunAggregator};
+use super::aggregator::RunAggregator;
 use super::barrier::BarrierCoordinator;
 use super::config::MasterConfig;
 use super::error::{MasterError, MasterResult};
 use super::registry::{Registry, WorkerSnapshot};
+use super::reporting::GlobalReport;
 
 /// Extra time beyond the run duration before the master stops waiting for
 /// telemetry streams to close.
