@@ -44,6 +44,7 @@ strobengine load http://localhost:8080/api/health -c 50 -d 30
 | [SSE](https://github.com/strobeops/strobengine/blob/main/docs/sse.md) | Server-Sent Events streaming, TTFB, event intervals |
 | [GraphQL](https://github.com/strobeops/strobengine/blob/main/docs/graphql.md) | Queries/mutations, subscriptions, variables, logical error tracking |
 | [Reporting](https://github.com/strobeops/strobengine/blob/main/docs/reports.md) | JSON persistence, HTML reports, SLO checks, timeline charts, baseline comparison |
+| [Distributed](https://github.com/strobeops/strobengine/blob/main/docs/distributed.md) | Master/worker control plane, live dashboard, cluster reports |
 | [Docker](https://github.com/strobeops/strobengine/blob/main/docs/docker.md) | Pulling images, running containers |
 | [Testing](https://github.com/strobeops/strobengine/blob/main/docs/testing.md) | Test structure, e2e, CI/CD |
 | [Roadmap](https://github.com/strobeops/strobengine/blob/main/docs/roadmap.md) | Planned features |
