@@ -18,8 +18,11 @@ pub mod error;
 pub mod executor;
 #[cfg(test)]
 mod integration;
+pub mod master;
 pub mod state;
 pub mod telemetry;
+#[cfg(test)]
+pub(crate) mod test_support;
 pub mod worker;
 
 pub use backoff::Backoff;

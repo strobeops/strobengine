@@ -13,6 +13,10 @@ crate-type = ["cdylib", "rlib"]
 name = "strobengine-worker"
 path = "src/bin/strobengine-worker.rs"
 
+[[bin]]
+name = "strobengine-master"
+path = "src/bin/strobengine-master.rs"
+
 [dependencies]
 # "abi3-py311" tells pyo3 (and maturin) to build using the stable ABI with
 # minimum Python version 3.11.
