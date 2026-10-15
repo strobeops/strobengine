@@ -100,6 +100,10 @@ pub struct MasterConfig {
     #[arg(long, env = "STROBENGINE_WINDOW_SECS", default_value_t = DEFAULT_WINDOW_SECS)]
     pub window_secs: u64,
 
+    /// Disable the live terminal dashboard (it is on by default on a TTY).
+    #[arg(long = "no-live", env = "STROBENGINE_NO_LIVE", default_value_t = false)]
+    pub no_live: bool,
+
     /// Whether the master requires TLS on the worker channel.
     #[arg(long, env = "STROBENGINE_TLS", default_value_t = false)]
     pub tls: bool,
