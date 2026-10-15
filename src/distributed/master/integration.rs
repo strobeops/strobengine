@@ -6,6 +6,7 @@ use std::sync::atomic::Ordering;
 use std::time::Duration;
 
 use clap::Parser;
+use tokio::sync::broadcast;
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
@@ -98,6 +99,9 @@ async fn multi_worker_cluster_run() {
     }
     wait_for_workers(&handle, 3, Duration::from_secs(10)).await;
 
+    // Subscribe before starting so no live snapshot is missed.
+    let mut live = handle.subscribe_live();
+
     let config = TestConfiguration {
         test_run_id: "cluster-run".to_string(),
         targets: vec![TargetEndpoint {
@@ -128,6 +132,32 @@ async fn multi_worker_cluster_run() {
     assert!(hits.load(Ordering::SeqCst) > 0, "target was not hit");
     assert_eq!(report.latency.bucket_counts.len(), 10);
     assert!(report.rps > 0.0);
+
+    // Live broadcast: at least one snapshot carried real traffic.
+    let mut snapshots = Vec::new();
+    loop {
+        match live.try_recv() {
+            Ok(snapshot) => snapshots.push(snapshot),
+            Err(broadcast::error::TryRecvError::Empty) => break,
+            Err(broadcast::error::TryRecvError::Lagged(_)) => continue,
+            Err(broadcast::error::TryRecvError::Closed) => break,
+        }
+    }
+    assert!(!snapshots.is_empty(), "no live snapshots were published");
+    assert!(
+        snapshots.iter().any(|s| s.rps > 0.0),
+        "no live snapshot carried traffic"
+    );
+    assert!(snapshots.iter().all(|s| s.run_id == "cluster-run"));
+
+    // Final report includes the per-epoch timeline and per-worker shares.
+    assert!(!report.timeline.is_empty(), "timeline is empty");
+    assert_eq!(report.worker_shares.len(), 3);
+    let share_sum: f64 = report.worker_shares.iter().map(|s| s.share_percent).sum();
+    assert!(
+        (share_sum - 100.0).abs() < 0.01,
+        "shares sum to {share_sum}"
+    );
 
     for (token, task) in workers {
         token.cancel();

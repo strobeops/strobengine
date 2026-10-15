@@ -2,6 +2,10 @@
 
 strobengine provides a CLI for running load tests from the terminal.
 
+> Distributed runs across multiple machines use separate Rust binaries
+> (`strobengine-master` / `strobengine-worker`), not the `strobengine` CLI.
+> See [Distributed Load Testing](distributed.md).
+
 ## Default Behavior
 
 By default, this spawns **10 concurrent workers** for **10 seconds** with a **10-second request timeout**. Results are displayed as a formatted table with total requests, errors, requests/sec, and latency percentiles (min, avg, p50, p90, p95, p99, max).

@@ -1,14 +1,22 @@
 //! strobengine distributed master controller daemon.
 //!
 //! Serves the worker-facing gRPC control plane and, optionally, drives a single
-//! distributed run and writes an aggregated JSON report. Configure via CLI
-//! flags or the `STROBENGINE_*` environment variables; see `--help`.
+//! distributed run while rendering a live terminal dashboard and writing an
+//! aggregated JSON report. Configure via CLI flags or the `STROBENGINE_*`
+//! environment variables; see `--help`.
+
+use std::io::IsTerminal;
+use std::time::Duration;
 
 use clap::Parser;
+use indicatif::{ProgressBar, ProgressStyle};
+use tokio::sync::broadcast;
 use tokio_util::sync::CancellationToken;
 use tracing_subscriber::EnvFilter;
 
-use _strobengine::distributed::master::{GlobalReport, MasterConfig, MasterHandle};
+use _strobengine::distributed::master::{
+    GlobalReport, LiveSnapshot, MasterConfig, MasterHandle, ReportDestination,
+};
 use _strobengine::distributed::proto::{TargetEndpoint, TestConfiguration};
 
 #[tokio::main]
@@ -61,7 +69,8 @@ fn build_test_config(config: &MasterConfig) -> TestConfiguration {
     }
 }
 
-/// Wait for the expected workers, run the test once, and emit the report.
+/// Wait for the expected workers, run the test once while rendering a live
+/// dashboard, and emit the aggregated report.
 async fn run_once(
     handle: &MasterHandle,
     config: &MasterConfig,
@@ -73,15 +82,72 @@ async fn run_once(
         "waiting for workers to start the run"
     );
 
-    let report = handle.start_run(test, config.expected_workers).await?;
-    print_summary(&report);
+    // Live dashboard: subscribe before starting so no snapshot is missed.
+    let live = handle.subscribe_live();
+    let show_live = !config.no_live && std::io::stdout().is_terminal();
+    let bar = if show_live {
+        create_live_bar(config.run_duration_secs)
+    } else {
+        ProgressBar::hidden()
+    };
+    let render = if show_live {
+        Some(tokio::spawn(render_live(bar.clone(), live)))
+    } else {
+        None
+    };
 
-    if let Some(path) = &config.report_path {
-        let json = serde_json::to_string_pretty(&report)?;
-        std::fs::write(path, json)?;
-        println!("report written to {path}");
+    let result = handle.start_run(test, config.expected_workers).await;
+    if let Some(render) = render {
+        render.abort();
+    }
+    bar.finish_and_clear();
+    let report = result?;
+
+    print_summary(&report);
+    let destination = ReportDestination::parse(config.report_path.as_deref());
+    destination.write(&report)?;
+    if let ReportDestination::File(path) = &destination {
+        println!("report written to {}", path.display());
     }
     Ok(())
+}
+
+/// Build the live progress bar (total = run duration in seconds).
+fn create_live_bar(duration_secs: u64) -> ProgressBar {
+    let bar = ProgressBar::new(duration_secs.max(1));
+    bar.set_style(
+        ProgressStyle::with_template(
+            "{spinner:.green} [{elapsed_precise}] [{bar:32.cyan/dim}] {pos}s/{len}s | {msg}",
+        )
+        .unwrap()
+        .progress_chars("=>-"),
+    );
+    bar.set_message("waiting for workers...");
+    bar.enable_steady_tick(Duration::from_millis(200));
+    bar
+}
+
+/// Consume live snapshots and update the progress bar until the run ends.
+async fn render_live(bar: ProgressBar, mut live: broadcast::Receiver<LiveSnapshot>) {
+    loop {
+        match live.recv().await {
+            Ok(snapshot) => {
+                bar.set_position(snapshot.elapsed_secs.round() as u64);
+                bar.set_message(format!(
+                    "{:.0} rps | {:.2}% err | p50 {:.1}ms p95 {:.1}ms p99 {:.1}ms | {} workers",
+                    snapshot.rps,
+                    snapshot.error_rate_percent,
+                    snapshot.p50_ms,
+                    snapshot.p95_ms,
+                    snapshot.p99_ms,
+                    snapshot.active_workers,
+                ));
+            }
+            // A dashboard may skip frames when it falls behind.
+            Err(broadcast::error::RecvError::Lagged(_)) => continue,
+            Err(broadcast::error::RecvError::Closed) => break,
+        }
+    }
 }
 
 fn print_summary(report: &GlobalReport) {

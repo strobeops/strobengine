@@ -15,11 +15,13 @@ use crate::distributed::proto::{
     TestConfiguration,
 };
 
-use super::aggregator::{GlobalReport, RunAggregator};
 use super::barrier::BarrierCoordinator;
 use super::config::MasterConfig;
+use super::dashboard::LiveBroadcaster;
 use super::error::{MasterError, MasterResult};
+use super::pipeline::PipelineHandle;
 use super::registry::{Registry, WorkerSnapshot};
+use super::reporting::GlobalReport;
 
 /// Extra time beyond the run duration before the master stops waiting for
 /// telemetry streams to close.
@@ -48,7 +50,7 @@ struct ActiveRun {
     run_id: String,
     start_command_id: String,
     allocated: Vec<String>,
-    aggregator: RunAggregator,
+    pipeline: PipelineHandle,
     acked: HashSet<String>,
     telemetry_done: HashSet<String>,
 }
@@ -61,6 +63,7 @@ pub struct MasterState {
     barrier: BarrierCoordinator,
     run: Arc<Mutex<Option<ActiveRun>>>,
     run_notify: Arc<Notify>,
+    broadcaster: LiveBroadcaster,
     master_endpoint: String,
 }
 
@@ -80,6 +83,7 @@ impl MasterState {
             barrier,
             run: Arc::new(Mutex::new(None)),
             run_notify: Arc::new(Notify::new()),
+            broadcaster: LiveBroadcaster::default(),
         }))
     }
 
@@ -103,14 +107,25 @@ impl MasterState {
         self.notify.notify_waiters();
     }
 
-    /// Ingest a telemetry batch into the active run, if it matches.
+    /// Forward a telemetry batch to the active run's pipeline (non-blocking).
     pub async fn ingest_batch(&self, batch: &MetricBatch) {
-        let mut guard = self.run.lock().await;
-        if let Some(run) = guard.as_mut()
-            && batch.test_run_id == run.run_id
-        {
-            run.aggregator.ingest(batch);
+        let pipeline = {
+            let guard = self.run.lock().await;
+            guard
+                .as_ref()
+                .filter(|run| batch.test_run_id == run.run_id)
+                .map(|run| run.pipeline.clone())
+        };
+        if let Some(pipeline) = pipeline {
+            pipeline.ingest(batch.clone());
         }
+    }
+
+    /// Subscribe to live cluster snapshots; the broadcaster persists across runs.
+    pub fn subscribe_live(
+        &self,
+    ) -> tokio::sync::broadcast::Receiver<super::dashboard::LiveSnapshot> {
+        self.broadcaster.subscribe()
     }
 
     /// Record a command acknowledgement for the active run.
@@ -173,6 +188,13 @@ impl MasterHandle {
         self.state.worker_snapshot().await
     }
 
+    /// Subscribe to live cluster snapshots.
+    pub fn subscribe_live(
+        &self,
+    ) -> tokio::sync::broadcast::Receiver<super::dashboard::LiveSnapshot> {
+        self.state.subscribe_live()
+    }
+
     /// Serve the gRPC control plane until `shutdown` is cancelled.
     pub async fn serve(&self, shutdown: tokio_util::sync::CancellationToken) -> MasterResult<()> {
         let addr = self.state.config.listen_addr()?;
@@ -204,17 +226,24 @@ impl MasterHandle {
         };
         config.test_run_id = run_id.clone();
         let start_command_id = format!("cmd-{run_id}-start");
-        let bucket_count = self.state.config.histogram_bucket_count as usize;
         {
+            let bucket_count = self.state.config.histogram_bucket_count as usize;
+            let window_epochs = self.state.config.window_secs.max(1) as i64;
             let mut guard = self.state.run.lock().await;
             if guard.is_some() {
                 return Err(MasterError::Run("a run is already active".into()));
             }
+            let pipeline = PipelineHandle::spawn(
+                run_id.clone(),
+                bucket_count,
+                window_epochs,
+                self.state.broadcaster.clone(),
+            );
             *guard = Some(ActiveRun {
                 run_id: run_id.clone(),
                 start_command_id: start_command_id.clone(),
                 allocated: allocated.clone(),
-                aggregator: RunAggregator::new(run_id.clone(), bucket_count),
+                pipeline,
                 acked: HashSet::new(),
                 telemetry_done: HashSet::new(),
             });
@@ -274,14 +303,19 @@ impl MasterHandle {
         }
 
         // 5. Finalize.
-        let mut run = self
+        let run = self
             .state
             .run
             .lock()
             .await
             .take()
             .ok_or_else(|| MasterError::Run("active run disappeared".into()))?;
-        let report = run.aggregator.finalize();
+        let report = run
+            .pipeline
+            .finalize()
+            .await
+            .ok_or_else(|| MasterError::Run("telemetry pipeline stopped".into()))?;
+        run.pipeline.shutdown();
         tracing::info!(
             %run_id,
             workers = report.worker_count,
@@ -295,6 +329,7 @@ impl MasterHandle {
     pub async fn abort(&self) -> MasterResult<()> {
         let active = self.state.run.lock().await.take();
         if let Some(run) = active {
+            run.pipeline.shutdown();
             let command = CommandRequest {
                 command: CommandType::Abort as i32,
                 command_id: format!("cmd-{}-abort", run.run_id),

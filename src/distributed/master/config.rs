@@ -24,6 +24,8 @@ pub const DEFAULT_HISTOGRAM_BUCKET_COUNT: u32 = 10;
 pub const MISSED_HEARTBEATS_BEFORE_EVICTION: u32 = 3;
 /// Default barrier timeout.
 pub const DEFAULT_BARRIER_TIMEOUT_MS: u64 = 30_000;
+/// Default live sliding-window length, in seconds.
+pub const DEFAULT_WINDOW_SECS: u64 = 5;
 
 /// Configuration for the master controller daemon.
 #[derive(Debug, Clone, Parser)]
@@ -93,6 +95,14 @@ pub struct MasterConfig {
         default_value_t = DEFAULT_HISTOGRAM_BUCKET_COUNT
     )]
     pub histogram_bucket_count: u32,
+
+    /// Live sliding-window length in seconds.
+    #[arg(long, env = "STROBENGINE_WINDOW_SECS", default_value_t = DEFAULT_WINDOW_SECS)]
+    pub window_secs: u64,
+
+    /// Disable the live terminal dashboard (it is on by default on a TTY).
+    #[arg(long = "no-live", env = "STROBENGINE_NO_LIVE", default_value_t = false)]
+    pub no_live: bool,
 
     /// Whether the master requires TLS on the worker channel.
     #[arg(long, env = "STROBENGINE_TLS", default_value_t = false)]
@@ -182,6 +192,11 @@ impl MasterConfig {
         if self.histogram_bucket_count == 0 {
             return Err(MasterError::Config(
                 "histogram bucket count must be greater than zero".into(),
+            ));
+        }
+        if self.window_secs == 0 {
+            return Err(MasterError::Config(
+                "window seconds must be greater than zero".into(),
             ));
         }
         if self.has_run_spec() {
