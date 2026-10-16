@@ -25,10 +25,10 @@ path = "src/bin/strobengine-master.rs"
 # libpython.so while plain `cargo test` links against it (any test reaching PyErr
 # construction requires the interpreter symbols at link time).
 pyo3 = { version = "0.29", features = ["abi3-py311"] }
-reqwest = { version = "0.13.4", default-features = false, features = ["rustls", "http2", "stream"] }
+reqwest = { version = "0.13", default-features = false, features = ["rustls", "http2", "stream"] }
 http = "1"
 bytes = "1"
-tokio = { version = "1.53.0", features = ["sync", "time", "rt", "rt-multi-thread", "macros", "signal"] }
+tokio = { version = "1.53", features = ["sync", "time", "rt", "rt-multi-thread", "macros", "signal"] }
 tokio-util = { version = "0.7", features = ["rt"] }
 tokio-stream = { version = "0.1", features = ["sync"] }
 tokio-tungstenite = { version = "0.26", features = ["rustls-tls-webpki-roots"] }
@@ -38,13 +38,13 @@ tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt", "regist
 mimalloc = "0.1.52"
 urlencoding = "2"
 fastrand = "2.5"
-indicatif = "0.18.6"
+indicatif = "0.18"
 futures-util = "0.3.34"
 tonic = { version = "0.14.6", features = ["tls-webpki-roots"] }
 tonic-prost = "0.14"
 prost = "0.14.4"
 prost-types = "0.14.4"
-base64 = "0.22"
+base64 = "0.23"
 hex = "0.4"
 prost-reflect = { version = "0.16.5", features = ["serde"] }
 protox = "0.9.1"
@@ -57,7 +57,7 @@ webpki-roots = "0.26"
 hdrhistogram = "7"
 sysinfo = "0.34"
 h2 = "0.4"
-quick-xml = "0.41"
+quick-xml = "0.42"
 clap = { version = "4", features = ["derive", "env"] }
 thiserror = "2"
 

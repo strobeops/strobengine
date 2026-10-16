@@ -79,7 +79,7 @@ pub fn count_soap_faults(body: &[u8]) -> Option<u64> {
         match reader.read_event_into(&mut buf) {
             Ok(Event::Start(element)) | Ok(Event::Empty(element)) => {
                 saw_element = true;
-                if element.local_name().as_ref() == b"Fault" {
+                if element.local_name().as_ref() == "Fault" {
                     return Some(1);
                 }
             }
