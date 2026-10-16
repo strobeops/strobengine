@@ -5,11 +5,12 @@
 //! The atomic pattern mirrors `grpc_h2::ActiveGuard` (fetch_add on send,
 //! fetch_sub on completion) which is otherwise private. Run with `cargo bench`.
 
+use std::hint::black_box;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use bytes::Bytes;
-use criterion::{BenchmarkId, Criterion, black_box, criterion_group, criterion_main};
+use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 
 use _strobengine::protocols::grpc_h2::build_frame;
 
