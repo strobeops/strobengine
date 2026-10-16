@@ -44,9 +44,9 @@ engine = StrobEngine(
 )
 summary = engine.run()
 
-print(summary.soap.operations_total)        # SOAP responses observed
-print(summary.soap.fault_responses_total)   # responses containing a Fault
-print(summary.soap.soap_version)            # "1.1" or "1.2"
+print(summary.soap.operations_total)  # SOAP responses observed
+print(summary.soap.fault_responses_total)  # responses containing a Fault
+print(summary.soap.soap_version)  # "1.1" or "1.2"
 ```
 
 ## CLI

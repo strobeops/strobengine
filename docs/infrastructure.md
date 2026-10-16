@@ -52,7 +52,9 @@ deployer_key = aws.ec2.KeyPair(
 
 # --- NETWORK & VPC LOOKUP ---
 default_vpc = aws.ec2.get_vpc(default=True)
-default_subnets = aws.ec2.get_subnets(filters=[{"name": "vpc-id", "values": [default_vpc.id]}])
+default_subnets = aws.ec2.get_subnets(
+    filters=[{"name": "vpc-id", "values": [default_vpc.id]}]
+)
 
 # Select the first subnet for all 3 instances to keep them in the same AZ
 target_subnet_id = default_subnets.ids[0]
@@ -62,7 +64,10 @@ ubuntu_ami = aws.ec2.get_ami(
     most_recent=True,
     owners=["099720109477"],  # Canonical
     filters=[
-        {"name": "name", "values": ["ubuntu/images/hvm-ssd/ubuntu-noble-24.04-amd64-server-*"]},
+        {
+            "name": "name",
+            "values": ["ubuntu/images/hvm-ssd/ubuntu-noble-24.04-amd64-server-*"],
+        },
         {"name": "virtualization-type", "values": ["hvm"]},
     ],
 )
@@ -192,7 +197,6 @@ pulumi.export("Target_Nginx_Public_IP", target_nginx_server.public_ip)
 
 pulumi.export("Client_k6_Public_IP", client_k6_server.public_ip)
 pulumi.export("Client_Strobengine_Public_IP", client_strobengine_server.public_ip)
-
 ```
 
 ```bash

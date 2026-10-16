@@ -18,7 +18,9 @@ git clone https://github.com/strobeops/strobengine.git && cd strobengine && uv s
 from strobengine import StrobEngine
 from strobengine.reporter import print_summary
 
-engine = StrobEngine(url="http://localhost:8080/api/health", concurrency=50, duration=30)
+engine = StrobEngine(
+    url="http://localhost:8080/api/health", concurrency=50, duration=30
+)
 summary = engine.run()
 print_summary(summary)
 ```
