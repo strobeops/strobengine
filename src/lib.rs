@@ -230,6 +230,7 @@ async fn execute_test(
     timeout_secs: u64,
     sys_sample_interval: u64,
     graphql_operation_type: Option<&'static str>,
+    soap_version: Option<&'static str>,
     timeline_interval_ms: u64,
 ) -> PyResult<metrics::TestSummary> {
     tracing::debug!("protocol engine initialized");
@@ -463,6 +464,12 @@ async fn execute_test(
         m.operation_type = graphql_operation_type.unwrap_or("query").to_string();
     }
 
+    // Stamp the run's SOAP version (constant per run) onto the aggregated section.
+    let mut soap_metrics = aggregated.soap_metrics;
+    if let Some(m) = soap_metrics.as_mut() {
+        m.soap_version = soap_version.unwrap_or("1.1").to_string();
+    }
+
     Ok(metrics::calculate_summary(metrics::SummaryInput {
         url,
         total_requests: total,
@@ -481,6 +488,7 @@ async fn execute_test(
         http3_metrics: aggregated.http3_metrics,
         graphql_metrics,
         graphql_ws_metrics: aggregated.graphql_ws_metrics,
+        soap_metrics,
         timeline: aggregated.timeline,
         chaos_injected_total: aggregated.chaos_injected_total,
         chaos_faults_by_type: aggregated.chaos_faults_by_type,
@@ -535,6 +543,32 @@ fn build_engine(
             .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
         return Ok(Arc::new(protocols::graphql::GraphqlEngine::new(
             client, payload, chaos,
+        )));
+    }
+
+    if config.soap_enabled {
+        let body = config.body.as_deref().unwrap_or("");
+        let soap_headers =
+            protocols::soap::request_headers(config.soap_version, config.soap_action.as_deref());
+        let mut header_map = parse_headers(config.headers.as_deref())?;
+        if !header_map.contains_key(CONTENT_TYPE) {
+            let value = HeaderValue::from_str(&soap_headers.content_type)
+                .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+            header_map.insert(CONTENT_TYPE, value);
+        }
+        if let Some(action) = soap_headers.soap_action {
+            let value = HeaderValue::from_str(&format!("\"{action}\""))
+                .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+            header_map
+                .entry(HeaderName::from_static("soapaction"))
+                .or_insert(value);
+        }
+        let client = build_client(pool_size, config.timeout_secs, header_map)
+            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
+        return Ok(Arc::new(protocols::soap::SoapEngine::new(
+            client,
+            bytes::Bytes::from(body.to_string()),
+            chaos,
         )));
     }
 
@@ -606,6 +640,11 @@ fn run_load_test(py: Python<'_>, config: TestConfig) -> PyResult<metrics::TestSu
             .graphql_query
             .as_deref()
             .map(protocols::graphql::parse_operation_type);
+        let soap_version = if config.soap_enabled {
+            Some(config.soap_version.as_str())
+        } else {
+            None
+        };
 
         let rt = tokio::runtime::Builder::new_multi_thread()
             .enable_all()
@@ -620,6 +659,7 @@ fn run_load_test(py: Python<'_>, config: TestConfig) -> PyResult<metrics::TestSu
             config.timeout_secs,
             config.sys_sample_interval,
             graphql_operation_type,
+            soap_version,
             config.timeline_interval_ms,
         ))
     })
@@ -642,6 +682,11 @@ fn run_load_profiles(
             .graphql_query
             .as_deref()
             .map(protocols::graphql::parse_operation_type);
+        let soap_version = if config.soap_enabled {
+            Some(config.soap_version.as_str())
+        } else {
+            None
+        };
 
         let rt = tokio::runtime::Builder::new_multi_thread()
             .enable_all()
@@ -656,6 +701,7 @@ fn run_load_profiles(
             config.timeout_secs,
             config.sys_sample_interval,
             graphql_operation_type,
+            soap_version,
             config.timeline_interval_ms,
         ))
     })
@@ -688,6 +734,7 @@ fn _strobengine(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<config::TestConfig>()?;
     m.add_class::<config::LoadProfile>()?;
     m.add_class::<config::WsMode>()?;
+    m.add_class::<config::SoapVersion>()?;
     m.add_class::<metrics::TestSummary>()?;
     m.add_class::<metrics::QuicMetrics>()?;
     m.add_class::<metrics::SseMetrics>()?;
@@ -696,6 +743,7 @@ fn _strobengine(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<metrics::Http3Metrics>()?;
     m.add_class::<metrics::GraphqlMetrics>()?;
     m.add_class::<metrics::GraphqlWsMetrics>()?;
+    m.add_class::<metrics::SoapMetrics>()?;
     m.add_class::<metrics::Timeline>()?;
     m.add_class::<metrics::TimelineSample>()?;
     m.add_class::<metrics::system::SystemMetrics>()?;

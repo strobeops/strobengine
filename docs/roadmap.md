@@ -197,8 +197,8 @@ This document outlines the planned trajectory and upcoming feature epics for **s
 ### Epic: Enterprise Services & Messaging
 *Target Focus: Legacy Web Services & Enterprise Messaging*
 
-- [ ] **SOAP Web Services**
-  - [ ] SOAP client integration and XML payload performance benchmarking.
+- [x] **SOAP Web Services**
+  - [x] SOAP client integration and XML payload performance benchmarking.
 - [ ] **JMS (Java Message Service)**
   - [ ] Enterprise messaging queue throughput and message broker benchmarking.
 

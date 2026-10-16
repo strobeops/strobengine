@@ -206,6 +206,44 @@ async def handle_graphql_ws_errors(request: web.Request) -> web.WebSocketRespons
     return ws
 
 
+_SOAP_SUCCESS = (
+    '<?xml version="1.0"?>'
+    '<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/">'
+    "<soap:Body><AddResponse><result>3</result></AddResponse></soap:Body>"
+    "</soap:Envelope>"
+)
+
+
+async def handle_soap(request: web.Request) -> web.Response:
+    """SOAP endpoint returning a valid (non-fault) envelope."""
+    await request.read()
+    return web.Response(status=200, content_type="text/xml", text=_SOAP_SUCCESS)
+
+
+async def handle_soap_fault500(request: web.Request) -> web.Response:
+    """SOAP 1.1 fault: HTTP 500 with a <soap:Fault> body."""
+    await request.read()
+    body = (
+        '<?xml version="1.0"?>'
+        '<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/">'
+        "<soap:Body><soap:Fault><faultcode>soap:Server</faultcode>"
+        "<faultstring>boom</faultstring></soap:Fault></soap:Body></soap:Envelope>"
+    )
+    return web.Response(status=500, content_type="text/xml", text=body)
+
+
+async def handle_soap_fault200(request: web.Request) -> web.Response:
+    """SOAP 1.2 fault: HTTP 200 with a <soap:Fault> body."""
+    await request.read()
+    body = (
+        '<?xml version="1.0"?>'
+        '<soap:Envelope xmlns:soap="http://www.w3.org/2003/05/soap-envelope/">'
+        "<soap:Body><soap:Fault><Code><Value>soap:Receiver</Value></Code>"
+        "<Reason><Text>boom</Text></Reason></soap:Fault></soap:Body></soap:Envelope>"
+    )
+    return web.Response(status=200, content_type="application/soap+xml", text=body)
+
+
 def create_app() -> web.Application:
     app = web.Application()
     app[LAST_ECHO_KEY] = {}
@@ -224,4 +262,7 @@ def create_app() -> web.Application:
     app.router.add_route("*", "/graphql/errors", handle_graphql_errors)
     app.router.add_get("/graphql/ws", handle_graphql_ws)
     app.router.add_get("/graphql/ws/errors", handle_graphql_ws_errors)
+    app.router.add_route("*", "/soap", handle_soap)
+    app.router.add_route("*", "/soap/fault500", handle_soap_fault500)
+    app.router.add_route("*", "/soap/fault200", handle_soap_fault200)
     return app

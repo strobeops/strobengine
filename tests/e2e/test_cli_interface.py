@@ -348,3 +348,35 @@ class TestGraphqlCli:
         assert data["graphql_ws"]["operations_total"] > 0
         assert data["graphql_ws"]["messages_total"] > 0
         assert data["total_errors"] == 0
+
+
+class TestSoapCli:
+    def test_soap_json_output(self, cli_bin: str, mock_server: str):
+        envelope = (
+            '<?xml version="1.0"?>'
+            '<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/">'
+            "<soap:Body><Add/></soap:Body></soap:Envelope>"
+        )
+        result = _run_cli(
+            cli_bin,
+            [
+                "load",
+                f"{mock_server}/soap",
+                "-c",
+                "2",
+                "-d",
+                "2",
+                "--soap",
+                "--soap-action",
+                "Add",
+                "--body",
+                envelope,
+                "--json",
+                "--no-progress",
+            ],
+        )
+        assert result.returncode == 0, f"Process failed with stderr:\n{result.stderr}"
+        data = json.loads(result.stdout)
+        assert data["soap"]["operations_total"] > 0
+        assert data["soap"]["soap_version"] == "1.1"
+        assert data["total_errors"] == 0

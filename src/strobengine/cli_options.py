@@ -15,7 +15,7 @@ from typing import Annotated
 
 import typer
 
-from strobengine.engine import RequestOptions, WsModeEnum
+from strobengine.engine import RequestOptions, SoapVersionEnum, WsModeEnum
 
 VALID_METHODS = {"GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"}
 
@@ -171,6 +171,37 @@ GraphqlVariablesOpt = Annotated[
 GraphqlOperationNameOpt = Annotated[
     str | None,
     typer.Option("--graphql-operation-name", help="Named GraphQL operation to execute"),
+]
+SoapOpt = Annotated[
+    bool,
+    typer.Option(
+        "--soap/--no-soap",
+        help=(
+            "Enable SOAP mode: POST the XML envelope from --body with SOAP "
+            "content-type/SOAPAction and count <Fault> responses as errors"
+        ),
+    ),
+]
+SoapActionOpt = Annotated[
+    str | None,
+    typer.Option(
+        "--soap-action",
+        help=(
+            "SOAP operation name: SOAP 1.1 SOAPAction header value, or the "
+            "action= parameter in the SOAP 1.2 Content-Type (optional)"
+        ),
+    ),
+]
+SoapVersionOpt = Annotated[
+    SoapVersionEnum,
+    typer.Option(
+        "--soap-version",
+        help=(
+            "SOAP 1.1 (text/xml + SOAPAction header) or 1.2 "
+            "(application/soap+xml + action parameter)"
+        ),
+        case_sensitive=False,
+    ),
 ]
 OutputDirOpt = Annotated[
     str | None,
@@ -354,6 +385,9 @@ _REQUEST_FIELDS = frozenset(
         "graphql_query",
         "graphql_variables",
         "graphql_operation_name",
+        "soap_enabled",
+        "soap_action",
+        "soap_version",
         "output_dir",
         "no_save",
         "sys_sample_interval",
@@ -446,6 +480,9 @@ def _build_request_options(
     graphql_query: str | None = RequestOptions.graphql_query,
     graphql_variables: str | None = RequestOptions.graphql_variables,
     graphql_operation_name: str | None = RequestOptions.graphql_operation_name,
+    soap_enabled: bool = RequestOptions.soap_enabled,
+    soap_action: str | None = RequestOptions.soap_action,
+    soap_version: SoapVersionEnum = RequestOptions.soap_version,
     output_dir: str | None = RequestOptions.output_dir,
     no_save: bool = RequestOptions.no_save,
     sys_sample_interval: int = RequestOptions.sys_sample_interval,
@@ -495,6 +532,9 @@ def _build_request_options(
         graphql_query=graphql_query,
         graphql_variables=graphql_variables,
         graphql_operation_name=graphql_operation_name,
+        soap_enabled=soap_enabled,
+        soap_action=soap_action,
+        soap_version=soap_version,
         output_dir=output_dir,
         no_save=no_save,
         sys_sample_interval=sys_sample_interval,

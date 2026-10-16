@@ -4,6 +4,7 @@ import pytest
 
 from strobengine._strobengine import (
     LoadProfile,
+    SoapVersion,
     TestConfig as _TestConfig,
     run_load_profiles,
     run_load_test,
@@ -358,3 +359,46 @@ class TestSloConfigValidation:
         )
         assert config.slo_p95_ms == 50.0
         assert config.slo_error_rate == 0.1
+
+
+class TestSoapConfigValidation:
+    def test_soap_requires_body(self):
+        with pytest.raises(ValueError, match="requires an XML envelope"):
+            _TestConfig(
+                url="http://127.0.0.1:1",
+                concurrency=1,
+                duration_secs=1,
+                soap_enabled=True,
+            )
+
+    def test_soap_rejects_form(self):
+        with pytest.raises(ValueError, match="cannot be combined with form"):
+            _TestConfig(
+                url="http://127.0.0.1:1",
+                concurrency=1,
+                duration_secs=1,
+                soap_enabled=True,
+                body="<Envelope/>",
+                form=[("a", "b")],
+            )
+
+    def test_soap_rejects_graphql(self):
+        with pytest.raises(ValueError, match="cannot be combined with graphql_query"):
+            _TestConfig(
+                url="http://127.0.0.1:1",
+                concurrency=1,
+                duration_secs=1,
+                soap_enabled=True,
+                graphql_query="{ q }",
+            )
+
+    def test_valid_soap_config_accepted(self):
+        config = _TestConfig(
+            url="http://127.0.0.1:1",
+            concurrency=1,
+            duration_secs=1,
+            soap_enabled=True,
+            body="<Envelope/>",
+            soap_version=SoapVersion.soap12(),
+        )
+        assert config.soap_enabled is True
