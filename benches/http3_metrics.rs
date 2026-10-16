@@ -7,7 +7,9 @@
 //! the added per-iteration cost of the metric on the hot path. Run with
 //! `cargo bench`.
 
-use criterion::{Criterion, black_box, criterion_group, criterion_main};
+use std::hint::black_box;
+
+use criterion::{Criterion, criterion_group, criterion_main};
 
 /// Mirrors the running-counter state finalize_metrics maintains for cwnd.
 struct CwndAcc {

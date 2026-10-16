@@ -66,7 +66,7 @@ fn ws_sample(
 /// versus bytes acknowledged on flush, exposing an in-flight (buffered) depth
 /// high-water marker.
 ///
-/// This is a *proxy* for socket backpressure: tungstenite 0.26 does not expose
+/// This is a *proxy* for socket backpressure: tungstenite 0.30 does not expose
 /// the OS TCP send-buffer depth, so `written - flushed` reflects frames queued in
 /// the WebSocket write buffer awaiting a flush drain, not kernel socket state.
 pub struct CountingSink<S> {

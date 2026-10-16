@@ -24,7 +24,7 @@
 | fastrand | 2 | Fast random number generation for chaos injection |
 | http | 1 | HTTP method types and header primitives |
 | bytes | 1 | Zero-copy byte buffer for request payloads |
-| tokio-tungstenite | 0.26 | WebSocket client with TLS support |
+| tokio-tungstenite | 0.30 | WebSocket client with TLS support |
 | prost / prost-reflect | 0.14 / 0.16 | Protobuf encoding/decoding and reflection |
 | base64 | 0.23 | Base64 payload decoding for gRPC |
 | hex | 0.4 | Hex payload decoding for gRPC |

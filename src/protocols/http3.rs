@@ -791,7 +791,7 @@ mod tests {
         let cert_der = ck.cert.der().clone();
         let trust_der = ck.cert.der().to_vec();
         let key_der =
-            quinn::rustls::pki_types::PrivatePkcs8KeyDer::from(ck.key_pair.serialize_der());
+            quinn::rustls::pki_types::PrivatePkcs8KeyDer::from(ck.signing_key.serialize_der());
 
         let mut tls = quinn::rustls::ServerConfig::builder()
             .with_no_client_auth()

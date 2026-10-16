@@ -5,11 +5,12 @@
 //! `CountingSink` wrapper around identical enqueue calls; the delta is the added
 //! CPU cost per outbound frame. Run with `cargo bench`.
 
+use std::hint::black_box;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
 use bytes::Bytes;
-use criterion::{BenchmarkId, Criterion, black_box, criterion_group, criterion_main};
+use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 use futures_util::Sink;
 use tokio_tungstenite::tungstenite::Error as WsError;
 use tokio_tungstenite::tungstenite::Message;
