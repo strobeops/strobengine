@@ -5,6 +5,7 @@ from enum import StrEnum
 
 from strobengine._strobengine import (
     LoadProfile,
+    SoapVersion,
     TestConfig,
     TestSummary,
     WsMode,
@@ -33,11 +34,21 @@ from strobengine.constants import (
 )
 
 
+class SoapVersionEnum(StrEnum):
+    soap11 = "1.1"
+    soap12 = "1.2"
+
+
 class WsModeEnum(StrEnum):
     handshake = "handshake"
     ping_pong = "ping_pong"
     stream = "stream"
 
+
+_SOAP_VERSION_MAP: dict[SoapVersionEnum, SoapVersion] = {
+    SoapVersionEnum.soap11: SoapVersion.soap11(),
+    SoapVersionEnum.soap12: SoapVersion.soap12(),
+}
 
 _WS_MODE_MAP: dict[WsModeEnum, WsMode] = {
     WsModeEnum.handshake: WsMode.handshake(),
@@ -92,6 +103,9 @@ class RequestOptions:
     slo_error_rate: float | None = None
     slo_min_rps: float | None = None
     timeline_interval_ms: int = 1000
+    soap_enabled: bool = False
+    soap_action: str | None = None
+    soap_version: SoapVersionEnum = SoapVersionEnum.soap11
 
     def __post_init__(self) -> None:
         if self.timeout <= 0:
@@ -148,6 +162,9 @@ def _build_test_config(
         slo_error_rate=opts.slo_error_rate,
         slo_min_rps=opts.slo_min_rps,
         timeline_interval_ms=opts.timeline_interval_ms,
+        soap_enabled=opts.soap_enabled,
+        soap_action=opts.soap_action,
+        soap_version=_SOAP_VERSION_MAP.get(opts.soap_version, SoapVersion.soap11()),
     )
 
 

@@ -4,8 +4,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::chaos::ChaosMetrics;
 use crate::metrics::{
-    GraphqlMetrics, GraphqlWsMetrics, GrpcMetrics, Http3Metrics, QuicMetrics, SseMetrics,
-    WebsocketMetrics,
+    GraphqlMetrics, GraphqlWsMetrics, GrpcMetrics, Http3Metrics, QuicMetrics, SoapMetrics,
+    SseMetrics, WebsocketMetrics,
 };
 
 /// Top-level report artifact persisted to disk after each load test.
@@ -33,6 +33,8 @@ pub struct ReportArtifact {
     pub graphql: Option<GraphqlMetrics>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub graphql_ws: Option<GraphqlWsMetrics>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub soap: Option<SoapMetrics>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub slo: Option<SloResult>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -339,6 +341,7 @@ impl ReportArtifact {
             http3: summary.http3.clone(),
             graphql: summary.graphql.clone(),
             graphql_ws: summary.graphql_ws.clone(),
+            soap: summary.soap.clone(),
             slo,
             timeline: summary.timeline.clone(),
             chaos: if summary.chaos_injected_total > 0 {
@@ -460,6 +463,7 @@ mod tests {
             http3: None,
             graphql: None,
             graphql_ws: None,
+            soap: None,
             slo: None,
             timeline: None,
             chaos: None,
@@ -586,6 +590,7 @@ mod tests {
             "http3",
             "graphql",
             "graphql_ws",
+            "soap",
             "slo",
             "timeline",
             "chaos_faults",
@@ -612,6 +617,7 @@ mod tests {
         full.http3 = Some(crate::metrics::Http3Metrics::default());
         full.graphql = Some(crate::metrics::GraphqlMetrics::default());
         full.graphql_ws = Some(crate::metrics::GraphqlWsMetrics::default());
+        full.soap = Some(crate::metrics::SoapMetrics::default());
         full.slo = Some(SloResult {
             passed: true,
             checks: Vec::new(),
@@ -789,7 +795,7 @@ mod tests {
 
     #[test]
     fn test_from_summary_and_config() {
-        use crate::config::{TestConfig, WsMode};
+        use crate::config::{SoapVersion, TestConfig, WsMode};
         use crate::metrics::TestSummary;
 
         let mut status_codes = std::collections::HashMap::new();
@@ -822,6 +828,7 @@ mod tests {
             http3: None,
             graphql: None,
             graphql_ws: None,
+            soap: None,
             timeline: None,
             chaos_injected_total: 0,
             chaos_faults_by_type: std::collections::HashMap::new(),
@@ -880,6 +887,9 @@ mod tests {
             None,
             None,
             1000u64,
+            false,
+            None,
+            SoapVersion::Soap11,
         )
         .unwrap();
 
@@ -905,7 +915,7 @@ mod tests {
 
     #[test]
     fn system_metrics_serializes_to_display_shape() {
-        use crate::config::{TestConfig, WsMode};
+        use crate::config::{SoapVersion, TestConfig, WsMode};
         use crate::metrics::TestSummary;
         use crate::metrics::system::{ResourceSample, SystemMetrics};
 
@@ -955,6 +965,7 @@ mod tests {
             http3: None,
             graphql: None,
             graphql_ws: None,
+            soap: None,
             timeline: None,
             chaos_injected_total: 0,
             chaos_faults_by_type: std::collections::HashMap::new(),
@@ -1013,6 +1024,9 @@ mod tests {
             None,
             None,
             1000u64,
+            false,
+            None,
+            SoapVersion::Soap11,
         )
         .unwrap();
 

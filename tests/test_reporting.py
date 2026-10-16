@@ -1062,3 +1062,28 @@ class TestPrintErgonomics:
         assert "window.print()" in html
         assert "Print to PDF" in html
         assert "no-print" in html
+
+
+class TestSoapArtifact:
+    def test_artifact_omits_soap_when_absent(self):
+        artifact = build_artifact_dict(_make_summary(), _make_config())
+        assert "soap" not in artifact
+
+    def test_artifact_includes_soap_when_present(self, monkeypatch):
+        import strobengine.artifact as artifact
+
+        class FakeSoap:
+            operations_total = 10
+            fault_responses_total = 2
+            soap_version = "1.2"
+
+        monkeypatch.setattr(artifact, "SoapMetrics", FakeSoap)
+        summary = _make_summary()
+        summary.soap = FakeSoap()
+
+        result = build_artifact_dict(summary, _make_config())
+        assert result["soap"] == {
+            "operations_total": 10,
+            "fault_responses_total": 2,
+            "soap_version": "1.2",
+        }

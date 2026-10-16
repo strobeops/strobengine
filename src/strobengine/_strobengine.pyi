@@ -8,6 +8,12 @@ class WsMode:
     @staticmethod
     def stream() -> WsMode: ...
 
+class SoapVersion:
+    @staticmethod
+    def soap11() -> SoapVersion: ...
+    @staticmethod
+    def soap12() -> SoapVersion: ...
+
 class LoadProfile:
     @staticmethod
     def constant(concurrency: int = 10, duration_secs: int = 10) -> LoadProfile: ...
@@ -77,6 +83,9 @@ class TestConfig:
     slo_error_rate: float | None
     slo_min_rps: float | None
     timeline_interval_ms: int
+    soap_enabled: bool
+    soap_action: str | None
+    soap_version: SoapVersion
     def __init__(
         self,
         url: str,
@@ -125,6 +134,9 @@ class TestConfig:
         slo_error_rate: float | None = None,
         slo_min_rps: float | None = None,
         timeline_interval_ms: int = 1000,
+        soap_enabled: bool = False,
+        soap_action: str | None = None,
+        soap_version: SoapVersion = ...,
     ) -> None: ...
 
 class SystemMetrics:
@@ -176,6 +188,14 @@ class GraphqlMetrics:
     def errors_total(self) -> int: ...
     @property
     def operation_type(self) -> str: ...
+
+class SoapMetrics:
+    @property
+    def operations_total(self) -> int: ...
+    @property
+    def fault_responses_total(self) -> int: ...
+    @property
+    def soap_version(self) -> str: ...
 
 class GraphqlWsMetrics:
     @property
@@ -316,6 +336,8 @@ class TestSummary:
     def graphql(self) -> GraphqlMetrics | None: ...
     @property
     def graphql_ws(self) -> GraphqlWsMetrics | None: ...
+    @property
+    def soap(self) -> SoapMetrics | None: ...
     @property
     def timeline(self) -> Timeline | None: ...
     @property

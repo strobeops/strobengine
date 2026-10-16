@@ -111,6 +111,12 @@ class GraphqlMetricsDict(TypedDict):
     operation_type: str
 
 
+class SoapMetricsDict(TypedDict):
+    operations_total: int
+    fault_responses_total: int
+    soap_version: str
+
+
 class GraphqlWsMetricsDict(TypedDict):
     operations_total: int
     messages_total: int
@@ -232,6 +238,7 @@ class ReportArtifactDict(TypedDict):
     http3: NotRequired[Http3MetricsDict]
     graphql: NotRequired[GraphqlMetricsDict]
     graphql_ws: NotRequired[GraphqlWsMetricsDict]
+    soap: NotRequired[SoapMetricsDict]
     slo: NotRequired[SloResultDict]
     timeline: NotRequired[TimelineDict]
     chaos_faults: NotRequired[ChaosFaultsDict]

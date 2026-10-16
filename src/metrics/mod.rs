@@ -33,6 +33,7 @@ pub struct AggregatedMetrics {
     pub http3_metrics: Option<Http3Metrics>,
     pub graphql_metrics: Option<GraphqlMetrics>,
     pub graphql_ws_metrics: Option<GraphqlWsMetrics>,
+    pub soap_metrics: Option<SoapMetrics>,
     pub timeline: Option<Timeline>,
     pub chaos_injected_total: u64,
     pub chaos_faults_by_type: HashMap<String, u64>,
@@ -69,6 +70,7 @@ impl Default for AggregatedMetrics {
             http3_metrics: None,
             graphql_metrics: None,
             graphql_ws_metrics: None,
+            soap_metrics: None,
             timeline: None,
             chaos_injected_total: 0,
             chaos_faults_by_type: HashMap::new(),
@@ -151,6 +153,7 @@ pub struct RequestMetric {
     pub graphql_ws_ttfm_us: Option<u64>,
     pub graphql_ws_interval_us: Option<u64>,
     pub graphql_ws_errors: Option<u64>,
+    pub soap_errors: Option<u64>,
     pub ws: Option<WsSample>,
     pub grpc: Option<GrpcSample>,
     pub http3: Option<Http3Sample>,
@@ -185,6 +188,7 @@ impl RequestMetric {
             graphql_ws_ttfm_us: None,
             graphql_ws_interval_us: None,
             graphql_ws_errors: None,
+            soap_errors: None,
             ws: None,
             grpc: None,
             http3: None,
@@ -201,13 +205,14 @@ impl RequestMetric {
     }
 
     /// Whether this iteration counts as a failure, using the same rules the
-    /// worker applies: transport error (status 0), HTTP >= 400, or a GraphQL
-    /// logical error (HTTP or WebSocket).
+    /// worker applies: transport error (status 0), HTTP >= 400, a GraphQL logical
+    /// error (HTTP or WebSocket), or a SOAP fault.
     pub fn is_error(&self) -> bool {
         self.status_code == 0
             || self.status_code >= 400
             || self.graphql_errors.is_some_and(|n| n > 0)
             || self.graphql_ws_errors.is_some_and(|n| n > 0)
+            || self.soap_errors.is_some_and(|n| n > 0)
     }
 }
 
@@ -290,6 +295,14 @@ impl RequestMetricBuilder {
     /// means the response was not a GraphQL operation.
     pub fn graphql(mut self, errors: Option<u64>) -> Self {
         self.0.graphql_errors = errors;
+        self
+    }
+
+    /// Record whether a SOAP response carried a `Fault` element. `Some(1)`
+    /// marks the metric as a SOAP operation with a fault, `Some(0)` a SOAP
+    /// operation without one, and `None` a non-SOAP response.
+    pub fn soap(mut self, faults: Option<u64>) -> Self {
+        self.0.soap_errors = faults;
         self
     }
 
@@ -395,6 +408,22 @@ pub struct GraphqlWsMetrics {
     pub interval_p90_ms: f64,
     #[pyo3(get)]
     pub interval_p99_ms: f64,
+}
+
+/// Aggregated SOAP operation telemetry.
+///
+/// SOAP faults are reported inside the XML envelope (commonly on an HTTP 200
+/// response for SOAP 1.2); `fault_responses_total` exposes those while the run's
+/// `status_codes` stays truthful.
+#[pyclass(skip_from_py_object)]
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+pub struct SoapMetrics {
+    #[pyo3(get)]
+    pub operations_total: u64,
+    #[pyo3(get)]
+    pub fault_responses_total: u64,
+    #[pyo3(get)]
+    pub soap_version: String,
 }
 
 /// One timeline sample: throughput and latency over a single interval.
@@ -638,6 +667,8 @@ pub struct TestSummary {
     #[pyo3(get)]
     pub graphql_ws: Option<GraphqlWsMetrics>,
     #[pyo3(get)]
+    pub soap: Option<SoapMetrics>,
+    #[pyo3(get)]
     pub timeline: Option<Timeline>,
     #[pyo3(get)]
     pub chaos_injected_total: u64,
@@ -774,6 +805,7 @@ pub struct SummaryInput {
     pub http3_metrics: Option<Http3Metrics>,
     pub graphql_metrics: Option<GraphqlMetrics>,
     pub graphql_ws_metrics: Option<GraphqlWsMetrics>,
+    pub soap_metrics: Option<SoapMetrics>,
     pub timeline: Option<Timeline>,
     pub chaos_injected_total: u64,
     pub chaos_faults_by_type: HashMap<String, u64>,
@@ -831,6 +863,8 @@ pub async fn finalize_metrics(
     let mut has_grpc = false;
     let mut has_graphql = false;
     let mut has_graphql_ws = false;
+    let mut soap_stats = SoapMetrics::default();
+    let mut has_soap = false;
     let mut graphql_ws_ttfm_histogram =
         Histogram::new_with_max(HISTOGRAM_HIGHEST_TRACKABLE, HISTOGRAM_SIGNIFICANT_FIGURES)
             .expect("valid histogram bounds");
@@ -937,6 +971,15 @@ pub async fn finalize_metrics(
         if let Some(errors) = metric.graphql_ws_errors {
             has_graphql_ws = true;
             graphql_ws_stats.errors_total += errors;
+        }
+
+        // SOAP aggregation
+        if let Some(faults) = metric.soap_errors {
+            has_soap = true;
+            soap_stats.operations_total += 1;
+            if faults > 0 {
+                soap_stats.fault_responses_total += 1;
+            }
         }
 
         // WebSocket aggregation (O(1) running counters)
@@ -1124,6 +1167,8 @@ pub async fn finalize_metrics(
         None
     };
 
+    metrics.soap_metrics = if has_soap { Some(soap_stats) } else { None };
+
     metrics
 }
 
@@ -1210,6 +1255,7 @@ pub fn calculate_summary(input: SummaryInput) -> TestSummary {
             http3: input.http3_metrics,
             graphql: input.graphql_metrics,
             graphql_ws: input.graphql_ws_metrics,
+            soap: input.soap_metrics,
             timeline: input.timeline,
             chaos_injected_total: input.chaos_injected_total,
             chaos_faults_by_type: input.chaos_faults_by_type,
@@ -1263,6 +1309,7 @@ pub fn calculate_summary(input: SummaryInput) -> TestSummary {
         http3: input.http3_metrics,
         graphql: input.graphql_metrics,
         graphql_ws: input.graphql_ws_metrics,
+        soap: input.soap_metrics,
         timeline: input.timeline,
         chaos_injected_total: input.chaos_injected_total,
         chaos_faults_by_type: input.chaos_faults_by_type,
@@ -1330,6 +1377,7 @@ mod tests {
             http3_metrics: None,
             graphql_metrics: None,
             graphql_ws_metrics: None,
+            soap_metrics: None,
             timeline: None,
             chaos_injected_total: 0,
             chaos_faults_by_type: HashMap::new(),
@@ -1371,6 +1419,7 @@ mod tests {
             http3_metrics: None,
             graphql_metrics: None,
             graphql_ws_metrics: None,
+            soap_metrics: None,
             timeline: None,
             chaos_injected_total: 0,
             chaos_faults_by_type: HashMap::new(),
@@ -1413,6 +1462,7 @@ mod tests {
             http3_metrics: None,
             graphql_metrics: None,
             graphql_ws_metrics: None,
+            soap_metrics: None,
             timeline: None,
             chaos_injected_total: 0,
             chaos_faults_by_type: HashMap::new(),
@@ -1450,6 +1500,7 @@ mod tests {
             http3_metrics: None,
             graphql_metrics: None,
             graphql_ws_metrics: None,
+            soap_metrics: None,
             timeline: None,
             chaos_injected_total: 0,
             chaos_faults_by_type: HashMap::new(),
@@ -1488,6 +1539,7 @@ mod tests {
             http3_metrics: None,
             graphql_metrics: None,
             graphql_ws_metrics: None,
+            soap_metrics: None,
             timeline: None,
             chaos_injected_total: 0,
             chaos_faults_by_type: HashMap::new(),
@@ -1521,6 +1573,7 @@ mod tests {
             http3_metrics: None,
             graphql_metrics: None,
             graphql_ws_metrics: None,
+            soap_metrics: None,
             timeline: None,
             chaos_injected_total: 0,
             chaos_faults_by_type: HashMap::new(),
@@ -1553,6 +1606,7 @@ mod tests {
             http3_metrics: None,
             graphql_metrics: None,
             graphql_ws_metrics: None,
+            soap_metrics: None,
             timeline: None,
             chaos_injected_total: 0,
             chaos_faults_by_type: HashMap::new(),
@@ -1591,6 +1645,7 @@ mod tests {
             http3_metrics: None,
             graphql_metrics: None,
             graphql_ws_metrics: None,
+            soap_metrics: None,
             timeline: None,
             chaos_injected_total: 0,
             chaos_faults_by_type: HashMap::new(),
@@ -1631,6 +1686,7 @@ mod tests {
             http3_metrics: None,
             graphql_metrics: None,
             graphql_ws_metrics: None,
+            soap_metrics: None,
             timeline: None,
             chaos_injected_total: 0,
             chaos_faults_by_type: HashMap::new(),
@@ -1681,6 +1737,7 @@ mod tests {
             http3_metrics: None,
             graphql_metrics: None,
             graphql_ws_metrics: None,
+            soap_metrics: None,
             timeline: None,
             chaos_injected_total: 0,
             chaos_faults_by_type: HashMap::new(),
@@ -1891,6 +1948,7 @@ mod tests {
             http3_metrics: None,
             graphql_metrics: None,
             graphql_ws_metrics: None,
+            soap_metrics: None,
             timeline: None,
             chaos_injected_total: 0,
             chaos_faults_by_type: HashMap::new(),
@@ -1929,6 +1987,7 @@ mod tests {
             http3_metrics: None,
             graphql_metrics: None,
             graphql_ws_metrics: None,
+            soap_metrics: None,
             timeline: None,
             chaos_injected_total: 0,
             chaos_faults_by_type: HashMap::new(),
@@ -1983,6 +2042,7 @@ mod tests {
             http3_metrics: None,
             graphql_metrics: None,
             graphql_ws_metrics: None,
+            soap_metrics: None,
             timeline: None,
             chaos_injected_total: 0,
             chaos_faults_by_type: HashMap::new(),
@@ -2017,6 +2077,7 @@ mod tests {
             http3_metrics: None,
             graphql_metrics: None,
             graphql_ws_metrics: None,
+            soap_metrics: None,
             timeline: None,
             chaos_injected_total: 0,
             chaos_faults_by_type: HashMap::new(),
@@ -2052,6 +2113,7 @@ mod tests {
             http3_metrics: None,
             graphql_metrics: None,
             graphql_ws_metrics: None,
+            soap_metrics: None,
             timeline: None,
             chaos_injected_total: 0,
             chaos_faults_by_type: HashMap::new(),
@@ -2084,6 +2146,7 @@ mod tests {
             http3_metrics: None,
             graphql_metrics: None,
             graphql_ws_metrics: None,
+            soap_metrics: None,
             timeline: None,
             chaos_injected_total: 0,
             chaos_faults_by_type: HashMap::new(),
@@ -2117,6 +2180,7 @@ mod tests {
             http3_metrics: None,
             graphql_metrics: None,
             graphql_ws_metrics: None,
+            soap_metrics: None,
             timeline: None,
             chaos_injected_total: 0,
             chaos_faults_by_type: HashMap::new(),
@@ -2149,6 +2213,7 @@ mod tests {
             http3_metrics: None,
             graphql_metrics: None,
             graphql_ws_metrics: None,
+            soap_metrics: None,
             timeline: None,
             chaos_injected_total: 0,
             chaos_faults_by_type: HashMap::new(),
@@ -2181,6 +2246,7 @@ mod tests {
             http3_metrics: None,
             graphql_metrics: None,
             graphql_ws_metrics: None,
+            soap_metrics: None,
             timeline: None,
             chaos_injected_total: 0,
             chaos_faults_by_type: HashMap::new(),
@@ -2214,6 +2280,7 @@ mod tests {
             http3_metrics: None,
             graphql_metrics: None,
             graphql_ws_metrics: None,
+            soap_metrics: None,
             timeline: None,
             chaos_injected_total: 0,
             chaos_faults_by_type: HashMap::new(),
@@ -2246,6 +2313,7 @@ mod tests {
             http3_metrics: None,
             graphql_metrics: None,
             graphql_ws_metrics: None,
+            soap_metrics: None,
             timeline: None,
             chaos_injected_total: 0,
             chaos_faults_by_type: HashMap::new(),

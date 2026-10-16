@@ -33,6 +33,38 @@ impl WsMode {
     }
 }
 
+/// SOAP protocol version.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[pyclass(from_py_object)]
+pub enum SoapVersion {
+    #[default]
+    Soap11,
+    Soap12,
+}
+
+#[pymethods]
+impl SoapVersion {
+    #[staticmethod]
+    fn soap11() -> Self {
+        Self::Soap11
+    }
+
+    #[staticmethod]
+    fn soap12() -> Self {
+        Self::Soap12
+    }
+}
+
+impl SoapVersion {
+    /// Wire label used in metrics and reports (`"1.1"` / `"1.2"`).
+    pub fn as_str(self) -> &'static str {
+        match self {
+            SoapVersion::Soap11 => "1.1",
+            SoapVersion::Soap12 => "1.2",
+        }
+    }
+}
+
 #[pyclass(from_py_object)]
 #[derive(Clone)]
 pub struct TestConfig {
@@ -128,6 +160,12 @@ pub struct TestConfig {
     pub slo_min_rps: Option<f64>,
     #[pyo3(get, set)]
     pub timeline_interval_ms: u64,
+    #[pyo3(get, set)]
+    pub soap_enabled: bool,
+    #[pyo3(get, set)]
+    pub soap_action: Option<String>,
+    #[pyo3(get, set)]
+    pub soap_version: SoapVersion,
 }
 
 #[pymethods]
@@ -180,6 +218,9 @@ impl TestConfig {
         slo_error_rate=None,
         slo_min_rps=None,
         timeline_interval_ms=1000u64,
+        soap_enabled=false,
+        soap_action=None,
+        soap_version=SoapVersion::Soap11,
     ))]
     #[allow(clippy::too_many_arguments)]
     pub fn new(
@@ -229,6 +270,9 @@ impl TestConfig {
         slo_error_rate: Option<f64>,
         slo_min_rps: Option<f64>,
         timeline_interval_ms: u64,
+        soap_enabled: bool,
+        soap_action: Option<String>,
+        soap_version: SoapVersion,
     ) -> PyResult<Self> {
         let config = Self {
             url,
@@ -277,6 +321,9 @@ impl TestConfig {
             slo_error_rate,
             slo_min_rps,
             timeline_interval_ms,
+            soap_enabled,
+            soap_action,
+            soap_version,
         };
         config.validate()?;
         Ok(config)
@@ -327,6 +374,26 @@ impl TestConfig {
                     return Err(pyo3::exceptions::PyValueError::new_err(format!(
                         "graphql_variables is not valid JSON: {e}"
                     )));
+                }
+            }
+        }
+        if self.soap_enabled {
+            if self.graphql_query.is_some() {
+                return Err(pyo3::exceptions::PyValueError::new_err(
+                    "soap_enabled cannot be combined with graphql_query",
+                ));
+            }
+            if self.form.is_some() {
+                return Err(pyo3::exceptions::PyValueError::new_err(
+                    "soap_enabled cannot be combined with form",
+                ));
+            }
+            match self.body.as_deref() {
+                Some(body) if !body.trim().is_empty() => {}
+                _ => {
+                    return Err(pyo3::exceptions::PyValueError::new_err(
+                        "soap_enabled requires an XML envelope in body",
+                    ));
                 }
             }
         }
@@ -422,6 +489,9 @@ pub struct TestConfigBuilder {
     slo_error_rate: Option<f64>,
     slo_min_rps: Option<f64>,
     timeline_interval_ms: u64,
+    soap_enabled: bool,
+    soap_action: Option<String>,
+    soap_version: SoapVersion,
 }
 
 impl Default for TestConfigBuilder {
@@ -473,6 +543,9 @@ impl Default for TestConfigBuilder {
             slo_error_rate: None,
             slo_min_rps: None,
             timeline_interval_ms: 1000,
+            soap_enabled: false,
+            soap_action: None,
+            soap_version: SoapVersion::Soap11,
         }
     }
 }
@@ -613,6 +686,18 @@ impl TestConfigBuilder {
         self.graphql_operation_name = v;
         self
     }
+    pub fn soap_enabled(mut self, v: bool) -> Self {
+        self.soap_enabled = v;
+        self
+    }
+    pub fn soap_action(mut self, v: Option<String>) -> Self {
+        self.soap_action = v;
+        self
+    }
+    pub fn soap_version(mut self, v: SoapVersion) -> Self {
+        self.soap_version = v;
+        self
+    }
     pub fn output_dir(mut self, v: Option<String>) -> Self {
         self.output_dir = v;
         self
@@ -714,6 +799,9 @@ impl TestConfigBuilder {
             slo_error_rate: self.slo_error_rate,
             slo_min_rps: self.slo_min_rps,
             timeline_interval_ms: self.timeline_interval_ms,
+            soap_enabled: self.soap_enabled,
+            soap_action: self.soap_action,
+            soap_version: self.soap_version,
         }
     }
 }
@@ -989,6 +1077,9 @@ mod tests {
             None,
             None,
             1000u64,
+            false,
+            None,
+            SoapVersion::Soap11,
         )
         .unwrap();
         assert_eq!(c.url, "http://127.0.0.1:8080");
@@ -1046,6 +1137,9 @@ mod tests {
             None,
             None,
             1000u64,
+            false,
+            None,
+            SoapVersion::Soap11,
         )
         .unwrap();
         assert_eq!(c.concurrency, 50);

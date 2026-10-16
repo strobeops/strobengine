@@ -27,6 +27,7 @@ from strobengine._strobengine import (
     GrpcMetrics,
     Http3Metrics,
     QuicMetrics,
+    SoapMetrics,
     SseMetrics,
     SystemMetrics,
     TestSummary,
@@ -44,6 +45,7 @@ from strobengine.report_schema import (
     ReportArtifactDict,
     SloCheckDict,
     SloResultDict,
+    SoapMetricsDict,
     SseMetricsDict,
     SupportsCliOptions,
     SystemInfoDict,
@@ -258,6 +260,18 @@ def _format_timeline(summary: TestSummary) -> TimelineDict | None:
     }
 
 
+def _format_soap(summary: TestSummary) -> SoapMetricsDict | None:
+    """Extract SOAP operation/fault metrics into a JSON-native dict."""
+    s = summary.soap
+    if s is None or not isinstance(s, SoapMetrics):
+        return None
+    return {
+        "operations_total": s.operations_total,
+        "fault_responses_total": s.fault_responses_total,
+        "soap_version": s.soap_version,
+    }
+
+
 def _optional_float(value: object) -> float | None:
     """Return `value` when it is a real number, else None.
 
@@ -405,6 +419,10 @@ def _build_artifact_dict_fallback(
     graphql_ws = _format_graphql_ws(summary)
     if graphql_ws is not None:
         artifact["graphql_ws"] = graphql_ws
+
+    soap = _format_soap(summary)
+    if soap is not None:
+        artifact["soap"] = soap
 
     slo = _evaluate_slo(summary, config, rps)
     if slo is not None:

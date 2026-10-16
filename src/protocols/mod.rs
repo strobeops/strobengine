@@ -5,6 +5,7 @@ pub mod grpc_h2;
 pub mod grpc_parser;
 pub mod http;
 pub mod http3;
+pub mod soap;
 pub mod sse;
 pub mod websocket;
 

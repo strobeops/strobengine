@@ -57,6 +57,7 @@ webpki-roots = "0.26"
 hdrhistogram = "7"
 sysinfo = "0.34"
 h2 = "0.4"
+quick-xml = "0.41"
 clap = { version = "4", features = ["derive", "env"] }
 thiserror = "2"
 

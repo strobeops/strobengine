@@ -35,6 +35,7 @@ _EXPECTED_FIDELITY_CLASSES = {
     "Http3Metrics",
     "QuicMetrics",
     "ResourceSample",
+    "SoapMetrics",
     "SseMetrics",
     "SystemMetrics",
     "TestConfig",
