@@ -53,6 +53,9 @@ By default, this spawns **10 concurrent workers** for **10 seconds** with a **10
 | `--graphql-query` | none | GraphQL query/mutation document (HTTP POST, or a subscription over `ws://`/`wss://`) |
 | `--graphql-variables` | none | JSON object of GraphQL variables |
 | `--graphql-operation-name` | none | Named GraphQL operation to execute |
+| `--soap/--no-soap` | off | Enable SOAP mode: POST the XML envelope from `--body` |
+| `--soap-action` | none | SOAP operation: 1.1 `SOAPAction` header / 1.2 `action=` parameter |
+| `--soap-version` | `1.1` | SOAP protocol version: `1.1` or `1.2` |
 | `--slo-p95-ms` | none | Fail the run if P95 latency exceeds this (ms) |
 | `--slo-p99-ms` | none | Fail the run if P99 latency exceeds this (ms) |
 | `--slo-error-rate` | none | Fail the run if the error rate exceeds this (percent) |
@@ -97,6 +100,9 @@ By default, this spawns **10 concurrent workers** for **10 seconds** with a **10
 | `--graphql-query` | none | GraphQL query/mutation document (HTTP POST, or a subscription over `ws://`/`wss://`) |
 | `--graphql-variables` | none | JSON object of GraphQL variables |
 | `--graphql-operation-name` | none | Named GraphQL operation to execute |
+| `--soap/--no-soap` | off | Enable SOAP mode: POST the XML envelope from `--body` |
+| `--soap-action` | none | SOAP operation: 1.1 `SOAPAction` header / 1.2 `action=` parameter |
+| `--soap-version` | `1.1` | SOAP protocol version: `1.1` or `1.2` |
 | `--slo-p95-ms` | none | Fail the run if P95 latency exceeds this (ms) |
 | `--slo-p99-ms` | none | Fail the run if P99 latency exceeds this (ms) |
 | `--slo-error-rate` | none | Fail the run if the error rate exceeds this (percent) |
@@ -142,6 +148,9 @@ By default, this spawns **10 concurrent workers** for **10 seconds** with a **10
 | `--graphql-query` | none | GraphQL query/mutation document (HTTP POST, or a subscription over `ws://`/`wss://`) |
 | `--graphql-variables` | none | JSON object of GraphQL variables |
 | `--graphql-operation-name` | none | Named GraphQL operation to execute |
+| `--soap/--no-soap` | off | Enable SOAP mode: POST the XML envelope from `--body` |
+| `--soap-action` | none | SOAP operation: 1.1 `SOAPAction` header / 1.2 `action=` parameter |
+| `--soap-version` | `1.1` | SOAP protocol version: `1.1` or `1.2` |
 | `--slo-p95-ms` | none | Fail the run if P95 latency exceeds this (ms) |
 | `--slo-p99-ms` | none | Fail the run if P99 latency exceeds this (ms) |
 | `--slo-error-rate` | none | Fail the run if the error rate exceeds this (percent) |

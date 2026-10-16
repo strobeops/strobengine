@@ -16,6 +16,7 @@
 - [HTTP/3 Load Testing](http3.md) -- QUIC transport, 0-RTT resumption, loss recovery metrics
 - [SSE Load Testing](sse.md) -- Server-Sent Events streaming, TTFB, event intervals, max events
 - [GraphQL Load Testing](graphql.md) -- Queries/mutations over HTTP, variables, logical error tracking
+- [SOAP Load Testing](soap.md) -- SOAP 1.1/1.2 envelopes over HTTP, fault detection
 - [Reporting & Visualizations](reports.md) -- JSON persistence, HTML reports, baseline comparison, output control
 - [Distributed Load Testing](distributed.md) -- Master/worker control plane, live telemetry, cluster reporting
 
