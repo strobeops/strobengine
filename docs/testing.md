@@ -92,6 +92,7 @@ server lifecycle -- it starts before the first test and shuts down after the las
 ```python
 from strobengine.engine import RequestOptions, StrobEngine
 
+
 async def test_example(self, mock_server: str):
     engine = StrobEngine.load_test(
         url=f"{mock_server}/status/200",

@@ -45,9 +45,9 @@ engine = StrobEngine(
 )
 summary = engine.run()
 
-print(summary.graphql.operations_total)       # GraphQL operations observed
+print(summary.graphql.operations_total)  # GraphQL operations observed
 print(summary.graphql.error_responses_total)  # responses with a non-empty errors[]
-print(summary.graphql.operation_type)         # "query"
+print(summary.graphql.operation_type)  # "query"
 ```
 
 ### Benchmark a Mutation with Variables
@@ -81,10 +81,10 @@ engine = StrobEngine(
 )
 summary = engine.run()
 
-print(summary.graphql_ws.operations_total)   # subscriptions started
-print(summary.graphql_ws.messages_total)     # `next` frames received
-print(summary.graphql_ws.ttfm_p90_ms)        # time-to-first-message P90 (ms)
-print(summary.graphql_ws.interval_p99_ms)    # inter-message interval P99 (ms)
+print(summary.graphql_ws.operations_total)  # subscriptions started
+print(summary.graphql_ws.messages_total)  # `next` frames received
+print(summary.graphql_ws.ttfm_p90_ms)  # time-to-first-message P90 (ms)
+print(summary.graphql_ws.interval_p99_ms)  # inter-message interval P99 (ms)
 ```
 
 ## CLI
