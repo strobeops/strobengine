@@ -20,20 +20,20 @@
 | tokio-util | 0.7 | CancellationToken for graceful worker shutdown |
 | tracing | 0.1 | Structured logging instrumentation |
 | tracing-subscriber | 0.3 | Log formatting and output (stderr/file) |
-| indicatif | 0.17 | Terminal progress bar rendering |
+| indicatif | 0.18 | Terminal progress bar rendering |
 | fastrand | 2 | Fast random number generation for chaos injection |
 | http | 1 | HTTP method types and header primitives |
 | bytes | 1 | Zero-copy byte buffer for request payloads |
 | tokio-tungstenite | 0.26 | WebSocket client with TLS support |
 | prost / prost-reflect | 0.14 / 0.16 | Protobuf encoding/decoding and reflection |
-| base64 | 0.22 | Base64 payload decoding for gRPC |
+| base64 | 0.23 | Base64 payload decoding for gRPC |
 | hex | 0.4 | Hex payload decoding for gRPC |
 
 ## Python Dependencies
 
 | Package | Version | Purpose |
 |---------|---------|---------|
-| pytest | >= 8.0 | Test runner |
-| pytest-asyncio | >= 0.24 | Async test support |
-| aiohttp | >= 3.14 | Mock server for E2E tests |
-| ruff | >= 0.15 | Linting and formatting |
+| pytest | >= 9.1.1 | Test runner |
+| pytest-asyncio | >= 1.4.0 | Async test support |
+| aiohttp | >= 3.14.5 | Mock server for E2E tests |
+| ruff | >= 0.17.1 | Linting and formatting |
