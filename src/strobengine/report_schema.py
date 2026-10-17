@@ -117,6 +117,30 @@ class SoapMetricsDict(TypedDict):
     soap_version: str
 
 
+class StompMetricsDict(TypedDict):
+    messages_sent_total: int
+    messages_received_total: int
+    bytes_sent_total: int
+    errors_total: int
+    reconnects_total: int
+    destination: str
+    mode: str
+    ack_mode: str
+    receipts_enabled: bool
+    send_latency_mean_ms: float
+    send_latency_p50_ms: float
+    send_latency_p90_ms: float
+    send_latency_p99_ms: float
+    receive_interval_mean_ms: float
+    receive_interval_p50_ms: float
+    receive_interval_p90_ms: float
+    receive_interval_p99_ms: float
+    ttfm_mean_ms: float
+    ttfm_p50_ms: float
+    ttfm_p90_ms: float
+    ttfm_p99_ms: float
+
+
 class GraphqlWsMetricsDict(TypedDict):
     operations_total: int
     messages_total: int
@@ -239,6 +263,7 @@ class ReportArtifactDict(TypedDict):
     graphql: NotRequired[GraphqlMetricsDict]
     graphql_ws: NotRequired[GraphqlWsMetricsDict]
     soap: NotRequired[SoapMetricsDict]
+    stomp: NotRequired[StompMetricsDict]
     slo: NotRequired[SloResultDict]
     timeline: NotRequired[TimelineDict]
     chaos_faults: NotRequired[ChaosFaultsDict]

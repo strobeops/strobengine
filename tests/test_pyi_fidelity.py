@@ -37,6 +37,7 @@ _EXPECTED_FIDELITY_CLASSES = {
     "ResourceSample",
     "SoapMetrics",
     "SseMetrics",
+    "StompMetrics",
     "SystemMetrics",
     "TestConfig",
     "TestSummary",
