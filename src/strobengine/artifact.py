@@ -29,6 +29,7 @@ from strobengine._strobengine import (
     QuicMetrics,
     SoapMetrics,
     SseMetrics,
+    StompMetrics,
     SystemMetrics,
     TestSummary,
     Timeline,
@@ -47,6 +48,7 @@ from strobengine.report_schema import (
     SloResultDict,
     SoapMetricsDict,
     SseMetricsDict,
+    StompMetricsDict,
     SupportsCliOptions,
     SystemInfoDict,
     SystemMetricsDict,
@@ -272,6 +274,36 @@ def _format_soap(summary: TestSummary) -> SoapMetricsDict | None:
     }
 
 
+def _format_stomp(summary: TestSummary) -> StompMetricsDict | None:
+    """Extract STOMP/JMS messaging metrics into a JSON-native dict."""
+    s = summary.stomp
+    if s is None or not isinstance(s, StompMetrics):
+        return None
+    return {
+        "messages_sent_total": s.messages_sent_total,
+        "messages_received_total": s.messages_received_total,
+        "bytes_sent_total": s.bytes_sent_total,
+        "errors_total": s.errors_total,
+        "reconnects_total": s.reconnects_total,
+        "destination": s.destination,
+        "mode": s.mode,
+        "ack_mode": s.ack_mode,
+        "receipts_enabled": s.receipts_enabled,
+        "send_latency_mean_ms": s.send_latency_mean_ms,
+        "send_latency_p50_ms": s.send_latency_p50_ms,
+        "send_latency_p90_ms": s.send_latency_p90_ms,
+        "send_latency_p99_ms": s.send_latency_p99_ms,
+        "receive_interval_mean_ms": s.receive_interval_mean_ms,
+        "receive_interval_p50_ms": s.receive_interval_p50_ms,
+        "receive_interval_p90_ms": s.receive_interval_p90_ms,
+        "receive_interval_p99_ms": s.receive_interval_p99_ms,
+        "ttfm_mean_ms": s.ttfm_mean_ms,
+        "ttfm_p50_ms": s.ttfm_p50_ms,
+        "ttfm_p90_ms": s.ttfm_p90_ms,
+        "ttfm_p99_ms": s.ttfm_p99_ms,
+    }
+
+
 def _optional_float(value: object) -> float | None:
     """Return `value` when it is a real number, else None.
 
@@ -423,6 +455,10 @@ def _build_artifact_dict_fallback(
     soap = _format_soap(summary)
     if soap is not None:
         artifact["soap"] = soap
+
+    stomp = _format_stomp(summary)
+    if stomp is not None:
+        artifact["stomp"] = stomp
 
     slo = _evaluate_slo(summary, config, rps)
     if slo is not None:

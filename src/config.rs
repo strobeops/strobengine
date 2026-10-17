@@ -65,6 +65,82 @@ impl SoapVersion {
     }
 }
 
+/// STOMP (JMS broker) benchmarking mode.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[pyclass(from_py_object)]
+pub enum StompMode {
+    /// Publish messages to a destination (`SEND` per iteration).
+    #[default]
+    Produce,
+    /// Subscribe to a destination and drain messages (`SUBSCRIBE` + `MESSAGE`).
+    Consume,
+}
+
+#[pymethods]
+impl StompMode {
+    #[staticmethod]
+    fn produce() -> Self {
+        Self::Produce
+    }
+
+    #[staticmethod]
+    fn consume() -> Self {
+        Self::Consume
+    }
+}
+
+impl StompMode {
+    /// Wire label used in metrics and reports (`"produce"` / `"consume"`).
+    pub fn as_str(self) -> &'static str {
+        match self {
+            StompMode::Produce => "produce",
+            StompMode::Consume => "consume",
+        }
+    }
+}
+
+/// STOMP acknowledgement mode used when subscribing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[pyclass(from_py_object)]
+pub enum StompAck {
+    /// Broker considers messages acknowledged on delivery (`auto`).
+    #[default]
+    Auto,
+    /// Client acknowledges cumulatively (`client`).
+    Client,
+    /// Client acknowledges each message individually (`client-individual`).
+    ClientIndividual,
+}
+
+#[pymethods]
+impl StompAck {
+    #[staticmethod]
+    fn auto() -> Self {
+        Self::Auto
+    }
+
+    #[staticmethod]
+    fn client() -> Self {
+        Self::Client
+    }
+
+    #[staticmethod]
+    fn client_individual() -> Self {
+        Self::ClientIndividual
+    }
+}
+
+impl StompAck {
+    /// STOMP `ack` header value for the `SUBSCRIBE` frame.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            StompAck::Auto => "auto",
+            StompAck::Client => "client",
+            StompAck::ClientIndividual => "client-individual",
+        }
+    }
+}
+
 #[pyclass(from_py_object)]
 #[derive(Clone)]
 pub struct TestConfig {
@@ -166,6 +242,18 @@ pub struct TestConfig {
     pub soap_action: Option<String>,
     #[pyo3(get, set)]
     pub soap_version: SoapVersion,
+    #[pyo3(get, set)]
+    pub stomp_destination: Option<String>,
+    #[pyo3(get, set)]
+    pub stomp_message: Option<String>,
+    #[pyo3(get, set)]
+    pub stomp_mode: StompMode,
+    #[pyo3(get, set)]
+    pub stomp_ack: StompAck,
+    #[pyo3(get, set)]
+    pub stomp_receipt: bool,
+    #[pyo3(get, set)]
+    pub stomp_headers: Option<Vec<(String, String)>>,
 }
 
 #[pymethods]
@@ -221,6 +309,12 @@ impl TestConfig {
         soap_enabled=false,
         soap_action=None,
         soap_version=SoapVersion::Soap11,
+        stomp_destination=None,
+        stomp_message=None,
+        stomp_mode=StompMode::Produce,
+        stomp_ack=StompAck::Auto,
+        stomp_receipt=false,
+        stomp_headers=None,
     ))]
     #[allow(clippy::too_many_arguments)]
     pub fn new(
@@ -273,6 +367,12 @@ impl TestConfig {
         soap_enabled: bool,
         soap_action: Option<String>,
         soap_version: SoapVersion,
+        stomp_destination: Option<String>,
+        stomp_message: Option<String>,
+        stomp_mode: StompMode,
+        stomp_ack: StompAck,
+        stomp_receipt: bool,
+        stomp_headers: Option<Vec<(String, String)>>,
     ) -> PyResult<Self> {
         let config = Self {
             url,
@@ -324,6 +424,12 @@ impl TestConfig {
             soap_enabled,
             soap_action,
             soap_version,
+            stomp_destination,
+            stomp_message,
+            stomp_mode,
+            stomp_ack,
+            stomp_receipt,
+            stomp_headers,
         };
         config.validate()?;
         Ok(config)
@@ -395,6 +501,21 @@ impl TestConfig {
                         "soap_enabled requires an XML envelope in body",
                     ));
                 }
+            }
+        }
+        if self.url.starts_with("stomp://") || self.url.starts_with("stomps://") {
+            match self.stomp_destination.as_deref() {
+                Some(d) if !d.trim().is_empty() => {}
+                _ => {
+                    return Err(pyo3::exceptions::PyValueError::new_err(
+                        "stomp:// URLs require stomp_destination",
+                    ));
+                }
+            }
+            if self.stomp_receipt && self.stomp_mode == StompMode::Consume {
+                return Err(pyo3::exceptions::PyValueError::new_err(
+                    "stomp_receipt applies to stomp_mode=produce only",
+                ));
             }
         }
         for (name, value) in [
@@ -492,6 +613,12 @@ pub struct TestConfigBuilder {
     soap_enabled: bool,
     soap_action: Option<String>,
     soap_version: SoapVersion,
+    stomp_destination: Option<String>,
+    stomp_message: Option<String>,
+    stomp_mode: StompMode,
+    stomp_ack: StompAck,
+    stomp_receipt: bool,
+    stomp_headers: Option<Vec<(String, String)>>,
 }
 
 impl Default for TestConfigBuilder {
@@ -546,6 +673,12 @@ impl Default for TestConfigBuilder {
             soap_enabled: false,
             soap_action: None,
             soap_version: SoapVersion::Soap11,
+            stomp_destination: None,
+            stomp_message: None,
+            stomp_mode: StompMode::Produce,
+            stomp_ack: StompAck::Auto,
+            stomp_receipt: false,
+            stomp_headers: None,
         }
     }
 }
@@ -698,6 +831,30 @@ impl TestConfigBuilder {
         self.soap_version = v;
         self
     }
+    pub fn stomp_destination(mut self, v: Option<String>) -> Self {
+        self.stomp_destination = v;
+        self
+    }
+    pub fn stomp_message(mut self, v: Option<String>) -> Self {
+        self.stomp_message = v;
+        self
+    }
+    pub fn stomp_mode(mut self, v: StompMode) -> Self {
+        self.stomp_mode = v;
+        self
+    }
+    pub fn stomp_ack(mut self, v: StompAck) -> Self {
+        self.stomp_ack = v;
+        self
+    }
+    pub fn stomp_receipt(mut self, v: bool) -> Self {
+        self.stomp_receipt = v;
+        self
+    }
+    pub fn stomp_headers(mut self, v: Option<Vec<(String, String)>>) -> Self {
+        self.stomp_headers = v;
+        self
+    }
     pub fn output_dir(mut self, v: Option<String>) -> Self {
         self.output_dir = v;
         self
@@ -802,6 +959,12 @@ impl TestConfigBuilder {
             soap_enabled: self.soap_enabled,
             soap_action: self.soap_action,
             soap_version: self.soap_version,
+            stomp_destination: self.stomp_destination,
+            stomp_message: self.stomp_message,
+            stomp_mode: self.stomp_mode,
+            stomp_ack: self.stomp_ack,
+            stomp_receipt: self.stomp_receipt,
+            stomp_headers: self.stomp_headers,
         }
     }
 }
@@ -1080,6 +1243,12 @@ mod tests {
             false,
             None,
             SoapVersion::Soap11,
+            None,
+            None,
+            StompMode::Produce,
+            StompAck::Auto,
+            false,
+            None,
         )
         .unwrap();
         assert_eq!(c.url, "http://127.0.0.1:8080");
@@ -1140,6 +1309,12 @@ mod tests {
             false,
             None,
             SoapVersion::Soap11,
+            None,
+            None,
+            StompMode::Produce,
+            StompAck::Auto,
+            false,
+            None,
         )
         .unwrap();
         assert_eq!(c.concurrency, 50);

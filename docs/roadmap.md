@@ -199,8 +199,8 @@ This document outlines the planned trajectory and upcoming feature epics for **s
 
 - [x] **SOAP Web Services**
   - [x] SOAP client integration and XML payload performance benchmarking.
-- [ ] **JMS (Java Message Service)**
-  - [ ] Enterprise messaging queue throughput and message broker benchmarking.
+- [x] **JMS (Java Message Service)**
+  - [x] Enterprise messaging queue throughput and message broker benchmarking (via STOMP 1.2).
 
 ### Epic: Data Stores & Directory Services
 *Target Focus: Relational, NoSQL, and Directory Systems*

@@ -6,6 +6,7 @@ import shutil
 import socket
 import sys
 import threading
+import time
 from collections.abc import Generator
 from pathlib import Path
 
@@ -297,5 +298,129 @@ def ws_hang_server() -> Generator[RawWsServer]:
 @pytest.fixture
 def ws_close_server() -> Generator[RawWsServer]:
     server = RawWsServer("close")
+    yield server
+    server.close()
+
+
+class RawStompServer:
+    """Raw local STOMP 1.2 broker for JMS/STOMP client e2e tests.
+
+    Speaks just enough of the protocol for the client engine:
+
+        CONNECT   -> CONNECTED
+        SEND      -> RECEIPT when the frame requests one (after an optional delay)
+        SUBSCRIBE -> ``messages_per_subscribe`` MESSAGE frames
+        ACK / DISCONNECT -> ignored
+
+    Runs on 127.0.0.1 only; never touches the network outside the loopback.
+    """
+
+    _NULL = b"\0"
+    _OK = b"RECEIPT"
+
+    def __init__(
+        self, messages_per_subscribe: int = 20_000, receipt_delay: float = 0.0
+    ) -> None:
+        self.messages_per_subscribe = messages_per_subscribe
+        self.receipt_delay = receipt_delay
+        self.frames_received = 0
+        self.messages_sent = 0
+        self._stop = threading.Event()
+        self._srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self._srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        self._srv.bind(("127.0.0.1", 0))
+        self._srv.listen(64)
+        self._srv.settimeout(0.5)
+        port = self._srv.getsockname()[1]
+        self.url = f"stomp://127.0.0.1:{port}"
+        self._thread = threading.Thread(target=self._accept_loop, daemon=True)
+        self._thread.start()
+
+    @staticmethod
+    def _frame(command: str, headers: dict[str, str], body: bytes = b"") -> bytes:
+        head = command + "\n"
+        head += "".join(f"{k}:{v}\n" for k, v in headers.items())
+        return head.encode() + b"\n" + body + RawStompServer._NULL
+
+    def _accept_loop(self) -> None:
+        while not self._stop.is_set():
+            try:
+                conn, _ = self._srv.accept()
+            except TimeoutError:
+                continue
+            threading.Thread(
+                target=self._handle_safe, args=(conn,), daemon=True
+            ).start()
+
+    def _handle_safe(self, conn: socket.socket) -> None:
+        try:
+            self._handle(conn)
+        except OSError:
+            pass
+        finally:
+            with contextlib.suppress(OSError):
+                conn.close()
+
+    def _handle(self, conn: socket.socket) -> None:
+        conn.settimeout(0.5)
+        buf = b""
+        while not self._stop.is_set():
+            while self._NULL in buf:
+                raw, buf = buf.split(self._NULL, 1)
+                self._serve(conn, raw)
+            try:
+                chunk = conn.recv(65536)
+            except TimeoutError:
+                continue
+            if not chunk:
+                return
+            buf += chunk
+
+    def _serve(self, conn: socket.socket, raw: bytes) -> None:
+        text = raw.decode("utf-8", errors="replace")
+        lines = text.split("\n")
+        command = lines[0].strip()
+        headers: dict[str, str] = {}
+        for line in lines[1:]:
+            if not line:
+                break
+            name, _, value = line.partition(":")
+            headers[name] = value
+        self.frames_received += 1
+
+        if command == "CONNECT":
+            conn.sendall(self._frame("CONNECTED", {"version": "1.2"}))
+        elif command == "SUBSCRIBE":
+            destination = headers.get("destination", "/queue")
+            for index in range(self.messages_per_subscribe):
+                conn.sendall(
+                    self._frame(
+                        "MESSAGE",
+                        {
+                            "destination": destination,
+                            "subscription": headers.get("id", "sub-0"),
+                            "message-id": f"m-{index}",
+                            "ack": f"a-{index}",
+                        },
+                        f"payload-{index}".encode(),
+                    )
+                )
+                self.messages_sent += 1
+        elif command == "SEND":
+            receipt = headers.get("receipt")
+            if receipt:
+                if self.receipt_delay:
+                    time.sleep(self.receipt_delay)
+                conn.sendall(self._frame("RECEIPT", {"receipt-id": receipt}))
+
+    def close(self) -> None:
+        self._stop.set()
+        self._thread.join(timeout=5)
+        self._srv.close()
+
+
+@pytest.fixture
+def stomp_server() -> Generator[RawStompServer]:
+    server = RawStompServer()
     yield server
     server.close()

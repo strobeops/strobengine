@@ -6,6 +6,8 @@ from enum import StrEnum
 from strobengine._strobengine import (
     LoadProfile,
     SoapVersion,
+    StompAck,
+    StompMode,
     TestConfig,
     TestSummary,
     WsMode,
@@ -45,6 +47,17 @@ class WsModeEnum(StrEnum):
     stream = "stream"
 
 
+class StompModeEnum(StrEnum):
+    produce = "produce"
+    consume = "consume"
+
+
+class StompAckEnum(StrEnum):
+    auto = "auto"
+    client = "client"
+    client_individual = "client-individual"
+
+
 _SOAP_VERSION_MAP: dict[SoapVersionEnum, SoapVersion] = {
     SoapVersionEnum.soap11: SoapVersion.soap11(),
     SoapVersionEnum.soap12: SoapVersion.soap12(),
@@ -54,6 +67,17 @@ _WS_MODE_MAP: dict[WsModeEnum, WsMode] = {
     WsModeEnum.handshake: WsMode.handshake(),
     WsModeEnum.ping_pong: WsMode.ping_pong(),
     WsModeEnum.stream: WsMode.stream(),
+}
+
+_STOMP_MODE_MAP: dict[StompModeEnum, StompMode] = {
+    StompModeEnum.produce: StompMode.produce(),
+    StompModeEnum.consume: StompMode.consume(),
+}
+
+_STOMP_ACK_MAP: dict[StompAckEnum, StompAck] = {
+    StompAckEnum.auto: StompAck.auto(),
+    StompAckEnum.client: StompAck.client(),
+    StompAckEnum.client_individual: StompAck.client_individual(),
 }
 
 
@@ -106,6 +130,12 @@ class RequestOptions:
     soap_enabled: bool = False
     soap_action: str | None = None
     soap_version: SoapVersionEnum = SoapVersionEnum.soap11
+    stomp_destination: str | None = None
+    stomp_message: str | None = None
+    stomp_mode: StompModeEnum = StompModeEnum.produce
+    stomp_ack: StompAckEnum = StompAckEnum.auto
+    stomp_receipt: bool = False
+    stomp_headers: list[tuple[str, str]] | None = None
 
     def __post_init__(self) -> None:
         if self.timeout <= 0:
@@ -165,6 +195,12 @@ def _build_test_config(
         soap_enabled=opts.soap_enabled,
         soap_action=opts.soap_action,
         soap_version=_SOAP_VERSION_MAP.get(opts.soap_version, SoapVersion.soap11()),
+        stomp_destination=opts.stomp_destination,
+        stomp_message=opts.stomp_message,
+        stomp_mode=_STOMP_MODE_MAP.get(opts.stomp_mode, StompMode.produce()),
+        stomp_ack=_STOMP_ACK_MAP.get(opts.stomp_ack, StompAck.auto()),
+        stomp_receipt=opts.stomp_receipt,
+        stomp_headers=opts.stomp_headers,
     )
 
 

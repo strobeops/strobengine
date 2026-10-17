@@ -1,6 +1,6 @@
 # strobengine
 
-A high-performance HTTP, WebSocket, gRPC, SSE, and GraphQL load testing engine with a Python API and a bare-metal Rust core.
+A high-performance HTTP, WebSocket, gRPC, SSE, GraphQL, and STOMP/JMS messaging load testing engine with a Python API and a bare-metal Rust core.
 
 ## Install
 
@@ -46,6 +46,7 @@ strobengine load http://localhost:8080/api/health -c 50 -d 30
 | [SSE](https://github.com/strobeops/strobengine/blob/main/docs/sse.md) | Server-Sent Events streaming, TTFB, event intervals |
 | [GraphQL](https://github.com/strobeops/strobengine/blob/main/docs/graphql.md) | Queries/mutations, subscriptions, variables, logical error tracking |
 | [SOAP](https://github.com/strobeops/strobengine/blob/main/docs/soap.md) | SOAP 1.1/1.2 envelopes, fault detection, XML benchmarking |
+| [JMS / Messaging](https://github.com/strobeops/strobengine/blob/main/docs/jms.md) | STOMP broker produce/consume throughput, ack latency, delivery intervals |
 | [Reporting](https://github.com/strobeops/strobengine/blob/main/docs/reports.md) | JSON persistence, HTML reports, SLO checks, timeline charts, baseline comparison |
 | [Distributed](https://github.com/strobeops/strobengine/blob/main/docs/distributed.md) | Master/worker control plane, live dashboard, cluster reports |
 | [Docker](https://github.com/strobeops/strobengine/blob/main/docs/docker.md) | Pulling images, running containers |

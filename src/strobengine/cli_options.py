@@ -15,7 +15,13 @@ from typing import Annotated
 
 import typer
 
-from strobengine.engine import RequestOptions, SoapVersionEnum, WsModeEnum
+from strobengine.engine import (
+    RequestOptions,
+    SoapVersionEnum,
+    StompAckEnum,
+    StompModeEnum,
+    WsModeEnum,
+)
 
 VALID_METHODS = {"GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"}
 
@@ -203,6 +209,44 @@ SoapVersionOpt = Annotated[
         case_sensitive=False,
     ),
 ]
+StompDestinationOpt = Annotated[
+    str | None,
+    typer.Option(
+        "--stomp-destination",
+        help="STOMP queue/topic destination (e.g. /queue/orders); required for stomp:// URLs",
+    ),
+]
+StompMessageOpt = Annotated[
+    str | None,
+    typer.Option("--stomp-message", help="STOMP message body to publish"),
+]
+StompModeOpt = Annotated[
+    StompModeEnum,
+    typer.Option(
+        "--stomp-mode",
+        help="STOMP mode: produce (SEND) or consume (SUBSCRIBE/MESSAGE)",
+        case_sensitive=False,
+    ),
+]
+StompAckOpt = Annotated[
+    StompAckEnum,
+    typer.Option(
+        "--stomp-ack",
+        help="STOMP subscription ack mode: auto, client, client-individual",
+        case_sensitive=False,
+    ),
+]
+StompReceiptOpt = Annotated[
+    bool,
+    typer.Option(
+        "--stomp-receipt/--no-stomp-receipt",
+        help="Await a broker RECEIPT per SEND (true ack latency) instead of fire-and-forget",
+    ),
+]
+StompHeaderOpt = Annotated[
+    list[str] | None,
+    typer.Option("--stomp-header", help="Custom STOMP header key:value (repeatable)"),
+]
 OutputDirOpt = Annotated[
     str | None,
     typer.Option("--output-dir", help="Report output directory"),
@@ -388,6 +432,12 @@ _REQUEST_FIELDS = frozenset(
         "soap_enabled",
         "soap_action",
         "soap_version",
+        "stomp_destination",
+        "stomp_message",
+        "stomp_mode",
+        "stomp_ack",
+        "stomp_receipt",
+        "stomp_header",
         "output_dir",
         "no_save",
         "sys_sample_interval",
@@ -483,6 +533,12 @@ def _build_request_options(
     soap_enabled: bool = RequestOptions.soap_enabled,
     soap_action: str | None = RequestOptions.soap_action,
     soap_version: SoapVersionEnum = RequestOptions.soap_version,
+    stomp_destination: str | None = RequestOptions.stomp_destination,
+    stomp_message: str | None = RequestOptions.stomp_message,
+    stomp_mode: StompModeEnum = RequestOptions.stomp_mode,
+    stomp_ack: StompAckEnum = RequestOptions.stomp_ack,
+    stomp_receipt: bool = RequestOptions.stomp_receipt,
+    stomp_header: list[str] | None = None,
     output_dir: str | None = RequestOptions.output_dir,
     no_save: bool = RequestOptions.no_save,
     sys_sample_interval: int = RequestOptions.sys_sample_interval,
@@ -535,6 +591,12 @@ def _build_request_options(
         soap_enabled=soap_enabled,
         soap_action=soap_action,
         soap_version=soap_version,
+        stomp_destination=stomp_destination,
+        stomp_message=stomp_message,
+        stomp_mode=stomp_mode,
+        stomp_ack=stomp_ack,
+        stomp_receipt=stomp_receipt,
+        stomp_headers=_parse_headers(stomp_header),
         output_dir=output_dir,
         no_save=no_save,
         sys_sample_interval=sys_sample_interval,

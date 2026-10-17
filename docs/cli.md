@@ -56,6 +56,12 @@ By default, this spawns **10 concurrent workers** for **10 seconds** with a **10
 | `--soap/--no-soap` | off | Enable SOAP mode: POST the XML envelope from `--body` |
 | `--soap-action` | none | SOAP operation: 1.1 `SOAPAction` header / 1.2 `action=` parameter |
 | `--soap-version` | `1.1` | SOAP protocol version: `1.1` or `1.2` |
+| `--stomp-destination` | none | STOMP (JMS broker) queue/topic destination (e.g. `/queue/orders`); required for `stomp://` URLs |
+| `--stomp-message` | none | STOMP message body to publish |
+| `--stomp-mode` | `produce` | STOMP mode: `produce` (`SEND`) or `consume` (`SUBSCRIBE`/`MESSAGE`) |
+| `--stomp-ack` | `auto` | STOMP subscription ack mode: `auto`, `client`, `client-individual` |
+| `--stomp-receipt/--no-stomp-receipt` | off | Await a broker `RECEIPT` per `SEND` (true ack latency) instead of fire-and-forget |
+| `--stomp-header` | none | Custom STOMP header key:value (repeatable) |
 | `--slo-p95-ms` | none | Fail the run if P95 latency exceeds this (ms) |
 | `--slo-p99-ms` | none | Fail the run if P99 latency exceeds this (ms) |
 | `--slo-error-rate` | none | Fail the run if the error rate exceeds this (percent) |
@@ -103,6 +109,12 @@ By default, this spawns **10 concurrent workers** for **10 seconds** with a **10
 | `--soap/--no-soap` | off | Enable SOAP mode: POST the XML envelope from `--body` |
 | `--soap-action` | none | SOAP operation: 1.1 `SOAPAction` header / 1.2 `action=` parameter |
 | `--soap-version` | `1.1` | SOAP protocol version: `1.1` or `1.2` |
+| `--stomp-destination` | none | STOMP (JMS broker) queue/topic destination (e.g. `/queue/orders`); required for `stomp://` URLs |
+| `--stomp-message` | none | STOMP message body to publish |
+| `--stomp-mode` | `produce` | STOMP mode: `produce` (`SEND`) or `consume` (`SUBSCRIBE`/`MESSAGE`) |
+| `--stomp-ack` | `auto` | STOMP subscription ack mode: `auto`, `client`, `client-individual` |
+| `--stomp-receipt/--no-stomp-receipt` | off | Await a broker `RECEIPT` per `SEND` (true ack latency) instead of fire-and-forget |
+| `--stomp-header` | none | Custom STOMP header key:value (repeatable) |
 | `--slo-p95-ms` | none | Fail the run if P95 latency exceeds this (ms) |
 | `--slo-p99-ms` | none | Fail the run if P99 latency exceeds this (ms) |
 | `--slo-error-rate` | none | Fail the run if the error rate exceeds this (percent) |
@@ -151,6 +163,12 @@ By default, this spawns **10 concurrent workers** for **10 seconds** with a **10
 | `--soap/--no-soap` | off | Enable SOAP mode: POST the XML envelope from `--body` |
 | `--soap-action` | none | SOAP operation: 1.1 `SOAPAction` header / 1.2 `action=` parameter |
 | `--soap-version` | `1.1` | SOAP protocol version: `1.1` or `1.2` |
+| `--stomp-destination` | none | STOMP (JMS broker) queue/topic destination (e.g. `/queue/orders`); required for `stomp://` URLs |
+| `--stomp-message` | none | STOMP message body to publish |
+| `--stomp-mode` | `produce` | STOMP mode: `produce` (`SEND`) or `consume` (`SUBSCRIBE`/`MESSAGE`) |
+| `--stomp-ack` | `auto` | STOMP subscription ack mode: `auto`, `client`, `client-individual` |
+| `--stomp-receipt/--no-stomp-receipt` | off | Await a broker `RECEIPT` per `SEND` (true ack latency) instead of fire-and-forget |
+| `--stomp-header` | none | Custom STOMP header key:value (repeatable) |
 | `--slo-p95-ms` | none | Fail the run if P95 latency exceeds this (ms) |
 | `--slo-p99-ms` | none | Fail the run if P99 latency exceeds this (ms) |
 | `--slo-error-rate` | none | Fail the run if the error rate exceeds this (percent) |
