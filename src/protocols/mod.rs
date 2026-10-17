@@ -7,6 +7,7 @@ pub mod http;
 pub mod http3;
 pub mod soap;
 pub mod sse;
+pub mod stomp_codec;
 pub mod websocket;
 
 use std::sync::Arc;
