@@ -7,6 +7,7 @@ pub mod http;
 pub mod http3;
 pub mod soap;
 pub mod sse;
+pub mod stomp;
 pub mod stomp_codec;
 pub mod websocket;
 
@@ -25,6 +26,8 @@ pub enum SetupError {
     Grpc(crate::protocols::grpc_parser::ProtoError),
     /// HTTP/3 engine construction failed (URL parse, QUIC setup, etc.)
     Http3(String),
+    /// STOMP (JMS broker) engine construction failed (URL parse, destination, etc.)
+    Stomp(String),
 }
 
 impl std::fmt::Display for SetupError {
@@ -32,6 +35,7 @@ impl std::fmt::Display for SetupError {
         match self {
             Self::Grpc(e) => write!(f, "gRPC setup failed: {e}"),
             Self::Http3(e) => write!(f, "HTTP/3 setup failed: {e}"),
+            Self::Stomp(e) => write!(f, "STOMP setup failed: {e}"),
         }
     }
 }
@@ -61,6 +65,8 @@ pub fn is_protocol_url(url: &str) -> bool {
         || url.starts_with("h3://")
         || url.starts_with("sse://")
         || url.starts_with("sses://")
+        || url.starts_with("stomp://")
+        || url.starts_with("stomps://")
 }
 
 /// A protocol engine that executes a single load-test iteration.
@@ -191,6 +197,24 @@ pub fn detect_protocol(
         Ok(Arc::new(engine))
     } else if url.starts_with("sse://") || url.starts_with("sses://") {
         let engine = sse::SseEngine::new(headers, chaos, config.sse_max_events);
+        Ok(Arc::new(engine))
+    } else if url.starts_with("stomp://") || url.starts_with("stomps://") {
+        let engine = stomp::StompEngine::new(
+            url,
+            config.stomp_destination.clone().unwrap_or_default(),
+            config.stomp_mode,
+            config.stomp_ack,
+            config.stomp_receipt,
+            config
+                .stomp_message
+                .clone()
+                .unwrap_or_default()
+                .into_bytes(),
+            config.stomp_headers.clone().unwrap_or_default(),
+            chaos,
+            config.timeout_secs,
+        )
+        .map_err(SetupError::Stomp)?;
         Ok(Arc::new(engine))
     } else if config.sse_enabled {
         Ok(Arc::new(sse::SseEngine::new(

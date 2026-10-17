@@ -26,6 +26,7 @@ use crate::chaos::ChaosEngine;
 use crate::config::{LoadProfile, MAX_CONCURRENCY, TestConfig};
 use crate::metrics::{LiveCounters, RequestMetric};
 use crate::protocols::ProtocolEngine;
+use crate::protocols::stomp::StompRunInfo;
 
 /// Buffer capacity for the async MPSC channel streaming metrics from workers to the aggregator.
 /// 8,192 (~8k) provides enough head room to prevent worker task backpressure during high RPS bursts
@@ -231,6 +232,7 @@ async fn execute_test(
     sys_sample_interval: u64,
     graphql_operation_type: Option<&'static str>,
     soap_version: Option<&'static str>,
+    stomp_info: Option<StompRunInfo>,
     timeline_interval_ms: u64,
 ) -> PyResult<metrics::TestSummary> {
     tracing::debug!("protocol engine initialized");
@@ -470,6 +472,17 @@ async fn execute_test(
         m.soap_version = soap_version.unwrap_or("1.1").to_string();
     }
 
+    // Stamp the run's STOMP constants (destination/mode/ack) onto the section.
+    let mut stomp_metrics = aggregated.stomp_metrics;
+    if let Some(m) = stomp_metrics.as_mut()
+        && let Some(info) = stomp_info
+    {
+        m.destination = info.destination;
+        m.mode = info.mode;
+        m.ack_mode = info.ack_mode;
+        m.receipts_enabled = info.receipts_enabled;
+    }
+
     Ok(metrics::calculate_summary(metrics::SummaryInput {
         url,
         total_requests: total,
@@ -489,6 +502,7 @@ async fn execute_test(
         graphql_metrics,
         graphql_ws_metrics: aggregated.graphql_ws_metrics,
         soap_metrics,
+        stomp_metrics,
         timeline: aggregated.timeline,
         chaos_injected_total: aggregated.chaos_injected_total,
         chaos_faults_by_type: aggregated.chaos_faults_by_type,
@@ -624,6 +638,20 @@ fn ensure_concurrency_limit(concurrency: usize) -> PyResult<()> {
     Ok(())
 }
 
+/// Capture per-run STOMP constants for stamping onto the report section.
+fn stomp_run_info(config: &TestConfig) -> Option<StompRunInfo> {
+    if config.url.starts_with("stomp://") || config.url.starts_with("stomps://") {
+        Some(StompRunInfo {
+            destination: config.stomp_destination.clone().unwrap_or_default(),
+            mode: config.stomp_mode.as_str().to_string(),
+            ack_mode: config.stomp_ack.as_str().to_string(),
+            receipts_enabled: config.stomp_receipt,
+        })
+    } else {
+        None
+    }
+}
+
 #[pyfunction]
 fn run_load_test(py: Python<'_>, config: TestConfig) -> PyResult<metrics::TestSummary> {
     py.detach(move || {
@@ -660,6 +688,7 @@ fn run_load_test(py: Python<'_>, config: TestConfig) -> PyResult<metrics::TestSu
             config.sys_sample_interval,
             graphql_operation_type,
             soap_version,
+            stomp_run_info(&config),
             config.timeline_interval_ms,
         ))
     })
@@ -702,6 +731,7 @@ fn run_load_profiles(
             config.sys_sample_interval,
             graphql_operation_type,
             soap_version,
+            stomp_run_info(&config),
             config.timeline_interval_ms,
         ))
     })
@@ -735,6 +765,8 @@ fn _strobengine(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<config::LoadProfile>()?;
     m.add_class::<config::WsMode>()?;
     m.add_class::<config::SoapVersion>()?;
+    m.add_class::<config::StompMode>()?;
+    m.add_class::<config::StompAck>()?;
     m.add_class::<metrics::TestSummary>()?;
     m.add_class::<metrics::QuicMetrics>()?;
     m.add_class::<metrics::SseMetrics>()?;
@@ -744,6 +776,7 @@ fn _strobengine(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<metrics::GraphqlMetrics>()?;
     m.add_class::<metrics::GraphqlWsMetrics>()?;
     m.add_class::<metrics::SoapMetrics>()?;
+    m.add_class::<metrics::StompMetrics>()?;
     m.add_class::<metrics::Timeline>()?;
     m.add_class::<metrics::TimelineSample>()?;
     m.add_class::<metrics::system::SystemMetrics>()?;
