@@ -9,6 +9,7 @@
 ## Features
 
 - [Quick Start](quickstart.md) -- Python API and CLI usage examples
+- [Examples](../examples/README.md) -- Runnable snippets for every supported protocol
 - [CLI Reference](cli.md) -- All subcommands, flags, and options
 - [HTTP Methods](http_methods.md) -- Supported HTTP methods, request bodies, headers, performance
 - [WebSocket Load Testing](websockets.md) -- WS/WSS modes, pub/sub broadcasting, custom payloads, headers, metrics
