@@ -205,8 +205,8 @@ This document outlines the planned trajectory and upcoming feature epics for **s
 ### Epic: Data Stores & Directory Services
 *Target Focus: Relational, NoSQL, and Directory Systems*
 
-- [ ] **Database via JDBC**
-  - [ ] Standard relational database (SQL) connection pooling and query load testing.
+- [x] **Database via JDBC**
+  - [x] Standard relational database (SQL) connection pooling and query load testing (PostgreSQL, MySQL/MariaDB, SQLite via `sqlx`).
 - [ ] **MongoDB**
   - [ ] NoSQL document storage ingestion and read/write performance benchmarking.
 - [ ] **LDAP (Directory Services)**

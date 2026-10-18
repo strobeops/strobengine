@@ -62,6 +62,11 @@ By default, this spawns **10 concurrent workers** for **10 seconds** with a **10
 | `--stomp-ack` | `auto` | STOMP subscription ack mode: `auto`, `client`, `client-individual` |
 | `--stomp-receipt/--no-stomp-receipt` | off | Await a broker `RECEIPT` per `SEND` (true ack latency) instead of fire-and-forget |
 | `--stomp-header` | none | Custom STOMP header key:value (repeatable) |
+| `--db-query` | none | SQL query executed per iteration (`postgres://`, `mysql://`, `sqlite://` URLs); required for database URLs |
+| `--db-pool-size` | none | Maximum pooled database connections (default: concurrency) |
+| `--db-fetch/--no-db-fetch` | off | Fetch and count returned rows instead of using rows affected |
+| `--db-max-rows` | `10000` | Cap rows fetched per query (`0` = unlimited) |
+| `--db-param` | none | SQL bind parameter as text (repeatable, positional) |
 | `--slo-p95-ms` | none | Fail the run if P95 latency exceeds this (ms) |
 | `--slo-p99-ms` | none | Fail the run if P99 latency exceeds this (ms) |
 | `--slo-error-rate` | none | Fail the run if the error rate exceeds this (percent) |
@@ -115,6 +120,11 @@ By default, this spawns **10 concurrent workers** for **10 seconds** with a **10
 | `--stomp-ack` | `auto` | STOMP subscription ack mode: `auto`, `client`, `client-individual` |
 | `--stomp-receipt/--no-stomp-receipt` | off | Await a broker `RECEIPT` per `SEND` (true ack latency) instead of fire-and-forget |
 | `--stomp-header` | none | Custom STOMP header key:value (repeatable) |
+| `--db-query` | none | SQL query executed per iteration (`postgres://`, `mysql://`, `sqlite://` URLs); required for database URLs |
+| `--db-pool-size` | none | Maximum pooled database connections (default: concurrency) |
+| `--db-fetch/--no-db-fetch` | off | Fetch and count returned rows instead of using rows affected |
+| `--db-max-rows` | `10000` | Cap rows fetched per query (`0` = unlimited) |
+| `--db-param` | none | SQL bind parameter as text (repeatable, positional) |
 | `--slo-p95-ms` | none | Fail the run if P95 latency exceeds this (ms) |
 | `--slo-p99-ms` | none | Fail the run if P99 latency exceeds this (ms) |
 | `--slo-error-rate` | none | Fail the run if the error rate exceeds this (percent) |
@@ -169,6 +179,11 @@ By default, this spawns **10 concurrent workers** for **10 seconds** with a **10
 | `--stomp-ack` | `auto` | STOMP subscription ack mode: `auto`, `client`, `client-individual` |
 | `--stomp-receipt/--no-stomp-receipt` | off | Await a broker `RECEIPT` per `SEND` (true ack latency) instead of fire-and-forget |
 | `--stomp-header` | none | Custom STOMP header key:value (repeatable) |
+| `--db-query` | none | SQL query executed per iteration (`postgres://`, `mysql://`, `sqlite://` URLs); required for database URLs |
+| `--db-pool-size` | none | Maximum pooled database connections (default: concurrency) |
+| `--db-fetch/--no-db-fetch` | off | Fetch and count returned rows instead of using rows affected |
+| `--db-max-rows` | `10000` | Cap rows fetched per query (`0` = unlimited) |
+| `--db-param` | none | SQL bind parameter as text (repeatable, positional) |
 | `--slo-p95-ms` | none | Fail the run if P95 latency exceeds this (ms) |
 | `--slo-p99-ms` | none | Fail the run if P99 latency exceeds this (ms) |
 | `--slo-error-rate` | none | Fail the run if the error rate exceeds this (percent) |

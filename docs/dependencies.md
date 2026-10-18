@@ -28,6 +28,7 @@
 | prost / prost-reflect | 0.14 / 0.16 | Protobuf encoding/decoding and reflection |
 | base64 | 0.23 | Base64 payload decoding for gRPC |
 | hex | 0.4 | Hex payload decoding for gRPC |
+| sqlx | 0.9 | Async SQL driver + connection pooling (PostgreSQL, MySQL, SQLite) |
 
 ## Python Dependencies
 
