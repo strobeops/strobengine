@@ -53,6 +53,7 @@ These flags appear on all three subcommands (`load`, `stress`, `spike`):
 | `graphql_ws` | `operations_total`, `messages_total`, `errors_total`, `ttfm_*_ms`, `interval_*_ms` *(GraphQL subscriptions over WebSocket)* |
 | `soap` | `operations_total`, `fault_responses_total`, `soap_version` *(SOAP runs only)* |
 | `stomp` | `messages_sent_total`, `messages_received_total`, `bytes_sent_total`, `errors_total`, `reconnects_total`, `destination`, `mode`, `ack_mode`, `receipts_enabled`, `send_latency_*_ms`, `receive_interval_*_ms`, `ttfm_*_ms` *(STOMP/JMS messaging runs only)* |
+| `database` | `driver`, `queries_total`, `rows_total`, `errors_total`, `pool_max`, `pool_size`, `fetch_mode`, `pool_acquire_*_ms`, `query_*_ms` *(SQL database runs only)* |
 | `slo` | `passed`, `checks[]` (`name`, `observed`, `threshold`, `comparator`, `passed`) *(when SLO thresholds are configured)* |
 | `timeline` | `interval_ms`, `samples[]` (`elapsed_sec`, `rps`, `error_rate`, `p50_us`, `p95_us`, `p99_us`) *(when `--timeline-interval > 0`)* |
 | `chaos_faults` | `injected_total`, `by_type` *(chaos-enabled runs only)* |
@@ -62,9 +63,9 @@ These flags appear on all three subcommands (`load`, `stress`, `spike`):
 All latency values are stored in **microseconds**.
 
 Optional sections listed above (`quic`, `sse`, `websocket`, `grpc`, `http3`,
-`graphql`, `graphql_ws`, `soap`, `stomp`, `slo`, `timeline`, `chaos_faults`,
-`system_metrics`, `connection_pool`, `avg_connection_latency_us`) are **omitted
-entirely** when
+`graphql`, `graphql_ws`, `soap`, `stomp`, `database`, `slo`, `timeline`,
+`chaos_faults`, `system_metrics`, `connection_pool`, `avg_connection_latency_us`)
+are **omitted entirely** when
 they do not apply —
 they are never written as `null`. Fields *inside* a section may still be
 `null` (e.g. `cli_options.body` when no body was sent).

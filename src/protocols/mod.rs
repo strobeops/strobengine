@@ -1,3 +1,4 @@
+pub mod db;
 pub mod graphql;
 pub mod graphql_ws;
 pub mod grpc;
@@ -28,6 +29,8 @@ pub enum SetupError {
     Http3(String),
     /// STOMP (JMS broker) engine construction failed (URL parse, destination, etc.)
     Stomp(String),
+    /// SQL database engine construction failed (URL parse, query, etc.)
+    Db(String),
 }
 
 impl std::fmt::Display for SetupError {
@@ -36,6 +39,7 @@ impl std::fmt::Display for SetupError {
             Self::Grpc(e) => write!(f, "gRPC setup failed: {e}"),
             Self::Http3(e) => write!(f, "HTTP/3 setup failed: {e}"),
             Self::Stomp(e) => write!(f, "STOMP setup failed: {e}"),
+            Self::Db(e) => write!(f, "database setup failed: {e}"),
         }
     }
 }
@@ -67,6 +71,7 @@ pub fn is_protocol_url(url: &str) -> bool {
         || url.starts_with("sses://")
         || url.starts_with("stomp://")
         || url.starts_with("stomps://")
+        || db::is_db_url(url)
 }
 
 /// A protocol engine that executes a single load-test iteration.
@@ -215,6 +220,20 @@ pub fn detect_protocol(
             config.timeout_secs,
         )
         .map_err(SetupError::Stomp)?;
+        Ok(Arc::new(engine))
+    } else if db::is_db_url(url) {
+        let pool_max = config.db_pool_size.unwrap_or(config.concurrency).max(1);
+        let engine = db::DbEngine::new(
+            url,
+            config.db_query.clone().unwrap_or_default(),
+            config.db_params.clone().unwrap_or_default(),
+            config.db_fetch,
+            config.db_max_rows.unwrap_or(db::DEFAULT_MAX_ROWS),
+            pool_max,
+            chaos,
+            config.timeout_secs,
+        )
+        .map_err(SetupError::Db)?;
         Ok(Arc::new(engine))
     } else if config.sse_enabled {
         Ok(Arc::new(sse::SseEngine::new(

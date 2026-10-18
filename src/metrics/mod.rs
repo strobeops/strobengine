@@ -35,6 +35,7 @@ pub struct AggregatedMetrics {
     pub graphql_ws_metrics: Option<GraphqlWsMetrics>,
     pub soap_metrics: Option<SoapMetrics>,
     pub stomp_metrics: Option<StompMetrics>,
+    pub db_metrics: Option<DatabaseMetrics>,
     pub timeline: Option<Timeline>,
     pub chaos_injected_total: u64,
     pub chaos_faults_by_type: HashMap<String, u64>,
@@ -73,6 +74,7 @@ impl Default for AggregatedMetrics {
             graphql_ws_metrics: None,
             soap_metrics: None,
             stomp_metrics: None,
+            db_metrics: None,
             timeline: None,
             chaos_injected_total: 0,
             chaos_faults_by_type: HashMap::new(),
@@ -160,6 +162,7 @@ pub struct RequestMetric {
     pub grpc: Option<GrpcSample>,
     pub http3: Option<Http3Sample>,
     pub stomp: Option<StompSample>,
+    pub db: Option<DbSample>,
     pub chaos_fault: Option<crate::chaos::ChaosFault>,
 }
 
@@ -196,6 +199,7 @@ impl RequestMetric {
             grpc: None,
             http3: None,
             stomp: None,
+            db: None,
             chaos_fault,
         })
     }
@@ -218,6 +222,7 @@ impl RequestMetric {
             || self.graphql_ws_errors.is_some_and(|n| n > 0)
             || self.soap_errors.is_some_and(|n| n > 0)
             || self.stomp.as_ref().is_some_and(|s| s.errors > 0)
+            || self.db.as_ref().is_some_and(|s| s.errors > 0)
     }
 }
 
@@ -343,6 +348,13 @@ impl RequestMetricBuilder {
     /// received, byte counts, latency/TTFM/interval samples, and error counts).
     pub fn stomp(mut self, sample: Option<StompSample>) -> Self {
         self.0.stomp = sample;
+        self
+    }
+
+    /// Record SQL database samples for one iteration (rows, pool-acquire and
+    /// query latencies, pool size, and error counts).
+    pub fn db(mut self, sample: Option<DbSample>) -> Self {
+        self.0.db = sample;
         self
     }
 
@@ -490,6 +502,47 @@ pub struct StompMetrics {
     pub ttfm_p90_ms: f64,
     #[pyo3(get)]
     pub ttfm_p99_ms: f64,
+}
+
+/// Aggregated SQL database (relational, JDBC-style) telemetry.
+///
+/// `pool_acquire_*` is the connection-pool wait and `query_*` the query
+/// execution time; keeping them separate distinguishes pool starvation from
+/// slow queries. `driver`, `pool_max`, and `fetch_mode` are per-run constants
+/// (the query text is intentionally never recorded).
+#[pyclass(skip_from_py_object)]
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+pub struct DatabaseMetrics {
+    #[pyo3(get)]
+    pub driver: String,
+    #[pyo3(get)]
+    pub queries_total: u64,
+    #[pyo3(get)]
+    pub rows_total: u64,
+    #[pyo3(get)]
+    pub errors_total: u64,
+    #[pyo3(get)]
+    pub pool_max: u64,
+    #[pyo3(get)]
+    pub pool_size: u64,
+    #[pyo3(get)]
+    pub fetch_mode: String,
+    #[pyo3(get)]
+    pub pool_acquire_mean_ms: f64,
+    #[pyo3(get)]
+    pub pool_acquire_p50_ms: f64,
+    #[pyo3(get)]
+    pub pool_acquire_p90_ms: f64,
+    #[pyo3(get)]
+    pub pool_acquire_p99_ms: f64,
+    #[pyo3(get)]
+    pub query_mean_ms: f64,
+    #[pyo3(get)]
+    pub query_p50_ms: f64,
+    #[pyo3(get)]
+    pub query_p90_ms: f64,
+    #[pyo3(get)]
+    pub query_p99_ms: f64,
 }
 
 /// One timeline sample: throughput and latency over a single interval.
@@ -688,6 +741,33 @@ impl StompSample {
     }
 }
 
+/// Per-iteration SQL database sample fed from the protocol engine.
+///
+/// `rows` is rows affected (`execute`) or rows returned (`fetch`); `acquire_us`
+/// is the pool-acquire wait and `query_us` the query execution time, so pool
+/// starvation and slow queries can be told apart. `pool_size`/`pool_idle` are
+/// instantaneous snapshots after the query.
+#[derive(Debug, Clone, Default)]
+pub struct DbSample {
+    pub rows: u64,
+    pub errors: u64,
+    pub acquire_us: Option<u64>,
+    pub query_us: Option<u64>,
+    pub pool_size: u64,
+    pub pool_idle: u64,
+}
+
+impl DbSample {
+    /// True when the sample carries any meaningful database telemetry.
+    pub fn is_significant(&self) -> bool {
+        self.rows > 0
+            || self.errors > 0
+            || self.acquire_us.is_some()
+            || self.query_us.is_some()
+            || self.pool_size > 0
+    }
+}
+
 pub struct LiveCounters {
     pub total_requests: AtomicU64,
     pub errors: AtomicU64,
@@ -769,6 +849,8 @@ pub struct TestSummary {
     pub soap: Option<SoapMetrics>,
     #[pyo3(get)]
     pub stomp: Option<StompMetrics>,
+    #[pyo3(get)]
+    pub database: Option<DatabaseMetrics>,
     #[pyo3(get)]
     pub timeline: Option<Timeline>,
     #[pyo3(get)]
@@ -908,6 +990,7 @@ pub struct SummaryInput {
     pub graphql_ws_metrics: Option<GraphqlWsMetrics>,
     pub soap_metrics: Option<SoapMetrics>,
     pub stomp_metrics: Option<StompMetrics>,
+    pub db_metrics: Option<DatabaseMetrics>,
     pub timeline: Option<Timeline>,
     pub chaos_injected_total: u64,
     pub chaos_faults_by_type: HashMap<String, u64>,
@@ -976,6 +1059,14 @@ pub async fn finalize_metrics(
         Histogram::new_with_max(HISTOGRAM_HIGHEST_TRACKABLE, HISTOGRAM_SIGNIFICANT_FIGURES)
             .expect("valid histogram bounds");
     let mut stomp_ttfm_histogram =
+        Histogram::new_with_max(HISTOGRAM_HIGHEST_TRACKABLE, HISTOGRAM_SIGNIFICANT_FIGURES)
+            .expect("valid histogram bounds");
+    let mut db_stats = DatabaseMetrics::default();
+    let mut has_db = false;
+    let mut db_acquire_histogram =
+        Histogram::new_with_max(HISTOGRAM_HIGHEST_TRACKABLE, HISTOGRAM_SIGNIFICANT_FIGURES)
+            .expect("valid histogram bounds");
+    let mut db_query_histogram =
         Histogram::new_with_max(HISTOGRAM_HIGHEST_TRACKABLE, HISTOGRAM_SIGNIFICANT_FIGURES)
             .expect("valid histogram bounds");
     let mut graphql_ws_ttfm_histogram =
@@ -1113,6 +1204,25 @@ pub async fn finalize_metrics(
             }
             if let Some(us) = sample.ttfm_us {
                 stomp_ttfm_histogram.saturating_record(us);
+            }
+        }
+
+        // SQL database aggregation
+        if let Some(sample) = metric.db.as_ref()
+            && sample.is_significant()
+        {
+            has_db = true;
+            db_stats.queries_total += 1;
+            db_stats.rows_total += sample.rows;
+            db_stats.errors_total += sample.errors;
+            if sample.pool_size > 0 {
+                db_stats.pool_size = sample.pool_size;
+            }
+            if let Some(us) = sample.acquire_us {
+                db_acquire_histogram.saturating_record(us);
+            }
+            if let Some(us) = sample.query_us {
+                db_query_histogram.saturating_record(us);
             }
         }
 
@@ -1314,6 +1424,16 @@ pub async fn finalize_metrics(
         None
     };
 
+    metrics.db_metrics = if has_db {
+        Some(db_stats_from_histograms(
+            db_stats,
+            &db_acquire_histogram,
+            &db_query_histogram,
+        ))
+    } else {
+        None
+    };
+
     metrics
 }
 
@@ -1368,6 +1488,30 @@ fn stomp_stats_from_histograms(
         stats.ttfm_p50_ms = ms(ttfm, |h| h.value_at_quantile(0.50));
         stats.ttfm_p90_ms = ms(ttfm, |h| h.value_at_quantile(0.90));
         stats.ttfm_p99_ms = ms(ttfm, |h| h.value_at_quantile(0.99));
+    }
+    stats
+}
+
+/// Fold HDR histogram percentiles (microseconds) into `DatabaseMetrics`.
+fn db_stats_from_histograms(
+    mut stats: DatabaseMetrics,
+    acquire: &Histogram<u64>,
+    query: &Histogram<u64>,
+) -> DatabaseMetrics {
+    let ms = |hist: &Histogram<u64>, f: fn(&Histogram<u64>) -> u64| -> f64 {
+        f(hist) as f64 / MICROS_PER_MILLI
+    };
+    if !acquire.is_empty() {
+        stats.pool_acquire_mean_ms = acquire.mean() / MICROS_PER_MILLI;
+        stats.pool_acquire_p50_ms = ms(acquire, |h| h.value_at_quantile(0.50));
+        stats.pool_acquire_p90_ms = ms(acquire, |h| h.value_at_quantile(0.90));
+        stats.pool_acquire_p99_ms = ms(acquire, |h| h.value_at_quantile(0.99));
+    }
+    if !query.is_empty() {
+        stats.query_mean_ms = query.mean() / MICROS_PER_MILLI;
+        stats.query_p50_ms = ms(query, |h| h.value_at_quantile(0.50));
+        stats.query_p90_ms = ms(query, |h| h.value_at_quantile(0.90));
+        stats.query_p99_ms = ms(query, |h| h.value_at_quantile(0.99));
     }
     stats
 }
@@ -1433,6 +1577,7 @@ pub fn calculate_summary(input: SummaryInput) -> TestSummary {
             graphql_ws: input.graphql_ws_metrics,
             soap: input.soap_metrics,
             stomp: input.stomp_metrics,
+            database: input.db_metrics,
             timeline: input.timeline,
             chaos_injected_total: input.chaos_injected_total,
             chaos_faults_by_type: input.chaos_faults_by_type,
@@ -1488,6 +1633,7 @@ pub fn calculate_summary(input: SummaryInput) -> TestSummary {
         graphql_ws: input.graphql_ws_metrics,
         soap: input.soap_metrics,
         stomp: input.stomp_metrics,
+        database: input.db_metrics,
         timeline: input.timeline,
         chaos_injected_total: input.chaos_injected_total,
         chaos_faults_by_type: input.chaos_faults_by_type,
@@ -1557,6 +1703,7 @@ mod tests {
             graphql_ws_metrics: None,
             soap_metrics: None,
             stomp_metrics: None,
+            db_metrics: None,
             timeline: None,
             chaos_injected_total: 0,
             chaos_faults_by_type: HashMap::new(),
@@ -1600,6 +1747,7 @@ mod tests {
             graphql_ws_metrics: None,
             soap_metrics: None,
             stomp_metrics: None,
+            db_metrics: None,
             timeline: None,
             chaos_injected_total: 0,
             chaos_faults_by_type: HashMap::new(),
@@ -1644,6 +1792,7 @@ mod tests {
             graphql_ws_metrics: None,
             soap_metrics: None,
             stomp_metrics: None,
+            db_metrics: None,
             timeline: None,
             chaos_injected_total: 0,
             chaos_faults_by_type: HashMap::new(),
@@ -1683,6 +1832,7 @@ mod tests {
             graphql_ws_metrics: None,
             soap_metrics: None,
             stomp_metrics: None,
+            db_metrics: None,
             timeline: None,
             chaos_injected_total: 0,
             chaos_faults_by_type: HashMap::new(),
@@ -1723,6 +1873,7 @@ mod tests {
             graphql_ws_metrics: None,
             soap_metrics: None,
             stomp_metrics: None,
+            db_metrics: None,
             timeline: None,
             chaos_injected_total: 0,
             chaos_faults_by_type: HashMap::new(),
@@ -1758,6 +1909,7 @@ mod tests {
             graphql_ws_metrics: None,
             soap_metrics: None,
             stomp_metrics: None,
+            db_metrics: None,
             timeline: None,
             chaos_injected_total: 0,
             chaos_faults_by_type: HashMap::new(),
@@ -1792,6 +1944,7 @@ mod tests {
             graphql_ws_metrics: None,
             soap_metrics: None,
             stomp_metrics: None,
+            db_metrics: None,
             timeline: None,
             chaos_injected_total: 0,
             chaos_faults_by_type: HashMap::new(),
@@ -1832,6 +1985,7 @@ mod tests {
             graphql_ws_metrics: None,
             soap_metrics: None,
             stomp_metrics: None,
+            db_metrics: None,
             timeline: None,
             chaos_injected_total: 0,
             chaos_faults_by_type: HashMap::new(),
@@ -1874,6 +2028,7 @@ mod tests {
             graphql_ws_metrics: None,
             soap_metrics: None,
             stomp_metrics: None,
+            db_metrics: None,
             timeline: None,
             chaos_injected_total: 0,
             chaos_faults_by_type: HashMap::new(),
@@ -1926,6 +2081,7 @@ mod tests {
             graphql_ws_metrics: None,
             soap_metrics: None,
             stomp_metrics: None,
+            db_metrics: None,
             timeline: None,
             chaos_injected_total: 0,
             chaos_faults_by_type: HashMap::new(),
@@ -2138,6 +2294,7 @@ mod tests {
             graphql_ws_metrics: None,
             soap_metrics: None,
             stomp_metrics: None,
+            db_metrics: None,
             timeline: None,
             chaos_injected_total: 0,
             chaos_faults_by_type: HashMap::new(),
@@ -2178,6 +2335,7 @@ mod tests {
             graphql_ws_metrics: None,
             soap_metrics: None,
             stomp_metrics: None,
+            db_metrics: None,
             timeline: None,
             chaos_injected_total: 0,
             chaos_faults_by_type: HashMap::new(),
@@ -2234,6 +2392,7 @@ mod tests {
             graphql_ws_metrics: None,
             soap_metrics: None,
             stomp_metrics: None,
+            db_metrics: None,
             timeline: None,
             chaos_injected_total: 0,
             chaos_faults_by_type: HashMap::new(),
@@ -2270,6 +2429,7 @@ mod tests {
             graphql_ws_metrics: None,
             soap_metrics: None,
             stomp_metrics: None,
+            db_metrics: None,
             timeline: None,
             chaos_injected_total: 0,
             chaos_faults_by_type: HashMap::new(),
@@ -2307,6 +2467,7 @@ mod tests {
             graphql_ws_metrics: None,
             soap_metrics: None,
             stomp_metrics: None,
+            db_metrics: None,
             timeline: None,
             chaos_injected_total: 0,
             chaos_faults_by_type: HashMap::new(),
@@ -2341,6 +2502,7 @@ mod tests {
             graphql_ws_metrics: None,
             soap_metrics: None,
             stomp_metrics: None,
+            db_metrics: None,
             timeline: None,
             chaos_injected_total: 0,
             chaos_faults_by_type: HashMap::new(),
@@ -2376,6 +2538,7 @@ mod tests {
             graphql_ws_metrics: None,
             soap_metrics: None,
             stomp_metrics: None,
+            db_metrics: None,
             timeline: None,
             chaos_injected_total: 0,
             chaos_faults_by_type: HashMap::new(),
@@ -2410,6 +2573,7 @@ mod tests {
             graphql_ws_metrics: None,
             soap_metrics: None,
             stomp_metrics: None,
+            db_metrics: None,
             timeline: None,
             chaos_injected_total: 0,
             chaos_faults_by_type: HashMap::new(),
@@ -2444,6 +2608,7 @@ mod tests {
             graphql_ws_metrics: None,
             soap_metrics: None,
             stomp_metrics: None,
+            db_metrics: None,
             timeline: None,
             chaos_injected_total: 0,
             chaos_faults_by_type: HashMap::new(),
@@ -2479,6 +2644,7 @@ mod tests {
             graphql_ws_metrics: None,
             soap_metrics: None,
             stomp_metrics: None,
+            db_metrics: None,
             timeline: None,
             chaos_injected_total: 0,
             chaos_faults_by_type: HashMap::new(),
@@ -2513,6 +2679,7 @@ mod tests {
             graphql_ws_metrics: None,
             soap_metrics: None,
             stomp_metrics: None,
+            db_metrics: None,
             timeline: None,
             chaos_injected_total: 0,
             chaos_faults_by_type: HashMap::new(),

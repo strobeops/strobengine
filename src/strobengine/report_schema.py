@@ -141,6 +141,24 @@ class StompMetricsDict(TypedDict):
     ttfm_p99_ms: float
 
 
+class DatabaseMetricsDict(TypedDict):
+    driver: str
+    queries_total: int
+    rows_total: int
+    errors_total: int
+    pool_max: int
+    pool_size: int
+    fetch_mode: str
+    pool_acquire_mean_ms: float
+    pool_acquire_p50_ms: float
+    pool_acquire_p90_ms: float
+    pool_acquire_p99_ms: float
+    query_mean_ms: float
+    query_p50_ms: float
+    query_p90_ms: float
+    query_p99_ms: float
+
+
 class GraphqlWsMetricsDict(TypedDict):
     operations_total: int
     messages_total: int
@@ -264,6 +282,7 @@ class ReportArtifactDict(TypedDict):
     graphql_ws: NotRequired[GraphqlWsMetricsDict]
     soap: NotRequired[SoapMetricsDict]
     stomp: NotRequired[StompMetricsDict]
+    database: NotRequired[DatabaseMetricsDict]
     slo: NotRequired[SloResultDict]
     timeline: NotRequired[TimelineDict]
     chaos_faults: NotRequired[ChaosFaultsDict]

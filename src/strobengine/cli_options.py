@@ -247,6 +247,40 @@ StompHeaderOpt = Annotated[
     list[str] | None,
     typer.Option("--stomp-header", help="Custom STOMP header key:value (repeatable)"),
 ]
+DbQueryOpt = Annotated[
+    str | None,
+    typer.Option(
+        "--db-query",
+        help="SQL query executed per iteration (postgres://, mysql://, sqlite:// URLs)",
+    ),
+]
+DbPoolSizeOpt = Annotated[
+    int | None,
+    typer.Option(
+        "--db-pool-size",
+        min=1,
+        help="Maximum pooled database connections (default: concurrency)",
+    ),
+]
+DbFetchOpt = Annotated[
+    bool,
+    typer.Option(
+        "--db-fetch/--no-db-fetch",
+        help="Fetch and count returned rows instead of using rows affected",
+    ),
+]
+DbMaxRowsOpt = Annotated[
+    int | None,
+    typer.Option(
+        "--db-max-rows", min=0, help="Cap rows fetched per query (0 = unlimited)"
+    ),
+]
+DbParamOpt = Annotated[
+    list[str] | None,
+    typer.Option(
+        "--db-param", help="SQL bind parameter as text (repeatable, positional)"
+    ),
+]
 OutputDirOpt = Annotated[
     str | None,
     typer.Option("--output-dir", help="Report output directory"),
@@ -438,6 +472,11 @@ _REQUEST_FIELDS = frozenset(
         "stomp_ack",
         "stomp_receipt",
         "stomp_header",
+        "db_query",
+        "db_pool_size",
+        "db_fetch",
+        "db_max_rows",
+        "db_param",
         "output_dir",
         "no_save",
         "sys_sample_interval",
@@ -539,6 +578,11 @@ def _build_request_options(
     stomp_ack: StompAckEnum = RequestOptions.stomp_ack,
     stomp_receipt: bool = RequestOptions.stomp_receipt,
     stomp_header: list[str] | None = None,
+    db_query: str | None = RequestOptions.db_query,
+    db_pool_size: int | None = RequestOptions.db_pool_size,
+    db_fetch: bool = RequestOptions.db_fetch,
+    db_max_rows: int | None = RequestOptions.db_max_rows,
+    db_param: list[str] | None = None,
     output_dir: str | None = RequestOptions.output_dir,
     no_save: bool = RequestOptions.no_save,
     sys_sample_interval: int = RequestOptions.sys_sample_interval,
@@ -597,6 +641,11 @@ def _build_request_options(
         stomp_ack=stomp_ack,
         stomp_receipt=stomp_receipt,
         stomp_headers=_parse_headers(stomp_header),
+        db_query=db_query,
+        db_pool_size=db_pool_size,
+        db_fetch=db_fetch,
+        db_max_rows=db_max_rows,
+        db_params=db_param,
         output_dir=output_dir,
         no_save=no_save,
         sys_sample_interval=sys_sample_interval,

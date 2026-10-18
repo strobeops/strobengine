@@ -60,6 +60,7 @@ h2 = "0.4.20"
 quick-xml = "0.42"
 clap = { version = "4", features = ["derive", "env"] }
 thiserror = "2.0.21"
+sqlx = { version = "0.9", default-features = false, features = ["any", "postgres", "mysql", "sqlite", "runtime-tokio", "tls-rustls-ring-webpki"] }
 
 [dev-dependencies]
 criterion = "0.8.2"

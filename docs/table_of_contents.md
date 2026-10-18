@@ -18,6 +18,7 @@
 - [GraphQL Load Testing](graphql.md) -- Queries/mutations over HTTP, variables, logical error tracking
 - [SOAP Load Testing](soap.md) -- SOAP 1.1/1.2 envelopes over HTTP, fault detection
 - [JMS / Messaging Load Testing](jms.md) -- STOMP broker produce/consume throughput, ack latency, delivery intervals
+- [Database (SQL) Load Testing](database.md) -- SQL connection pooling and query load (PostgreSQL, MySQL, SQLite)
 - [Reporting & Visualizations](reports.md) -- JSON persistence, HTML reports, baseline comparison, output control
 - [Distributed Load Testing](distributed.md) -- Master/worker control plane, live telemetry, cluster reporting
 
