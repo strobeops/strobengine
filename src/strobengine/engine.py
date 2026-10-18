@@ -136,6 +136,11 @@ class RequestOptions:
     stomp_ack: StompAckEnum = StompAckEnum.auto
     stomp_receipt: bool = False
     stomp_headers: list[tuple[str, str]] | None = None
+    db_query: str | None = None
+    db_pool_size: int | None = None
+    db_fetch: bool = False
+    db_max_rows: int | None = None
+    db_params: list[str] | None = None
 
     def __post_init__(self) -> None:
         if self.timeout <= 0:
@@ -201,6 +206,11 @@ def _build_test_config(
         stomp_ack=_STOMP_ACK_MAP.get(opts.stomp_ack, StompAck.auto()),
         stomp_receipt=opts.stomp_receipt,
         stomp_headers=opts.stomp_headers,
+        db_query=opts.db_query,
+        db_pool_size=opts.db_pool_size,
+        db_fetch=opts.db_fetch,
+        db_max_rows=opts.db_max_rows,
+        db_params=opts.db_params,
     )
 
 

@@ -22,6 +22,7 @@ import sys
 from typing import cast
 
 from strobengine._strobengine import (
+    DatabaseMetrics,
     GraphqlMetrics,
     GraphqlWsMetrics,
     GrpcMetrics,
@@ -38,6 +39,7 @@ from strobengine._strobengine import (
 from strobengine.report_schema import (
     CliOptionsDict,
     ConnectionPoolDict,
+    DatabaseMetricsDict,
     GraphqlMetricsDict,
     GraphqlWsMetricsDict,
     GrpcMetricsDict,
@@ -238,6 +240,30 @@ def _format_graphql_ws(summary: TestSummary) -> GraphqlWsMetricsDict | None:
         "interval_p50_ms": g.interval_p50_ms,
         "interval_p90_ms": g.interval_p90_ms,
         "interval_p99_ms": g.interval_p99_ms,
+    }
+
+
+def _format_database(summary: TestSummary) -> DatabaseMetricsDict | None:
+    """Extract SQL database metrics into a JSON-native dict."""
+    d = summary.database
+    if d is None or not isinstance(d, DatabaseMetrics):
+        return None
+    return {
+        "driver": d.driver,
+        "queries_total": d.queries_total,
+        "rows_total": d.rows_total,
+        "errors_total": d.errors_total,
+        "pool_max": d.pool_max,
+        "pool_size": d.pool_size,
+        "fetch_mode": d.fetch_mode,
+        "pool_acquire_mean_ms": d.pool_acquire_mean_ms,
+        "pool_acquire_p50_ms": d.pool_acquire_p50_ms,
+        "pool_acquire_p90_ms": d.pool_acquire_p90_ms,
+        "pool_acquire_p99_ms": d.pool_acquire_p99_ms,
+        "query_mean_ms": d.query_mean_ms,
+        "query_p50_ms": d.query_p50_ms,
+        "query_p90_ms": d.query_p90_ms,
+        "query_p99_ms": d.query_p99_ms,
     }
 
 
@@ -459,6 +485,10 @@ def _build_artifact_dict_fallback(
     stomp = _format_stomp(summary)
     if stomp is not None:
         artifact["stomp"] = stomp
+
+    database = _format_database(summary)
+    if database is not None:
+        artifact["database"] = database
 
     slo = _evaluate_slo(summary, config, rps)
     if slo is not None:
