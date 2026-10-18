@@ -4,8 +4,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::chaos::ChaosMetrics;
 use crate::metrics::{
-    GraphqlMetrics, GraphqlWsMetrics, GrpcMetrics, Http3Metrics, QuicMetrics, SoapMetrics,
-    SseMetrics, StompMetrics, WebsocketMetrics,
+    DatabaseMetrics, GraphqlMetrics, GraphqlWsMetrics, GrpcMetrics, Http3Metrics, QuicMetrics,
+    SoapMetrics, SseMetrics, StompMetrics, WebsocketMetrics,
 };
 
 /// Top-level report artifact persisted to disk after each load test.
@@ -37,6 +37,8 @@ pub struct ReportArtifact {
     pub soap: Option<SoapMetrics>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub stomp: Option<StompMetrics>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub database: Option<DatabaseMetrics>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub slo: Option<SloResult>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -345,6 +347,7 @@ impl ReportArtifact {
             graphql_ws: summary.graphql_ws.clone(),
             soap: summary.soap.clone(),
             stomp: summary.stomp.clone(),
+            database: summary.database.clone(),
             slo,
             timeline: summary.timeline.clone(),
             chaos: if summary.chaos_injected_total > 0 {
@@ -468,6 +471,7 @@ mod tests {
             graphql_ws: None,
             soap: None,
             stomp: None,
+            database: None,
             slo: None,
             timeline: None,
             chaos: None,
@@ -596,6 +600,7 @@ mod tests {
             "graphql_ws",
             "soap",
             "stomp",
+            "database",
             "slo",
             "timeline",
             "chaos_faults",
@@ -624,6 +629,7 @@ mod tests {
         full.graphql_ws = Some(crate::metrics::GraphqlWsMetrics::default());
         full.soap = Some(crate::metrics::SoapMetrics::default());
         full.stomp = Some(crate::metrics::StompMetrics::default());
+        full.database = Some(crate::metrics::DatabaseMetrics::default());
         full.slo = Some(SloResult {
             passed: true,
             checks: Vec::new(),
@@ -836,6 +842,7 @@ mod tests {
             graphql_ws: None,
             soap: None,
             stomp: None,
+            database: None,
             timeline: None,
             chaos_injected_total: 0,
             chaos_faults_by_type: std::collections::HashMap::new(),
@@ -902,6 +909,11 @@ mod tests {
             StompMode::Produce,
             StompAck::Auto,
             false,
+            None,
+            None,
+            None,
+            false,
+            None,
             None,
         )
         .unwrap();
@@ -980,6 +992,7 @@ mod tests {
             graphql_ws: None,
             soap: None,
             stomp: None,
+            database: None,
             timeline: None,
             chaos_injected_total: 0,
             chaos_faults_by_type: std::collections::HashMap::new(),
@@ -1046,6 +1059,11 @@ mod tests {
             StompMode::Produce,
             StompAck::Auto,
             false,
+            None,
+            None,
+            None,
+            false,
+            None,
             None,
         )
         .unwrap();

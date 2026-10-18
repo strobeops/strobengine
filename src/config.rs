@@ -254,6 +254,16 @@ pub struct TestConfig {
     pub stomp_receipt: bool,
     #[pyo3(get, set)]
     pub stomp_headers: Option<Vec<(String, String)>>,
+    #[pyo3(get, set)]
+    pub db_query: Option<String>,
+    #[pyo3(get, set)]
+    pub db_pool_size: Option<usize>,
+    #[pyo3(get, set)]
+    pub db_fetch: bool,
+    #[pyo3(get, set)]
+    pub db_max_rows: Option<u64>,
+    #[pyo3(get, set)]
+    pub db_params: Option<Vec<String>>,
 }
 
 #[pymethods]
@@ -315,6 +325,11 @@ impl TestConfig {
         stomp_ack=StompAck::Auto,
         stomp_receipt=false,
         stomp_headers=None,
+        db_query=None,
+        db_pool_size=None,
+        db_fetch=false,
+        db_max_rows=None,
+        db_params=None,
     ))]
     #[allow(clippy::too_many_arguments)]
     pub fn new(
@@ -373,6 +388,11 @@ impl TestConfig {
         stomp_ack: StompAck,
         stomp_receipt: bool,
         stomp_headers: Option<Vec<(String, String)>>,
+        db_query: Option<String>,
+        db_pool_size: Option<usize>,
+        db_fetch: bool,
+        db_max_rows: Option<u64>,
+        db_params: Option<Vec<String>>,
     ) -> PyResult<Self> {
         let config = Self {
             url,
@@ -430,6 +450,11 @@ impl TestConfig {
             stomp_ack,
             stomp_receipt,
             stomp_headers,
+            db_query,
+            db_pool_size,
+            db_fetch,
+            db_max_rows,
+            db_params,
         };
         config.validate()?;
         Ok(config)
@@ -515,6 +540,26 @@ impl TestConfig {
             if self.stomp_receipt && self.stomp_mode == StompMode::Consume {
                 return Err(pyo3::exceptions::PyValueError::new_err(
                     "stomp_receipt applies to stomp_mode=produce only",
+                ));
+            }
+        }
+        if self.url.starts_with("postgres://")
+            || self.url.starts_with("postgresql://")
+            || self.url.starts_with("mysql://")
+            || self.url.starts_with("mariadb://")
+            || self.url.starts_with("sqlite:")
+        {
+            match self.db_query.as_deref() {
+                Some(q) if !q.trim().is_empty() => {}
+                _ => {
+                    return Err(pyo3::exceptions::PyValueError::new_err(
+                        "database URLs require a non-empty db_query",
+                    ));
+                }
+            }
+            if self.db_pool_size == Some(0) {
+                return Err(pyo3::exceptions::PyValueError::new_err(
+                    "db_pool_size must be at least 1",
                 ));
             }
         }
@@ -619,6 +664,11 @@ pub struct TestConfigBuilder {
     stomp_ack: StompAck,
     stomp_receipt: bool,
     stomp_headers: Option<Vec<(String, String)>>,
+    db_query: Option<String>,
+    db_pool_size: Option<usize>,
+    db_fetch: bool,
+    db_max_rows: Option<u64>,
+    db_params: Option<Vec<String>>,
 }
 
 impl Default for TestConfigBuilder {
@@ -679,6 +729,11 @@ impl Default for TestConfigBuilder {
             stomp_ack: StompAck::Auto,
             stomp_receipt: false,
             stomp_headers: None,
+            db_query: None,
+            db_pool_size: None,
+            db_fetch: false,
+            db_max_rows: None,
+            db_params: None,
         }
     }
 }
@@ -855,6 +910,26 @@ impl TestConfigBuilder {
         self.stomp_headers = v;
         self
     }
+    pub fn db_query(mut self, v: Option<String>) -> Self {
+        self.db_query = v;
+        self
+    }
+    pub fn db_pool_size(mut self, v: Option<usize>) -> Self {
+        self.db_pool_size = v;
+        self
+    }
+    pub fn db_fetch(mut self, v: bool) -> Self {
+        self.db_fetch = v;
+        self
+    }
+    pub fn db_max_rows(mut self, v: Option<u64>) -> Self {
+        self.db_max_rows = v;
+        self
+    }
+    pub fn db_params(mut self, v: Option<Vec<String>>) -> Self {
+        self.db_params = v;
+        self
+    }
     pub fn output_dir(mut self, v: Option<String>) -> Self {
         self.output_dir = v;
         self
@@ -965,6 +1040,11 @@ impl TestConfigBuilder {
             stomp_ack: self.stomp_ack,
             stomp_receipt: self.stomp_receipt,
             stomp_headers: self.stomp_headers,
+            db_query: self.db_query,
+            db_pool_size: self.db_pool_size,
+            db_fetch: self.db_fetch,
+            db_max_rows: self.db_max_rows,
+            db_params: self.db_params,
         }
     }
 }
@@ -1249,6 +1329,11 @@ mod tests {
             StompAck::Auto,
             false,
             None,
+            None,
+            None,
+            false,
+            None,
+            None,
         )
         .unwrap();
         assert_eq!(c.url, "http://127.0.0.1:8080");
@@ -1314,6 +1399,11 @@ mod tests {
             StompMode::Produce,
             StompAck::Auto,
             false,
+            None,
+            None,
+            None,
+            false,
+            None,
             None,
         )
         .unwrap();

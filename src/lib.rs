@@ -26,6 +26,7 @@ use crate::chaos::ChaosEngine;
 use crate::config::{LoadProfile, MAX_CONCURRENCY, TestConfig};
 use crate::metrics::{LiveCounters, RequestMetric};
 use crate::protocols::ProtocolEngine;
+use crate::protocols::db::{self, DbRunInfo};
 use crate::protocols::stomp::StompRunInfo;
 
 /// Buffer capacity for the async MPSC channel streaming metrics from workers to the aggregator.
@@ -233,6 +234,7 @@ async fn execute_test(
     graphql_operation_type: Option<&'static str>,
     soap_version: Option<&'static str>,
     stomp_info: Option<StompRunInfo>,
+    db_info: Option<DbRunInfo>,
     timeline_interval_ms: u64,
 ) -> PyResult<metrics::TestSummary> {
     tracing::debug!("protocol engine initialized");
@@ -483,6 +485,16 @@ async fn execute_test(
         m.receipts_enabled = info.receipts_enabled;
     }
 
+    // Stamp the run's database constants (driver/pool/fetch) onto the section.
+    let mut db_metrics = aggregated.db_metrics;
+    if let Some(m) = db_metrics.as_mut()
+        && let Some(info) = db_info
+    {
+        m.driver = info.driver;
+        m.pool_max = info.pool_max;
+        m.fetch_mode = info.fetch_mode;
+    }
+
     Ok(metrics::calculate_summary(metrics::SummaryInput {
         url,
         total_requests: total,
@@ -503,6 +515,7 @@ async fn execute_test(
         graphql_ws_metrics: aggregated.graphql_ws_metrics,
         soap_metrics,
         stomp_metrics,
+        db_metrics,
         timeline: aggregated.timeline,
         chaos_injected_total: aggregated.chaos_injected_total,
         chaos_faults_by_type: aggregated.chaos_faults_by_type,
@@ -652,6 +665,12 @@ fn stomp_run_info(config: &TestConfig) -> Option<StompRunInfo> {
     }
 }
 
+/// Capture per-run database constants for stamping onto the report section.
+fn db_run_info(config: &TestConfig) -> Option<DbRunInfo> {
+    let pool_max = config.db_pool_size.unwrap_or(config.concurrency).max(1);
+    db::run_info(&config.url, pool_max, config.db_fetch)
+}
+
 #[pyfunction]
 fn run_load_test(py: Python<'_>, config: TestConfig) -> PyResult<metrics::TestSummary> {
     py.detach(move || {
@@ -689,6 +708,7 @@ fn run_load_test(py: Python<'_>, config: TestConfig) -> PyResult<metrics::TestSu
             graphql_operation_type,
             soap_version,
             stomp_run_info(&config),
+            db_run_info(&config),
             config.timeline_interval_ms,
         ))
     })
@@ -732,6 +752,7 @@ fn run_load_profiles(
             graphql_operation_type,
             soap_version,
             stomp_run_info(&config),
+            db_run_info(&config),
             config.timeline_interval_ms,
         ))
     })
@@ -777,6 +798,7 @@ fn _strobengine(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<metrics::GraphqlWsMetrics>()?;
     m.add_class::<metrics::SoapMetrics>()?;
     m.add_class::<metrics::StompMetrics>()?;
+    m.add_class::<metrics::DatabaseMetrics>()?;
     m.add_class::<metrics::Timeline>()?;
     m.add_class::<metrics::TimelineSample>()?;
     m.add_class::<metrics::system::SystemMetrics>()?;
