@@ -31,6 +31,13 @@ strobengine load http://localhost:8080/api/health -c 50 -d 30
 
 > See [Quick Start Guide](https://github.com/strobeops/strobengine/blob/main/docs/quickstart.md) for Python API and CLI examples.
 
+## Examples
+
+Runnable snippets for every supported protocol (HTTP, WebSocket, gRPC, HTTP/3,
+SSE, GraphQL, SOAP, STOMP/JMS, SQL) live in
+[`examples/`](https://github.com/strobeops/strobengine/tree/main/examples) —
+see the [examples index](https://github.com/strobeops/strobengine/blob/main/examples/README.md).
+
 ## Documentation
 
 | Section | Description |
