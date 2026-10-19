@@ -537,17 +537,37 @@ class TestRequestFieldAllowlist:
     silently replaced by the builder default.
     """
 
-    def test_allowlist_matches_builder_kwargs(self):
-        import inspect
+    def test_allowlist_derives_from_request_options(self):
+        import dataclasses
 
-        from strobengine.cli_options import _REQUEST_FIELDS, _build_request_options
-
-        builder_params = set(inspect.signature(_build_request_options).parameters)
-        allowlist = set(_REQUEST_FIELDS)
-        assert allowlist == builder_params, (
-            f"allowlist-only: {allowlist - builder_params} "
-            f"builder-only: {builder_params - allowlist}"
+        from strobengine.cli_options import (
+            _HIDDEN_CLI_FIELDS,
+            _REQUEST_FIELDS,
+            _build_request_options,
         )
+        from strobengine.engine import RequestOptions
+
+        ro_fields = {field.name for field in dataclasses.fields(RequestOptions)}
+        # Every non-hidden option is routed through the allowlist...
+        assert ro_fields - _HIDDEN_CLI_FIELDS <= _REQUEST_FIELDS
+        # ...and the renamed CLI flags replace their dataclass counterparts.
+        assert {"header", "stomp_header", "db_param"} <= _REQUEST_FIELDS
+        assert not ({"headers", "stomp_headers", "db_params"} & _REQUEST_FIELDS)
+
+        # Feeding the dataclass defaults back through the builder must be a
+        # no-op, proving every allowlisted field maps onto RequestOptions.
+        defaults = {
+            name: getattr(RequestOptions, name)
+            for name in _REQUEST_FIELDS
+            if hasattr(RequestOptions, name)
+        }
+        assert _build_request_options(**defaults) == RequestOptions()
+
+    def test_builder_defaults_match_request_options(self):
+        from strobengine.cli_options import _build_request_options
+        from strobengine.engine import RequestOptions
+
+        assert _build_request_options() == RequestOptions()
 
     def test_every_command_exposes_allowlisted_fields(self):
         import inspect
