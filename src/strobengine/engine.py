@@ -1,7 +1,8 @@
 import asyncio
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
 from datetime import UTC, datetime
 from enum import StrEnum
+from typing import Any
 
 from strobengine._strobengine import (
     LoadProfile,
@@ -80,6 +81,17 @@ _STOMP_ACK_MAP: dict[StompAckEnum, StompAck] = {
     StompAckEnum.client_individual: StompAck.client_individual(),
 }
 
+# RequestOptions field -> TestConfig kwarg (only `timeout` differs).
+_TEST_CONFIG_RENAMES: dict[str, str] = {"timeout": "timeout_secs"}
+
+# Fields whose Python enum must be translated to a native PyO3 enum value.
+_TEST_CONFIG_ENUMS: dict[str, tuple[dict[Any, Any], Any]] = {
+    "ws_mode": (_WS_MODE_MAP, WsMode.handshake()),
+    "soap_version": (_SOAP_VERSION_MAP, SoapVersion.soap11()),
+    "stomp_mode": (_STOMP_MODE_MAP, StompMode.produce()),
+    "stomp_ack": (_STOMP_ACK_MAP, StompAck.auto()),
+}
+
 
 @dataclass
 class RequestOptions:
@@ -147,6 +159,23 @@ class RequestOptions:
             raise ValueError("timeout must be greater than 0")
 
 
+def _test_config_options(opts: RequestOptions) -> dict[str, Any]:
+    """Map ``RequestOptions`` fields onto ``TestConfig`` constructor kwargs.
+
+    Names match one-to-one except ``timeout`` (``timeout_secs``); enum options
+    are translated to their native PyO3 equivalents.
+    """
+    kwargs: dict[str, Any] = {}
+    for field in fields(RequestOptions):
+        value: Any = getattr(opts, field.name)
+        enum_spec = _TEST_CONFIG_ENUMS.get(field.name)
+        if enum_spec is not None:
+            mapping, default = enum_spec
+            value = mapping.get(value, default)
+        kwargs[_TEST_CONFIG_RENAMES.get(field.name, field.name)] = value
+    return kwargs
+
+
 def _build_test_config(
     url: str, opts: RequestOptions, concurrency: int, duration: int
 ) -> TestConfig:
@@ -155,62 +184,7 @@ def _build_test_config(
         url=url,
         concurrency=concurrency,
         duration_secs=duration,
-        timeout_secs=opts.timeout,
-        chaos=opts.chaos,
-        chaos_rate=opts.chaos_rate,
-        no_progress=opts.no_progress,
-        method=opts.method,
-        body=opts.body,
-        form=opts.form,
-        headers=opts.headers,
-        ws_mode=_WS_MODE_MAP.get(opts.ws_mode, WsMode.handshake()),
-        ws_payload=opts.ws_payload,
-        ws_persistent=opts.ws_persistent,
-        ws_keepalive_secs=opts.ws_keepalive_secs,
-        ws_role=opts.ws_role,
-        ws_publish_interval_ms=opts.ws_publish_interval_ms,
-        ws_subscribers=opts.ws_subscribers,
-        grpc_service=opts.grpc_service,
-        grpc_method=opts.grpc_method,
-        grpc_payload=opts.grpc_payload,
-        grpc_deadline_ms=opts.grpc_deadline_ms,
-        proto_path=opts.proto_path,
-        grpc_use_reflection=opts.grpc_use_reflection,
-        http3_enabled=opts.http3_enabled,
-        quic_zero_rtt=opts.quic_zero_rtt,
-        quic_max_idle_timeout_ms=opts.quic_max_idle_timeout_ms,
-        sse_enabled=opts.sse_enabled,
-        sse_max_events=opts.sse_max_events,
-        graphql_query=opts.graphql_query,
-        graphql_variables=opts.graphql_variables,
-        graphql_operation_name=opts.graphql_operation_name,
-        output_dir=opts.output_dir,
-        no_save=opts.no_save,
-        sys_sample_interval=opts.sys_sample_interval,
-        ws_max_buffer_bytes=opts.ws_max_buffer_bytes,
-        ws_backpressure_warn_ratio=opts.ws_backpressure_warn_ratio,
-        grpc_h2_multiplex=opts.grpc_h2_multiplex,
-        http3_migrate=opts.http3_migrate,
-        http3_migrate_every=opts.http3_migrate_every,
-        slo_p95_ms=opts.slo_p95_ms,
-        slo_p99_ms=opts.slo_p99_ms,
-        slo_error_rate=opts.slo_error_rate,
-        slo_min_rps=opts.slo_min_rps,
-        timeline_interval_ms=opts.timeline_interval_ms,
-        soap_enabled=opts.soap_enabled,
-        soap_action=opts.soap_action,
-        soap_version=_SOAP_VERSION_MAP.get(opts.soap_version, SoapVersion.soap11()),
-        stomp_destination=opts.stomp_destination,
-        stomp_message=opts.stomp_message,
-        stomp_mode=_STOMP_MODE_MAP.get(opts.stomp_mode, StompMode.produce()),
-        stomp_ack=_STOMP_ACK_MAP.get(opts.stomp_ack, StompAck.auto()),
-        stomp_receipt=opts.stomp_receipt,
-        stomp_headers=opts.stomp_headers,
-        db_query=opts.db_query,
-        db_pool_size=opts.db_pool_size,
-        db_fetch=opts.db_fetch,
-        db_max_rows=opts.db_max_rows,
-        db_params=opts.db_params,
+        **_test_config_options(opts),
     )
 
 

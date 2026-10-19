@@ -402,3 +402,52 @@ class TestSoapConfigValidation:
             soap_version=SoapVersion.soap12(),
         )
         assert config.soap_enabled is True
+
+
+class TestRequestOptionsMapping:
+    def test_every_option_maps_to_test_config(self):
+        import inspect
+
+        from strobengine.engine import _test_config_options
+
+        kwargs = _test_config_options(RequestOptions())
+        params = set(inspect.signature(_TestConfig).parameters)
+        explicit = {"url", "concurrency", "duration_secs"}
+        # `ws_max_messages` is currently only settable through the low-level class.
+        assert set(kwargs) | explicit == params - {"ws_max_messages"}
+
+        config = _TestConfig(
+            url="http://127.0.0.1:1",
+            concurrency=1,
+            duration_secs=1,
+            **kwargs,
+        )
+        assert config.timeout_secs == RequestOptions.timeout
+
+    def test_enum_options_are_translated(self):
+        from strobengine._strobengine import (
+            SoapVersion as NativeSoapVersion,
+            StompAck as NativeStompAck,
+            StompMode as NativeStompMode,
+            WsMode as NativeWsMode,
+        )
+        from strobengine.engine import (
+            SoapVersionEnum,
+            StompAckEnum,
+            StompModeEnum,
+            WsModeEnum,
+            _test_config_options,
+        )
+
+        kwargs = _test_config_options(
+            RequestOptions(
+                ws_mode=WsModeEnum.stream,
+                soap_version=SoapVersionEnum.soap12,
+                stomp_mode=StompModeEnum.consume,
+                stomp_ack=StompAckEnum.client,
+            )
+        )
+        assert isinstance(kwargs["ws_mode"], NativeWsMode)
+        assert isinstance(kwargs["soap_version"], NativeSoapVersion)
+        assert isinstance(kwargs["stomp_mode"], NativeStompMode)
+        assert isinstance(kwargs["stomp_ack"], NativeStompAck)
