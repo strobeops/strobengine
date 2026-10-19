@@ -23,8 +23,7 @@ _ROOT = Path(__file__).resolve().parent.parent
 _PYI_PATH = _ROOT / "src" / "strobengine" / "_strobengine.pyi"
 _RUST_SOURCES = [
     _ROOT / "src" / "config.rs",
-    _ROOT / "src" / "metrics" / "mod.rs",
-    _ROOT / "src" / "metrics" / "system.rs",
+    *sorted((_ROOT / "src" / "metrics").glob("*.rs")),
 ]
 _LIB_RS = _ROOT / "src" / "lib.rs"
 
