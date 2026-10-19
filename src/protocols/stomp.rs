@@ -127,7 +127,6 @@ impl StompEngine {
             last_message_at: None,
             saw_first_message: false,
             receipt_seq: 0,
-            ack_seq: 0,
         }
     }
 
@@ -204,7 +203,14 @@ struct StompSession {
     last_message_at: Option<Instant>,
     saw_first_message: bool,
     receipt_seq: u64,
-    ack_seq: u64,
+}
+
+/// ACK for a delivered message.
+///
+/// STOMP 1.2 only permits a `transaction` header while a `BEGIN` transaction is
+/// open, so a standalone ACK carries just the message's `id`.
+fn ack_frame(id: &str) -> Frame {
+    Frame::new("ACK").with_header("id", id)
 }
 
 impl StompSession {
@@ -468,10 +474,8 @@ impl StompSession {
         if self.ack != StompAck::Auto
             && let Some(id) = ack_id
         {
-            self.ack_seq += 1;
-            let ack = Frame::new("ACK")
-                .with_header("id", id)
-                .with_header("transaction", self.ack_seq.to_string());
+            let ack = ack_frame(&id);
+            tracing::trace!(ack_id = %id, "STOMP ACK sent");
             if let Err(e) = self.write_frame(&ack.encode()).await {
                 tracing::debug!(error = %e, "STOMP ACK failed");
                 self.reset();
@@ -533,12 +537,15 @@ impl WorkerSession for StompSession {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::{Arc, Mutex};
     use tokio::net::TcpListener;
     use tokio::task::JoinHandle;
 
     /// Minimal in-process STOMP broker for engine tests (local only).
     struct TestBroker {
         url: String,
+        /// ACK frames received from the client (for protocol assertions).
+        acks: Arc<Mutex<Vec<Frame>>>,
         _handle: JoinHandle<()>,
     }
 
@@ -556,6 +563,8 @@ mod tests {
     async fn spawn_broker(behavior: Behavior) -> TestBroker {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
+        let acks = Arc::new(Mutex::new(Vec::new()));
+        let acks_for_server = Arc::clone(&acks);
         let handle = tokio::spawn(async move {
             loop {
                 let Ok((mut stream, _)) = listener.accept().await else {
@@ -567,6 +576,7 @@ mod tests {
                     Behavior::RejectConnect => Behavior::RejectConnect,
                     Behavior::SlowReceipt(d) => Behavior::SlowReceipt(*d),
                 };
+                let acks = Arc::clone(&acks_for_server);
                 tokio::spawn(async move {
                     let mut decoder = Decoder::new();
                     let mut buf = [0u8; 4096];
@@ -575,7 +585,7 @@ mod tests {
                         // so coalesced frames in one read are not stranded.
                         match decoder.next_frame() {
                             Ok(Some(frame)) => {
-                                if !serve_frame(&mut stream, &behavior, frame).await {
+                                if !serve_frame(&mut stream, &behavior, &acks, frame).await {
                                     return;
                                 }
                                 continue;
@@ -593,12 +603,18 @@ mod tests {
         });
         TestBroker {
             url: format!("stomp://{addr}"),
+            acks,
             _handle: handle,
         }
     }
 
     /// Handle one client frame; returns false to close the connection.
-    async fn serve_frame(stream: &mut TcpStream, behavior: &Behavior, frame: Frame) -> bool {
+    async fn serve_frame(
+        stream: &mut TcpStream,
+        behavior: &Behavior,
+        acks: &Arc<Mutex<Vec<Frame>>>,
+        frame: Frame,
+    ) -> bool {
         match frame.command.as_str() {
             "CONNECT" => {
                 if matches!(behavior, Behavior::RejectConnect) {
@@ -640,7 +656,11 @@ mod tests {
                     true
                 }
             }
-            "ACK" | "DISCONNECT" => true,
+            "ACK" => {
+                acks.lock().unwrap().push(frame.clone());
+                true
+            }
+            "DISCONNECT" => true,
             _ => true,
         }
     }
@@ -658,6 +678,76 @@ mod tests {
             5,
         )
         .unwrap()
+    }
+
+    fn engine_with_ack(url: &str, mode: StompMode, ack: StompAck) -> StompEngine {
+        StompEngine::new(
+            url,
+            "/queue/test".into(),
+            mode,
+            ack,
+            false,
+            b"hello".to_vec(),
+            Vec::new(),
+            ChaosEngine::default(),
+            5,
+        )
+        .unwrap()
+    }
+
+    /// Poll until the broker has observed at least `expected` ACK frames.
+    ///
+    /// The lock is scoped to a block so the guard is never held across an
+    /// `.await`; a bounded timeout keeps heavily loaded CI from flaking.
+    async fn wait_for_acks(broker: &TestBroker, expected: usize) {
+        tokio::time::timeout(Duration::from_millis(500), async {
+            loop {
+                let len = {
+                    let acks = broker.acks.lock().unwrap();
+                    acks.len()
+                };
+                if len >= expected {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .expect("ACK not observed before timeout");
+    }
+
+    #[test]
+    fn ack_frame_has_id_without_transaction() {
+        let frame = ack_frame("a-0");
+        assert_eq!(frame.command, "ACK");
+        assert_eq!(frame.header("id"), Some("a-0"));
+        assert!(
+            frame.header("transaction").is_none(),
+            "standalone ACK must not carry a transaction header"
+        );
+    }
+
+    #[tokio::test]
+    async fn consume_with_client_ack_sends_valid_ack() {
+        let broker = spawn_broker(Behavior::PushMessages(1)).await;
+        let eng = engine_with_ack(&broker.url, StompMode::Consume, StompAck::Client);
+        let mut ctx = eng.create_worker_context().await.unwrap();
+
+        let metric = eng
+            .execute_iteration_with_context(&broker.url, ctx.as_mut())
+            .await;
+        assert_eq!(metric.status_code, 200);
+        assert_eq!(metric.stomp.unwrap().messages_received, 1);
+
+        wait_for_acks(&broker, 1).await;
+        let acks = broker.acks.lock().unwrap();
+        assert_eq!(acks.len(), 1, "exactly one ACK expected");
+        assert_eq!(acks[0].command, "ACK");
+        assert_eq!(acks[0].header("id"), Some("a-0"));
+        assert!(
+            acks[0].header("transaction").is_none(),
+            "standalone ACK must not carry a transaction header"
+        );
     }
 
     #[test]
