@@ -1,7 +1,7 @@
 use hdrhistogram::Histogram;
 use pyo3::prelude::*;
 
-use super::helpers::MICROS_PER_MILLI;
+use super::helpers::fold_percentiles;
 
 #[pyclass(skip_from_py_object)]
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
@@ -386,21 +386,18 @@ pub(crate) fn graphql_ws_stats_from_histograms(
     ttfm: &Histogram<u64>,
     interval: &Histogram<u64>,
 ) -> GraphqlWsMetrics {
-    let ms = |hist: &Histogram<u64>, f: fn(&Histogram<u64>) -> u64| -> f64 {
-        f(hist) as f64 / MICROS_PER_MILLI
-    };
-    if !ttfm.is_empty() {
-        stats.ttfm_mean_ms = ttfm.mean() / MICROS_PER_MILLI;
-        stats.ttfm_p50_ms = ms(ttfm, |h| h.value_at_quantile(0.50));
-        stats.ttfm_p90_ms = ms(ttfm, |h| h.value_at_quantile(0.90));
-        stats.ttfm_p99_ms = ms(ttfm, |h| h.value_at_quantile(0.99));
-    }
-    if !interval.is_empty() {
-        stats.interval_mean_ms = interval.mean() / MICROS_PER_MILLI;
-        stats.interval_p50_ms = ms(interval, |h| h.value_at_quantile(0.50));
-        stats.interval_p90_ms = ms(interval, |h| h.value_at_quantile(0.90));
-        stats.interval_p99_ms = ms(interval, |h| h.value_at_quantile(0.99));
-    }
+    fold_percentiles(ttfm, |p| {
+        stats.ttfm_mean_ms = p.mean_ms;
+        stats.ttfm_p50_ms = p.p50_ms;
+        stats.ttfm_p90_ms = p.p90_ms;
+        stats.ttfm_p99_ms = p.p99_ms;
+    });
+    fold_percentiles(interval, |p| {
+        stats.interval_mean_ms = p.mean_ms;
+        stats.interval_p50_ms = p.p50_ms;
+        stats.interval_p90_ms = p.p90_ms;
+        stats.interval_p99_ms = p.p99_ms;
+    });
     stats
 }
 
@@ -411,27 +408,24 @@ pub(crate) fn stomp_stats_from_histograms(
     interval: &Histogram<u64>,
     ttfm: &Histogram<u64>,
 ) -> StompMetrics {
-    let ms = |hist: &Histogram<u64>, f: fn(&Histogram<u64>) -> u64| -> f64 {
-        f(hist) as f64 / MICROS_PER_MILLI
-    };
-    if !send.is_empty() {
-        stats.send_latency_mean_ms = send.mean() / MICROS_PER_MILLI;
-        stats.send_latency_p50_ms = ms(send, |h| h.value_at_quantile(0.50));
-        stats.send_latency_p90_ms = ms(send, |h| h.value_at_quantile(0.90));
-        stats.send_latency_p99_ms = ms(send, |h| h.value_at_quantile(0.99));
-    }
-    if !interval.is_empty() {
-        stats.receive_interval_mean_ms = interval.mean() / MICROS_PER_MILLI;
-        stats.receive_interval_p50_ms = ms(interval, |h| h.value_at_quantile(0.50));
-        stats.receive_interval_p90_ms = ms(interval, |h| h.value_at_quantile(0.90));
-        stats.receive_interval_p99_ms = ms(interval, |h| h.value_at_quantile(0.99));
-    }
-    if !ttfm.is_empty() {
-        stats.ttfm_mean_ms = ttfm.mean() / MICROS_PER_MILLI;
-        stats.ttfm_p50_ms = ms(ttfm, |h| h.value_at_quantile(0.50));
-        stats.ttfm_p90_ms = ms(ttfm, |h| h.value_at_quantile(0.90));
-        stats.ttfm_p99_ms = ms(ttfm, |h| h.value_at_quantile(0.99));
-    }
+    fold_percentiles(send, |p| {
+        stats.send_latency_mean_ms = p.mean_ms;
+        stats.send_latency_p50_ms = p.p50_ms;
+        stats.send_latency_p90_ms = p.p90_ms;
+        stats.send_latency_p99_ms = p.p99_ms;
+    });
+    fold_percentiles(interval, |p| {
+        stats.receive_interval_mean_ms = p.mean_ms;
+        stats.receive_interval_p50_ms = p.p50_ms;
+        stats.receive_interval_p90_ms = p.p90_ms;
+        stats.receive_interval_p99_ms = p.p99_ms;
+    });
+    fold_percentiles(ttfm, |p| {
+        stats.ttfm_mean_ms = p.mean_ms;
+        stats.ttfm_p50_ms = p.p50_ms;
+        stats.ttfm_p90_ms = p.p90_ms;
+        stats.ttfm_p99_ms = p.p99_ms;
+    });
     stats
 }
 
@@ -441,20 +435,17 @@ pub(crate) fn db_stats_from_histograms(
     acquire: &Histogram<u64>,
     query: &Histogram<u64>,
 ) -> DatabaseMetrics {
-    let ms = |hist: &Histogram<u64>, f: fn(&Histogram<u64>) -> u64| -> f64 {
-        f(hist) as f64 / MICROS_PER_MILLI
-    };
-    if !acquire.is_empty() {
-        stats.pool_acquire_mean_ms = acquire.mean() / MICROS_PER_MILLI;
-        stats.pool_acquire_p50_ms = ms(acquire, |h| h.value_at_quantile(0.50));
-        stats.pool_acquire_p90_ms = ms(acquire, |h| h.value_at_quantile(0.90));
-        stats.pool_acquire_p99_ms = ms(acquire, |h| h.value_at_quantile(0.99));
-    }
-    if !query.is_empty() {
-        stats.query_mean_ms = query.mean() / MICROS_PER_MILLI;
-        stats.query_p50_ms = ms(query, |h| h.value_at_quantile(0.50));
-        stats.query_p90_ms = ms(query, |h| h.value_at_quantile(0.90));
-        stats.query_p99_ms = ms(query, |h| h.value_at_quantile(0.99));
-    }
+    fold_percentiles(acquire, |p| {
+        stats.pool_acquire_mean_ms = p.mean_ms;
+        stats.pool_acquire_p50_ms = p.p50_ms;
+        stats.pool_acquire_p90_ms = p.p90_ms;
+        stats.pool_acquire_p99_ms = p.p99_ms;
+    });
+    fold_percentiles(query, |p| {
+        stats.query_mean_ms = p.mean_ms;
+        stats.query_p50_ms = p.p50_ms;
+        stats.query_p90_ms = p.p90_ms;
+        stats.query_p99_ms = p.p99_ms;
+    });
     stats
 }

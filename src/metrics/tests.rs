@@ -4,14 +4,13 @@ use std::time::UNIX_EPOCH;
 use hdrhistogram::Histogram;
 use tokio::sync::mpsc;
 
-use super::helpers::{HISTOGRAM_HIGHEST_TRACKABLE, HISTOGRAM_SIGNIFICANT_FIGURES, ns_since_epoch};
+use super::helpers::{Percentiles, new_histogram, ns_since_epoch};
 use super::summary::calculate_histogram_from_hdr;
 use super::*;
 
 /// Helper to create a histogram pre-loaded with values.
 fn create_test_histogram(values: &[u64]) -> Histogram<u64> {
-    let mut h = Histogram::new_with_max(HISTOGRAM_HIGHEST_TRACKABLE, HISTOGRAM_SIGNIFICANT_FIGURES)
-        .unwrap();
+    let mut h = new_histogram();
     for &v in values {
         h.saturating_record(v);
     }
@@ -1079,4 +1078,24 @@ async fn timeline_is_none_when_disabled() {
 
     let agg = finalize_metrics(rx, 0).await;
     assert!(agg.timeline.is_none());
+}
+
+#[test]
+fn percentiles_from_empty_histogram_are_zero() {
+    let p = Percentiles::from_histogram(&new_histogram());
+    assert_eq!(p.mean_ms, 0.0);
+    assert_eq!(p.p50_ms, 0.0);
+    assert_eq!(p.p90_ms, 0.0);
+    assert_eq!(p.p99_ms, 0.0);
+}
+
+#[test]
+fn percentiles_convert_microseconds_to_milliseconds() {
+    let mut hist = new_histogram();
+    hist.saturating_record(2_000);
+    let p = Percentiles::from_histogram(&hist);
+    assert_eq!(p.mean_ms, 2.0);
+    assert_eq!(p.p50_ms, 2.0);
+    assert_eq!(p.p90_ms, 2.0);
+    assert_eq!(p.p99_ms, 2.0);
 }

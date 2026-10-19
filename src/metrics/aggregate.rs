@@ -4,7 +4,7 @@ use std::time::{Duration, Instant};
 use hdrhistogram::Histogram;
 use tokio::sync::mpsc;
 
-use super::helpers::{HISTOGRAM_HIGHEST_TRACKABLE, HISTOGRAM_SIGNIFICANT_FIGURES};
+use super::helpers::new_histogram;
 use super::protocols::{
     DatabaseMetrics, GraphqlMetrics, GraphqlWsMetrics, GrpcMetrics, Http3Metrics, QuicMetrics,
     SoapMetrics, SseMetrics, StompMetrics, WebsocketMetrics,
@@ -45,21 +45,9 @@ pub struct AggregatedMetrics {
 impl Default for AggregatedMetrics {
     fn default() -> Self {
         Self {
-            latency_histogram: Histogram::new_with_max(
-                HISTOGRAM_HIGHEST_TRACKABLE,
-                HISTOGRAM_SIGNIFICANT_FIGURES,
-            )
-            .unwrap(),
-            e2e_latency_histogram: Histogram::new_with_max(
-                HISTOGRAM_HIGHEST_TRACKABLE,
-                HISTOGRAM_SIGNIFICANT_FIGURES,
-            )
-            .unwrap(),
-            connection_latency_histogram: Histogram::new_with_max(
-                HISTOGRAM_HIGHEST_TRACKABLE,
-                HISTOGRAM_SIGNIFICANT_FIGURES,
-            )
-            .unwrap(),
+            latency_histogram: new_histogram(),
+            e2e_latency_histogram: new_histogram(),
+            connection_latency_histogram: new_histogram(),
             status_codes: HashMap::new(),
             total_bytes: 0,
             quic_metrics: None,
@@ -106,29 +94,15 @@ pub async fn finalize_metrics(
     let mut has_soap = false;
     let mut stomp_stats = StompMetrics::default();
     let mut has_stomp = false;
-    let mut stomp_send_histogram =
-        Histogram::new_with_max(HISTOGRAM_HIGHEST_TRACKABLE, HISTOGRAM_SIGNIFICANT_FIGURES)
-            .expect("valid histogram bounds");
-    let mut stomp_interval_histogram =
-        Histogram::new_with_max(HISTOGRAM_HIGHEST_TRACKABLE, HISTOGRAM_SIGNIFICANT_FIGURES)
-            .expect("valid histogram bounds");
-    let mut stomp_ttfm_histogram =
-        Histogram::new_with_max(HISTOGRAM_HIGHEST_TRACKABLE, HISTOGRAM_SIGNIFICANT_FIGURES)
-            .expect("valid histogram bounds");
+    let mut stomp_send_histogram = new_histogram();
+    let mut stomp_interval_histogram = new_histogram();
+    let mut stomp_ttfm_histogram = new_histogram();
     let mut db_stats = DatabaseMetrics::default();
     let mut has_db = false;
-    let mut db_acquire_histogram =
-        Histogram::new_with_max(HISTOGRAM_HIGHEST_TRACKABLE, HISTOGRAM_SIGNIFICANT_FIGURES)
-            .expect("valid histogram bounds");
-    let mut db_query_histogram =
-        Histogram::new_with_max(HISTOGRAM_HIGHEST_TRACKABLE, HISTOGRAM_SIGNIFICANT_FIGURES)
-            .expect("valid histogram bounds");
-    let mut graphql_ws_ttfm_histogram =
-        Histogram::new_with_max(HISTOGRAM_HIGHEST_TRACKABLE, HISTOGRAM_SIGNIFICANT_FIGURES)
-            .expect("valid histogram bounds");
-    let mut graphql_ws_interval_histogram =
-        Histogram::new_with_max(HISTOGRAM_HIGHEST_TRACKABLE, HISTOGRAM_SIGNIFICANT_FIGURES)
-            .expect("valid histogram bounds");
+    let mut db_acquire_histogram = new_histogram();
+    let mut db_query_histogram = new_histogram();
+    let mut graphql_ws_ttfm_histogram = new_histogram();
+    let mut graphql_ws_interval_histogram = new_histogram();
     let mut ws_bp_sum: u64 = 0;
     let mut ws_bp_count: u64 = 0;
     let mut grpc_util_sum: f64 = 0.0;
@@ -148,9 +122,7 @@ pub async fn finalize_metrics(
     let run_start = Instant::now();
     let mut last_sample_at = Instant::now();
     let mut timeline_samples: Vec<TimelineSample> = Vec::new();
-    let mut interval_histogram =
-        Histogram::new_with_max(HISTOGRAM_HIGHEST_TRACKABLE, HISTOGRAM_SIGNIFICANT_FIGURES)
-            .expect("valid histogram bounds");
+    let mut interval_histogram = new_histogram();
     let mut interval_requests: u64 = 0;
     let mut interval_errors: u64 = 0;
 
@@ -370,9 +342,7 @@ pub async fn finalize_metrics(
                     &interval_histogram,
                 ));
             }
-            interval_histogram =
-                Histogram::new_with_max(HISTOGRAM_HIGHEST_TRACKABLE, HISTOGRAM_SIGNIFICANT_FIGURES)
-                    .expect("valid histogram bounds");
+            interval_histogram = new_histogram();
             interval_requests = 0;
             interval_errors = 0;
             last_sample_at = Instant::now();
