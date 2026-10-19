@@ -1,0 +1,39 @@
+---
+name: Publish GitHub Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+
+jobs:
+  release:
+    name: Create GitHub Release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write  # Required to create the release and upload assets
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+
+      - name: Build Source Tarball
+        env:
+          TAG: ${{ github.ref_name }}
+          REPO_NAME: ${{ github.event.repository.name }}
+        run: |
+          VERSION="${TAG#v}"
+          git archive \
+            --format=tar.gz \
+            --prefix="${REPO_NAME}-${VERSION}/" \
+            "$TAG" > source-code.tar.gz
+
+      - name: Create Release and Upload Asset
+        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64  # v3
+        with:
+          files: |
+            source-code.tar.gz
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
