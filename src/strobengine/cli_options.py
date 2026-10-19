@@ -10,8 +10,9 @@ signature; only the verbose ``Annotated[...]`` metadata is shared.
 
 from __future__ import annotations
 
+from dataclasses import fields
 from enum import StrEnum
-from typing import Annotated
+from typing import Annotated, Any
 
 import typer
 
@@ -431,66 +432,19 @@ PostSpikeOpt = Annotated[
 ]
 
 
-# Subset of parsed parameters that map onto RequestOptions. Kept as an explicit
-# allow-list so profile args and export/logging flags are routed elsewhere.
+# CLI parameter names that feed RequestOptions. Derived from the dataclass so a
+# new option is picked up automatically; only the renamed flags and the fields
+# intentionally hidden from the CLI are listed manually.
+_CLI_ALIASES: dict[str, str] = {
+    "header": "headers",
+    "stomp_header": "stomp_headers",
+    "db_param": "db_params",
+}
+_HIDDEN_CLI_FIELDS = frozenset({"chaos_rate", "headers", "stomp_headers", "db_params"})
+
 _REQUEST_FIELDS = frozenset(
-    {
-        "timeout",
-        "method",
-        "body",
-        "form",
-        "header",
-        "chaos",
-        "no_progress",
-        "ws_mode",
-        "ws_payload",
-        "ws_persistent",
-        "ws_keepalive_secs",
-        "ws_role",
-        "ws_publish_interval_ms",
-        "ws_subscribers",
-        "grpc_service",
-        "grpc_method",
-        "grpc_payload",
-        "grpc_deadline_ms",
-        "proto_path",
-        "grpc_use_reflection",
-        "http3_enabled",
-        "quic_zero_rtt",
-        "quic_max_idle_timeout_ms",
-        "sse_enabled",
-        "sse_max_events",
-        "graphql_query",
-        "graphql_variables",
-        "graphql_operation_name",
-        "soap_enabled",
-        "soap_action",
-        "soap_version",
-        "stomp_destination",
-        "stomp_message",
-        "stomp_mode",
-        "stomp_ack",
-        "stomp_receipt",
-        "stomp_header",
-        "db_query",
-        "db_pool_size",
-        "db_fetch",
-        "db_max_rows",
-        "db_param",
-        "output_dir",
-        "no_save",
-        "sys_sample_interval",
-        "ws_max_buffer_bytes",
-        "ws_backpressure_warn_ratio",
-        "grpc_h2_multiplex",
-        "http3_migrate",
-        "http3_migrate_every",
-        "slo_p95_ms",
-        "slo_p99_ms",
-        "slo_error_rate",
-        "slo_min_rps",
-        "timeline_interval_ms",
-    }
+    ({field.name for field in fields(RequestOptions)} - _HIDDEN_CLI_FIELDS)
+    | set(_CLI_ALIASES)
 )
 
 
@@ -539,124 +493,26 @@ def _parse_form(form_str: str | None) -> list[tuple[str, str]] | None:
     return pairs or None
 
 
-def _build_request_options(
-    *,
-    timeout: int = RequestOptions.timeout,
-    method: str = RequestOptions.method,
-    body: str | None = RequestOptions.body,
-    form: str | None = None,
-    header: list[str] | None = None,
-    chaos: bool = RequestOptions.chaos,
-    no_progress: bool = RequestOptions.no_progress,
-    ws_mode: WsModeEnum | None = None,
-    ws_payload: str | None = RequestOptions.ws_payload,
-    ws_persistent: bool = RequestOptions.ws_persistent,
-    ws_keepalive_secs: int | None = RequestOptions.ws_keepalive_secs,
-    ws_role: WsRole | None = None,
-    ws_publish_interval_ms: int | None = RequestOptions.ws_publish_interval_ms,
-    ws_subscribers: int | None = RequestOptions.ws_subscribers,
-    grpc_service: str | None = RequestOptions.grpc_service,
-    grpc_method: str | None = RequestOptions.grpc_method,
-    grpc_payload: str | None = RequestOptions.grpc_payload,
-    grpc_deadline_ms: int | None = RequestOptions.grpc_deadline_ms,
-    proto_path: str | None = RequestOptions.proto_path,
-    grpc_use_reflection: bool = RequestOptions.grpc_use_reflection,
-    http3_enabled: bool = RequestOptions.http3_enabled,
-    quic_zero_rtt: bool = RequestOptions.quic_zero_rtt,
-    quic_max_idle_timeout_ms: int | None = RequestOptions.quic_max_idle_timeout_ms,
-    sse_enabled: bool = RequestOptions.sse_enabled,
-    sse_max_events: int | None = RequestOptions.sse_max_events,
-    graphql_query: str | None = RequestOptions.graphql_query,
-    graphql_variables: str | None = RequestOptions.graphql_variables,
-    graphql_operation_name: str | None = RequestOptions.graphql_operation_name,
-    soap_enabled: bool = RequestOptions.soap_enabled,
-    soap_action: str | None = RequestOptions.soap_action,
-    soap_version: SoapVersionEnum = RequestOptions.soap_version,
-    stomp_destination: str | None = RequestOptions.stomp_destination,
-    stomp_message: str | None = RequestOptions.stomp_message,
-    stomp_mode: StompModeEnum = RequestOptions.stomp_mode,
-    stomp_ack: StompAckEnum = RequestOptions.stomp_ack,
-    stomp_receipt: bool = RequestOptions.stomp_receipt,
-    stomp_header: list[str] | None = None,
-    db_query: str | None = RequestOptions.db_query,
-    db_pool_size: int | None = RequestOptions.db_pool_size,
-    db_fetch: bool = RequestOptions.db_fetch,
-    db_max_rows: int | None = RequestOptions.db_max_rows,
-    db_param: list[str] | None = None,
-    output_dir: str | None = RequestOptions.output_dir,
-    no_save: bool = RequestOptions.no_save,
-    sys_sample_interval: int = RequestOptions.sys_sample_interval,
-    ws_max_buffer_bytes: int = RequestOptions.ws_max_buffer_bytes,
-    ws_backpressure_warn_ratio: float = RequestOptions.ws_backpressure_warn_ratio,
-    grpc_h2_multiplex: bool = RequestOptions.grpc_h2_multiplex,
-    http3_migrate: bool = RequestOptions.http3_migrate,
-    http3_migrate_every: int = RequestOptions.http3_migrate_every,
-    slo_p95_ms: float | None = RequestOptions.slo_p95_ms,
-    slo_p99_ms: float | None = RequestOptions.slo_p99_ms,
-    slo_error_rate: float | None = RequestOptions.slo_error_rate,
-    slo_min_rps: float | None = RequestOptions.slo_min_rps,
-    timeline_interval_ms: int = RequestOptions.timeline_interval_ms,
-) -> RequestOptions:
-    """Assemble a typed ``RequestOptions`` from the parsed CLI option values.
+def _build_request_options(**values: Any) -> RequestOptions:
+    """Assemble ``RequestOptions`` from the parsed CLI option values.
 
-    Keyword-only with defaults sourced from the ``RequestOptions`` dataclass
-    so callers may pass the full filtered set (via the ``_REQUEST_FIELDS``
-    splat) or a partial subset without risking default drift.
+    Accepts the full filtered set (via the ``_REQUEST_FIELDS`` splat) or a
+    partial subset. Only flags whose representation differs are handled
+    explicitly; every other field maps one-to-one onto ``RequestOptions``.
     """
-    return RequestOptions(
-        timeout=timeout,
-        method=_validate_method(method),
-        body=body,
-        form=_parse_form(form),
-        headers=_parse_headers(header),
-        chaos=chaos,
-        no_progress=no_progress,
-        ws_mode=ws_mode if ws_mode is not None else WsModeEnum.handshake,
-        ws_payload=ws_payload,
-        ws_persistent=ws_persistent,
-        ws_keepalive_secs=ws_keepalive_secs,
-        ws_role=ws_role.value if ws_role is not None else None,
-        ws_publish_interval_ms=ws_publish_interval_ms,
-        ws_subscribers=ws_subscribers,
-        grpc_service=grpc_service,
-        grpc_method=grpc_method,
-        grpc_payload=grpc_payload,
-        grpc_deadline_ms=grpc_deadline_ms,
-        proto_path=proto_path,
-        grpc_use_reflection=grpc_use_reflection,
-        http3_enabled=http3_enabled,
-        quic_zero_rtt=quic_zero_rtt,
-        quic_max_idle_timeout_ms=quic_max_idle_timeout_ms,
-        sse_enabled=sse_enabled,
-        sse_max_events=sse_max_events,
-        graphql_query=graphql_query,
-        graphql_variables=graphql_variables,
-        graphql_operation_name=graphql_operation_name,
-        soap_enabled=soap_enabled,
-        soap_action=soap_action,
-        soap_version=soap_version,
-        stomp_destination=stomp_destination,
-        stomp_message=stomp_message,
-        stomp_mode=stomp_mode,
-        stomp_ack=stomp_ack,
-        stomp_receipt=stomp_receipt,
-        stomp_headers=_parse_headers(stomp_header),
-        db_query=db_query,
-        db_pool_size=db_pool_size,
-        db_fetch=db_fetch,
-        db_max_rows=db_max_rows,
-        db_params=db_param,
-        output_dir=output_dir,
-        no_save=no_save,
-        sys_sample_interval=sys_sample_interval,
-        ws_max_buffer_bytes=ws_max_buffer_bytes,
-        ws_backpressure_warn_ratio=ws_backpressure_warn_ratio,
-        grpc_h2_multiplex=grpc_h2_multiplex,
-        http3_migrate=http3_migrate,
-        http3_migrate_every=http3_migrate_every,
-        slo_p95_ms=slo_p95_ms,
-        slo_p99_ms=slo_p99_ms,
-        slo_error_rate=slo_error_rate,
-        slo_min_rps=slo_min_rps,
-        timeline_interval_ms=timeline_interval_ms,
-    )
+    kwargs: dict[str, Any] = {}
+
+    kwargs["headers"] = _parse_headers(values.pop("header", None))
+    kwargs["stomp_headers"] = _parse_headers(values.pop("stomp_header", None))
+    kwargs["db_params"] = values.pop("db_param", None)
+
+    kwargs["method"] = _validate_method(values.pop("method", RequestOptions.method))
+    kwargs["form"] = _parse_form(values.pop("form", None))
+
+    ws_mode = values.pop("ws_mode", None)
+    kwargs["ws_mode"] = ws_mode if ws_mode is not None else RequestOptions.ws_mode
+    ws_role = values.pop("ws_role", None)
+    kwargs["ws_role"] = ws_role.value if ws_role is not None else None
+
+    kwargs.update(values)
+    return RequestOptions(**kwargs)
