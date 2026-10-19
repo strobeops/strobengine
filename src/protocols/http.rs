@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
@@ -9,7 +10,7 @@ use reqwest::Url;
 use crate::chaos::{ChaosEngine, ChaosFault};
 use crate::metrics::RequestMetric;
 
-use super::ProtocolEngine;
+use super::{ProtocolEngine, WorkerSession};
 
 static CORRUPTED_BODY: &[u8] = b"{\"payload\": \"\\xff\\xfe\\xbd\\xef\"}";
 static CHAOS_HEADER: &str = "x-chaos-fault";
@@ -67,6 +68,36 @@ impl HttpEngine {
     }
 }
 
+/// Worker-local cache of parsed target URLs.
+///
+/// HTTP runs can target multiple endpoints (the distributed executor
+/// round-robins them), so the cache is keyed by the target string. Each worker
+/// owns its session, so no locking is needed.
+#[derive(Default)]
+struct HttpSession {
+    urls: HashMap<String, Url>,
+}
+
+impl HttpSession {
+    fn resolve(&mut self, target: &str) -> Result<Url, String> {
+        if let Some(url) = self.urls.get(target) {
+            return Ok(url.clone());
+        }
+        let url = Url::parse(target).map_err(|e| e.to_string())?;
+        self.urls.insert(target.to_string(), url.clone());
+        Ok(url)
+    }
+}
+
+#[async_trait]
+impl WorkerSession for HttpSession {
+    async fn shutdown(&mut self) {}
+
+    fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
+        self
+    }
+}
+
 /// Read the response body to EOF, counting the bytes actually received.
 ///
 /// Draining is what returns the connection to the reqwest pool: dropping a
@@ -87,20 +118,53 @@ async fn drain_body(response: reqwest::Response) -> (u64, Option<reqwest::Error>
 
 #[async_trait]
 impl ProtocolEngine for HttpEngine {
+    /// Stateless fallback: callers without a worker session pay one parse per
+    /// iteration. The orchestrator (and distributed VUs) use
+    /// [`HttpEngine::execute_iteration_with_context`], which caches parsed URLs
+    /// per worker.
     async fn execute_iteration(&self, target_url: &str) -> RequestMetric {
         let req_start = Instant::now();
-
-        // Parse URL once — cached across iterations by the caller
         let parsed_url = match Url::parse(target_url) {
-            Ok(u) => u,
+            Ok(url) => url,
             Err(e) => {
                 tracing::error!(error = %e, "failed to parse URL");
                 return RequestMetric::error(req_start.elapsed().as_micros(), None);
             }
         };
+        self.execute_with_url(req_start, parsed_url).await
+    }
 
-        let base_request = || {
-            let mut req = self.client.request(self.method.clone(), parsed_url.clone());
+    async fn create_worker_context(&self) -> Option<Box<dyn WorkerSession>> {
+        Some(Box::new(HttpSession::default()))
+    }
+
+    async fn execute_iteration_with_context(
+        &self,
+        target_url: &str,
+        ctx: &mut dyn WorkerSession,
+    ) -> RequestMetric {
+        let req_start = Instant::now();
+        let Some(session) = ctx.as_any_mut().downcast_mut::<HttpSession>() else {
+            return self.execute_iteration(target_url).await;
+        };
+        match session.resolve(target_url) {
+            Ok(url) => self.execute_with_url(req_start, url).await,
+            Err(e) => {
+                tracing::error!(error = %e, "failed to parse URL");
+                RequestMetric::error(req_start.elapsed().as_micros(), None)
+            }
+        }
+    }
+}
+
+impl HttpEngine {
+    /// Execute one iteration against an already-parsed URL.
+    ///
+    /// reqwest requires an owned `Url` per request, so the cached value is
+    /// cloned once here; the expensive parse is not repeated.
+    async fn execute_with_url(&self, req_start: Instant, url: Url) -> RequestMetric {
+        let base_request = |url: Url| {
+            let mut req = self.client.request(self.method.clone(), url);
             if let Some(ref b) = self.body {
                 req = req.body(b.clone());
             }
@@ -112,24 +176,24 @@ impl ProtocolEngine for HttpEngine {
             Some(ChaosFault::LatencySpike { duration_ms }) => {
                 tracing::trace!(duration_ms, "chaos: latency spike injected");
                 tokio::time::sleep(Duration::from_millis(duration_ms)).await;
-                base_request()
+                base_request(url)
             }
             Some(ChaosFault::CorruptedPayload) => {
                 tracing::trace!("chaos: corrupted payload injected");
                 self.client
-                    .request(self.method.clone(), target_url)
+                    .request(self.method.clone(), url)
                     .header(CHAOS_HEADER, "corrupted-payload")
                     .body(CORRUPTED_BODY)
             }
             Some(ChaosFault::MetadataCorruption) => {
                 tracing::trace!("chaos: metadata corruption injected");
-                base_request().header(CHAOS_HEADER, BAD_HEADER_VALUE)
+                base_request(url).header(CHAOS_HEADER, BAD_HEADER_VALUE)
             }
             Some(ChaosFault::ConnectionDrop) => {
                 tracing::trace!("chaos: connection drop injected");
-                base_request().timeout(Duration::from_nanos(1))
+                base_request(url).timeout(Duration::from_nanos(1))
             }
-            None => base_request(),
+            None => base_request(url),
         };
 
         let metric = match request.send().await {
@@ -307,6 +371,35 @@ mod tests {
         assert_eq!(
             metric.bytes_received, 3,
             "bytes received before the premature close must be kept"
+        );
+    }
+
+    #[tokio::test]
+    async fn worker_session_caches_parsed_urls_and_handles_multiple_targets() {
+        let (url_a, accepts_a) = spawn_raw_http_server("keep_alive").await;
+        let (url_b, accepts_b) = spawn_raw_http_server("keep_alive").await;
+        let engine = HttpEngine::new();
+        let mut ctx = engine.create_worker_context().await.unwrap();
+
+        // Interleave both targets through one worker session: each URL is
+        // parsed on first sight and reused thereafter.
+        for url in [&url_a, &url_b, &url_a, &url_b] {
+            let metric = engine
+                .execute_iteration_with_context(url, ctx.as_mut())
+                .await;
+            assert_eq!(metric.status_code, 200, "request to {url} failed");
+            assert_eq!(metric.bytes_received, 10);
+        }
+
+        assert_eq!(
+            accepts_a.load(Ordering::Relaxed),
+            1,
+            "server A must reuse a single pooled socket"
+        );
+        assert_eq!(
+            accepts_b.load(Ordering::Relaxed),
+            1,
+            "server B must reuse a single pooled socket"
         );
     }
 }

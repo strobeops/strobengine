@@ -161,6 +161,9 @@ pub async fn run_virtual_users(
         let shutdown = shutdown.clone();
         let metric_tx = metric_tx.clone();
         handles.push(tokio::spawn(async move {
+            // Worker-local session lets the engine cache parsed target URLs;
+            // distributed runs round-robin across multiple targets.
+            let mut ctx = engine.create_worker_context().await;
             let mut index = vu;
             loop {
                 if shutdown.is_cancelled() {
@@ -173,10 +176,16 @@ pub async fn run_virtual_users(
                 }
                 let url = &targets[index % targets.len()];
                 index = index.wrapping_add(1);
-                let metric = engine.execute_iteration(url).await;
+                let metric = match ctx.as_deref_mut() {
+                    Some(session) => engine.execute_iteration_with_context(url, session).await,
+                    None => engine.execute_iteration(url).await,
+                };
                 if metric_tx.send(metric).await.is_err() {
                     break;
                 }
+            }
+            if let Some(mut session) = ctx {
+                session.shutdown().await;
             }
         }));
     }
