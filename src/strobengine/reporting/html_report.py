@@ -7,9 +7,8 @@ from pathlib import Path
 
 from jinja2 import Environment, FileSystemLoader
 
-from strobengine._strobengine import TestSummary
+from strobengine._strobengine import TestConfig, TestSummary
 from strobengine.artifact import build_artifact_dict
-from strobengine.report_schema import SupportsCliOptions
 from strobengine.reporting.baseline import ComparisonDict
 
 # Load Chart.js from local asset for 100% offline reports
@@ -26,7 +25,7 @@ _HTML_TEMPLATE = Environment(
 
 def render_html_report(
     summary: TestSummary,
-    config: SupportsCliOptions,
+    config: TestConfig,
     comparison: ComparisonDict | None = None,
 ) -> str:
     """Render a self-contained HTML report from TestSummary + config."""
@@ -135,7 +134,7 @@ def render_html_report(
 
 def save_html_report(
     summary: TestSummary,
-    config: SupportsCliOptions,
+    config: TestConfig,
     filepath: str,
     comparison: ComparisonDict | None = None,
 ) -> str:
