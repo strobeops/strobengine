@@ -10,12 +10,27 @@ signature; only the verbose ``Annotated[...]`` metadata is shared.
 
 from __future__ import annotations
 
+import inspect
+from collections.abc import Callable
 from dataclasses import fields
 from enum import StrEnum
 from typing import Annotated, Any
 
 import typer
 
+from strobengine.constants import (
+    DEFAULT_BASELINE,
+    DEFAULT_CONCURRENCY,
+    DEFAULT_DURATION_SECS,
+    DEFAULT_HOLD_SECS,
+    DEFAULT_MAX_CONCURRENCY,
+    DEFAULT_PEAK_CONCURRENCY,
+    DEFAULT_POST_SPIKE_SECS,
+    DEFAULT_PRE_SPIKE_SECS,
+    DEFAULT_RAMP_SECS,
+    DEFAULT_SPIKE_SECS,
+    DEFAULT_START_CONCURRENCY,
+)
 from strobengine.engine import (
     RequestOptions,
     SoapVersionEnum,
@@ -31,6 +46,9 @@ class WsRole(StrEnum):
     publisher = "publisher"
     subscriber = "subscriber"
 
+
+# (parameter name, Annotated[...] carrying typer.Option metadata, runtime default)
+OptionSpec = tuple[str, Any, Any]
 
 # --- Positional argument --------------------------------------------------
 
@@ -430,6 +448,159 @@ PostSpikeOpt = Annotated[
     int,
     typer.Option("--post-spike", help="Post-spike duration in seconds", min=0),
 ]
+
+
+# --- Shared option blocks -------------------------------------------------
+
+COMMON_OPTION_SPECS: list[OptionSpec] = [
+    ("timeout", TimeoutOpt, RequestOptions.timeout),
+    ("method", MethodOpt, RequestOptions.method),
+    ("body", BodyOpt, RequestOptions.body),
+    ("form", FormOpt, None),
+    ("header", HeaderOpt, None),
+    ("chaos", ChaosOpt, RequestOptions.chaos),
+    ("no_progress", NoProgressOpt, RequestOptions.no_progress),
+    ("json_output", JsonOutputOpt, False),
+    ("verbose", VerboseOpt, 0),
+    ("quiet", QuietOpt, False),
+    ("log_file", LogFileOpt, None),
+    ("ws_mode", WsModeOpt, None),
+    ("ws_payload", WsPayloadOpt, RequestOptions.ws_payload),
+    ("ws_persistent", WsPersistentOpt, RequestOptions.ws_persistent),
+    ("ws_keepalive_secs", WsKeepaliveSecsOpt, RequestOptions.ws_keepalive_secs),
+    ("ws_role", WsRoleOpt, None),
+    (
+        "ws_publish_interval_ms",
+        WsPublishIntervalOpt,
+        RequestOptions.ws_publish_interval_ms,
+    ),
+    ("ws_subscribers", WsSubscribersOpt, RequestOptions.ws_subscribers),
+    ("grpc_service", GrpcServiceOpt, RequestOptions.grpc_service),
+    ("grpc_method", GrpcMethodOpt, RequestOptions.grpc_method),
+    ("grpc_payload", GrpcPayloadOpt, RequestOptions.grpc_payload),
+    ("grpc_deadline_ms", GrpcDeadlineMsOpt, RequestOptions.grpc_deadline_ms),
+    ("proto_path", ProtoPathOpt, RequestOptions.proto_path),
+    ("grpc_use_reflection", GrpcUseReflectionOpt, RequestOptions.grpc_use_reflection),
+    ("http3_enabled", Http3Opt, RequestOptions.http3_enabled),
+    ("quic_zero_rtt", QuicZeroRttOpt, RequestOptions.quic_zero_rtt),
+    (
+        "quic_max_idle_timeout_ms",
+        QuicMaxIdleTimeoutOpt,
+        RequestOptions.quic_max_idle_timeout_ms,
+    ),
+    ("sse_enabled", SseEnabledOpt, RequestOptions.sse_enabled),
+    ("sse_max_events", SseMaxEventsOpt, RequestOptions.sse_max_events),
+    ("graphql_query", GraphqlQueryOpt, RequestOptions.graphql_query),
+    ("graphql_variables", GraphqlVariablesOpt, RequestOptions.graphql_variables),
+    (
+        "graphql_operation_name",
+        GraphqlOperationNameOpt,
+        RequestOptions.graphql_operation_name,
+    ),
+    ("output_dir", OutputDirOpt, RequestOptions.output_dir),
+    ("no_save", NoSaveOpt, RequestOptions.no_save),
+    ("sys_sample_interval", SysSampleIntervalOpt, RequestOptions.sys_sample_interval),
+    ("ws_max_buffer_bytes", WsMaxBufferBytesOpt, RequestOptions.ws_max_buffer_bytes),
+    (
+        "ws_backpressure_warn_ratio",
+        WsBackpressureWarnRatioOpt,
+        RequestOptions.ws_backpressure_warn_ratio,
+    ),
+    ("grpc_h2_multiplex", GrpcH2MultiplexOpt, RequestOptions.grpc_h2_multiplex),
+    ("http3_migrate", Http3MigrateOpt, RequestOptions.http3_migrate),
+    ("http3_migrate_every", Http3MigrateEveryOpt, RequestOptions.http3_migrate_every),
+    ("slo_p95_ms", SloP95MsOpt, RequestOptions.slo_p95_ms),
+    ("slo_p99_ms", SloP99MsOpt, RequestOptions.slo_p99_ms),
+    ("slo_error_rate", SloErrorRateOpt, RequestOptions.slo_error_rate),
+    ("slo_min_rps", SloMinRpsOpt, RequestOptions.slo_min_rps),
+    ("timeline_interval_ms", TimelineIntervalOpt, RequestOptions.timeline_interval_ms),
+    ("soap_enabled", SoapOpt, RequestOptions.soap_enabled),
+    ("soap_action", SoapActionOpt, RequestOptions.soap_action),
+    ("soap_version", SoapVersionOpt, RequestOptions.soap_version),
+    ("stomp_destination", StompDestinationOpt, RequestOptions.stomp_destination),
+    ("stomp_message", StompMessageOpt, RequestOptions.stomp_message),
+    ("stomp_mode", StompModeOpt, RequestOptions.stomp_mode),
+    ("stomp_ack", StompAckOpt, RequestOptions.stomp_ack),
+    ("stomp_receipt", StompReceiptOpt, RequestOptions.stomp_receipt),
+    ("stomp_header", StompHeaderOpt, None),
+    ("db_query", DbQueryOpt, RequestOptions.db_query),
+    ("db_pool_size", DbPoolSizeOpt, RequestOptions.db_pool_size),
+    ("db_fetch", DbFetchOpt, RequestOptions.db_fetch),
+    ("db_max_rows", DbMaxRowsOpt, RequestOptions.db_max_rows),
+    ("db_param", DbParamOpt, None),
+    ("html_output", HtmlOpt, None),
+    ("compare_to", CompareToOpt, None),
+    ("export_markdown", MarkdownOpt, None),
+    ("export_junit", JunitOpt, None),
+    ("export_csv", CsvOpt, None),
+]
+
+LOAD_OPTION_SPECS: list[OptionSpec] = [
+    ("concurrency", ConcurrencyOpt, DEFAULT_CONCURRENCY),
+    ("duration", DurationOpt, DEFAULT_DURATION_SECS),
+]
+
+STRESS_OPTION_SPECS: list[OptionSpec] = [
+    ("start", FromOpt, DEFAULT_START_CONCURRENCY),
+    ("target", ToOpt, DEFAULT_MAX_CONCURRENCY),
+    ("ramp", RampOpt, DEFAULT_RAMP_SECS),
+    ("hold", HoldOpt, DEFAULT_HOLD_SECS),
+]
+
+SPIKE_OPTION_SPECS: list[OptionSpec] = [
+    ("baseline", BaselineOpt, DEFAULT_BASELINE),
+    ("peak", PeakOpt, DEFAULT_PEAK_CONCURRENCY),
+    ("pre_spike", PreSpikeOpt, DEFAULT_PRE_SPIKE_SECS),
+    ("spike_duration", SpikeDurationOpt, DEFAULT_SPIKE_SECS),
+    ("post_spike", PostSpikeOpt, DEFAULT_POST_SPIKE_SECS),
+]
+
+_EXPORT_OPTION_NAMES: tuple[str, ...] = (
+    "json_output",
+    "log_file",
+    "verbose",
+    "quiet",
+    "html_output",
+    "compare_to",
+    "export_markdown",
+    "export_junit",
+    "export_csv",
+)
+
+
+def export_option_kwargs(opts: dict[str, Any]) -> dict[str, Any]:
+    """Extract the logging/export flags forwarded to ``_run_load_test``."""
+    return {name: opts[name] for name in _EXPORT_OPTION_NAMES}
+
+
+def with_command_options(*profile: OptionSpec) -> Callable[[Any], Any]:
+    """Inject the shared option block into a Typer command signature.
+
+    Typer reads ``__signature__``, so explicit keyword parameters are synthesized
+    from the declarative spec lists while the wrapped function keeps ``**opts``.
+    ``@app.command()`` must be applied *outside* this decorator.
+    """
+
+    def decorate(fn: Any) -> Any:
+        signature = inspect.signature(fn)
+        visible = [
+            param
+            for param in signature.parameters.values()
+            if param.kind is not inspect.Parameter.VAR_KEYWORD
+        ]
+        synthetic = [
+            inspect.Parameter(
+                name,
+                inspect.Parameter.KEYWORD_ONLY,
+                default=default,
+                annotation=annotation,
+            )
+            for name, annotation, default in (*profile, *COMMON_OPTION_SPECS)
+        ]
+        fn.__signature__ = signature.replace(parameters=visible + synthetic)
+        return fn
+
+    return decorate
 
 
 # CLI parameter names that feed RequestOptions. Derived from the dataclass so a

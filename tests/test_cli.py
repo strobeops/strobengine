@@ -530,11 +530,11 @@ class TestCLIOptionDefaults:
 
 
 class TestRequestFieldAllowlist:
-    """_REQUEST_FIELDS must stay in lock-step with the builder and commands.
+    """The shared CLI option block must stay in lock-step with RequestOptions.
 
-    Each subcommand feeds ``locals()`` through the allowlist into
-    _build_request_options; a renamed or new option missing from the set is
-    silently replaced by the builder default.
+    Each subcommand receives the block via ``with_command_options`` and forwards
+    it to ``_build_request_options``; keep the declarative specs and
+    ``_REQUEST_FIELDS`` aligned so a renamed/new option is not dropped.
     """
 
     def test_allowlist_derives_from_request_options(self):
@@ -581,5 +581,39 @@ class TestRequestFieldAllowlist:
             missing = allowlist - cmd_params
             assert not missing, (
                 f"{cmd.__name__} dropped allowlisted option(s) {missing}; the "
-                "locals() splat would silently fall back to builder defaults"
+                "shared option block would silently fall back to defaults"
             )
+
+    def test_commands_share_common_option_block(self):
+        import inspect
+
+        from strobengine.cli import load, spike, stress
+        from strobengine.cli_options import (
+            COMMON_OPTION_SPECS,
+            LOAD_OPTION_SPECS,
+            SPIKE_OPTION_SPECS,
+            STRESS_OPTION_SPECS,
+        )
+
+        common = [(name, default) for name, _, default in COMMON_OPTION_SPECS]
+        profiles = {
+            load: {name for name, _, _ in LOAD_OPTION_SPECS},
+            stress: {name for name, _, _ in STRESS_OPTION_SPECS},
+            spike: {name for name, _, _ in SPIKE_OPTION_SPECS},
+        }
+        for cmd, profile in profiles.items():
+            params = inspect.signature(cmd).parameters
+            for name, default in common:
+                assert params[name].default == default
+            expected = {"url", *profile, *(name for name, _ in common)}
+            assert set(params) == expected
+
+    def test_commands_expose_export_flags(self):
+        import inspect
+
+        from strobengine.cli import load, spike, stress
+        from strobengine.cli_options import _EXPORT_OPTION_NAMES
+
+        for cmd in (load, stress, spike):
+            params = set(inspect.signature(cmd).parameters)
+            assert set(_EXPORT_OPTION_NAMES) <= params
