@@ -6,9 +6,9 @@ import csv
 import io
 from pathlib import Path
 
-from strobengine._strobengine import TestSummary
+from strobengine._strobengine import TestConfig, TestSummary
 from strobengine.artifact import build_artifact_dict
-from strobengine.report_schema import ReportArtifactDict, SupportsCliOptions
+from strobengine.report_schema import ReportArtifactDict
 
 
 def generate_csv_report(artifact: ReportArtifactDict) -> str:
@@ -42,15 +42,13 @@ def generate_csv_report(artifact: ReportArtifactDict) -> str:
     return buf.getvalue()
 
 
-def render_csv_report(summary: TestSummary, config: SupportsCliOptions) -> str:
+def render_csv_report(summary: TestSummary, config: TestConfig) -> str:
     """Render a CSV report from TestSummary (convenience wrapper)."""
     artifact = build_artifact_dict(summary, config)
     return generate_csv_report(artifact)
 
 
-def save_csv_report(
-    summary: TestSummary, config: SupportsCliOptions, filepath: str
-) -> str:
+def save_csv_report(summary: TestSummary, config: TestConfig, filepath: str) -> str:
     """Render and write CSV report to disk. Returns filepath."""
     filepath = str(Path(filepath).expanduser().resolve())
     artifact = build_artifact_dict(summary, config)

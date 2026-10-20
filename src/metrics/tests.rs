@@ -1099,3 +1099,33 @@ fn percentiles_convert_microseconds_to_milliseconds() {
     assert_eq!(p.p90_ms, 2.0);
     assert_eq!(p.p99_ms, 2.0);
 }
+
+#[test]
+fn summary_json_round_trip_preserves_fields() {
+    let json = r#"{
+        "url": "http://localhost:8080",
+        "total_requests": 100,
+        "status_codes": {"200": 95, "500": 5},
+        "ws": {"pings_sent_total": 5}
+    }"#;
+    let summary: TestSummary = serde_json::from_str(json).expect("partial summary");
+    assert_eq!(summary.url, "http://localhost:8080");
+    assert_eq!(summary.total_requests, 100);
+    assert_eq!(summary.status_codes.get(&200), Some(&95));
+    assert_eq!(summary.ws.as_ref().map(|ws| ws.pings_sent_total), Some(5));
+
+    let encoded = serde_json::to_string(&summary).expect("encode");
+    let decoded: TestSummary = serde_json::from_str(&encoded).expect("decode");
+    assert_eq!(decoded.url, summary.url);
+    assert_eq!(decoded.status_codes, summary.status_codes);
+    assert_eq!(decoded.ws.map(|ws| ws.pings_sent_total), Some(5));
+}
+
+#[test]
+fn summary_json_applies_missing_field_defaults() {
+    let summary: TestSummary = serde_json::from_str(r#"{"url":"http://x"}"#).expect("decode");
+    assert_eq!(summary.url, "http://x");
+    assert_eq!(summary.total_requests, 0);
+    assert!(summary.status_codes.is_empty());
+    assert!(summary.ws.is_none());
+}

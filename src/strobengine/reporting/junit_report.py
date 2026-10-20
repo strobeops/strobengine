@@ -5,9 +5,9 @@ from __future__ import annotations
 from pathlib import Path
 from xml.etree.ElementTree import Element, SubElement, tostring
 
-from strobengine._strobengine import TestSummary
+from strobengine._strobengine import TestConfig, TestSummary
 from strobengine.artifact import build_artifact_dict
-from strobengine.report_schema import ReportArtifactDict, SupportsCliOptions
+from strobengine.report_schema import ReportArtifactDict
 
 
 def generate_junit_report(artifact: ReportArtifactDict) -> str:
@@ -118,15 +118,13 @@ def generate_junit_report(artifact: ReportArtifactDict) -> str:
     return xml_bytes
 
 
-def render_junit_report(summary: TestSummary, config: SupportsCliOptions) -> str:
+def render_junit_report(summary: TestSummary, config: TestConfig) -> str:
     """Render a JUnit XML report from TestSummary (convenience wrapper)."""
     artifact = build_artifact_dict(summary, config)
     return generate_junit_report(artifact)
 
 
-def save_junit_report(
-    summary: TestSummary, config: SupportsCliOptions, filepath: str
-) -> str:
+def save_junit_report(summary: TestSummary, config: TestConfig, filepath: str) -> str:
     """Render and write JUnit XML report to disk. Returns filepath."""
     filepath = str(Path(filepath).expanduser().resolve())
     artifact = build_artifact_dict(summary, config)

@@ -1,26 +1,23 @@
-"""Python source of truth for the ``ReportArtifact`` JSON schema.
+"""Python typing for the ``ReportArtifact`` JSON schema.
 
-Mirrors the Rust structs in ``src/report/schema.rs`` (``ReportArtifact`` and
-its nested types). Contract rules:
+The schema itself is produced by Rust (``src/report/schema.rs``) through
+``strobengine._strobengine.build_report_artifact_dict``; these ``TypedDict``s
+describe that output for type checkers. Contract rules:
 
 - Optional top-level metric blocks are **omitted entirely** when the run has
-  no such metrics -- they are never emitted as ``null``. Rust enforces this
-  with ``#[serde(skip_serializing_if = "Option::is_none")]``; the Python
-  fallback builder in :mod:`strobengine.artifact` must skip them too.
+  no such metrics -- they are never emitted as ``null`` (Rust uses
+  ``#[serde(skip_serializing_if = "Option::is_none")]``).
 - Fields typed ``... | None`` *without* ``NotRequired`` (e.g.
   ``cli_options.body``, ``quic.avg_handshake_ms``) are always present and may
-  be ``null`` -- serde serializes those ``Option`` fields unconditionally.
+  be ``null``.
 
-Adding a field requires updating this file, ``src/report/schema.rs``, and the
-fallback builder in ``src/strobengine/artifact.py`` together; the parity tests
-(``TestArtifactSchemaConsistency`` / ``TestRustDictParity`` in
-``tests/test_reporting.py`` and ``test_rust_fallback_artifact_parity`` in
-``tests/e2e/test_persistence_e2e.py``) enforce the mirror.
+Adding a field only requires updating ``src/report/schema.rs`` and this file;
+the parity tests in ``tests/test_reporting.py`` enforce the mirror.
 """
 
 from __future__ import annotations
 
-from typing import NotRequired, Protocol, TypedDict
+from typing import NotRequired, TypedDict
 
 
 class SystemInfoDict(TypedDict):
@@ -30,28 +27,6 @@ class SystemInfoDict(TypedDict):
 
 
 class CliOptionsDict(TypedDict):
-    method: str
-    concurrency: int
-    timeout_secs: int
-    chaos: bool
-    chaos_rate: float
-    body: str | None
-    headers: list[tuple[str, str]] | None
-    slo_p95_ms: float | None
-    slo_p99_ms: float | None
-    slo_error_rate: float | None
-    slo_min_rps: float | None
-
-
-class SupportsCliOptions(Protocol):
-    """Structural type for config objects the report builders can read.
-
-    Mirrors :class:`CliOptionsDict` key-for-key (enforced by
-    ``tests/test_report_boundaries.py``): the Rust ``TestConfig`` satisfies it
-    via its PyO3 getters, and the Python fallback builder reads exactly these
-    attributes instead of duck-typed ``getattr`` defaults.
-    """
-
     method: str
     concurrency: int
     timeout_secs: int

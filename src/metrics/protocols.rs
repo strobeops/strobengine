@@ -5,6 +5,7 @@ use super::helpers::fold_percentiles;
 
 #[pyclass(skip_from_py_object)]
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
 pub struct QuicMetrics {
     #[pyo3(get)]
     pub zero_rtt_accepted_count: u64,
@@ -16,6 +17,7 @@ pub struct QuicMetrics {
 
 #[pyclass(skip_from_py_object)]
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
 pub struct SseMetrics {
     #[pyo3(get)]
     pub total_events_received: u64,
@@ -30,6 +32,7 @@ pub struct SseMetrics {
 /// expose those, while the run's `status_codes` stays truthful.
 #[pyclass(skip_from_py_object)]
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
 pub struct GraphqlMetrics {
     #[pyo3(get)]
     pub operations_total: u64,
@@ -49,6 +52,7 @@ pub struct GraphqlMetrics {
 /// percentiles. GraphQL `error` frames count toward `errors_total`.
 #[pyclass(skip_from_py_object)]
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
 pub struct GraphqlWsMetrics {
     #[pyo3(get)]
     pub operations_total: u64,
@@ -81,6 +85,7 @@ pub struct GraphqlWsMetrics {
 /// `status_codes` stays truthful.
 #[pyclass(skip_from_py_object)]
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
 pub struct SoapMetrics {
     #[pyo3(get)]
     pub operations_total: u64,
@@ -99,6 +104,7 @@ pub struct SoapMetrics {
 /// `mode`, `ack_mode` and `receipts_enabled` are per-run constants.
 #[pyclass(skip_from_py_object)]
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
 pub struct StompMetrics {
     #[pyo3(get)]
     pub messages_sent_total: u64,
@@ -152,6 +158,7 @@ pub struct StompMetrics {
 /// (the query text is intentionally never recorded).
 #[pyclass(skip_from_py_object)]
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
 pub struct DatabaseMetrics {
     #[pyo3(get)]
     pub driver: String,
@@ -188,6 +195,7 @@ pub struct DatabaseMetrics {
 /// Aggregated WebSocket heartbeat and write-buffer telemetry.
 #[pyclass(skip_from_py_object)]
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
 pub struct WebsocketMetrics {
     #[pyo3(get)]
     pub pings_sent_total: u64,
@@ -238,6 +246,7 @@ impl WsSample {
 /// Aggregated gRPC/HTTP2 stream-concurrency and flow-control telemetry.
 #[pyclass(skip_from_py_object)]
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
 pub struct GrpcMetrics {
     #[pyo3(get)]
     pub active_streams_peak: u64,
@@ -284,6 +293,7 @@ impl GrpcSample {
 /// Aggregated HTTP/3 (QUIC) congestion-control and connection-migration telemetry.
 #[pyclass(skip_from_py_object)]
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
 pub struct Http3Metrics {
     #[pyo3(get)]
     pub cwnd_bytes_current: u64,

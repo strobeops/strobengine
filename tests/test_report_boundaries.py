@@ -1,14 +1,11 @@
 """Guard tests for the report-boundary typing contracts.
 
-Three contracts that pyright alone cannot re-check over time:
+Two contracts that pyright alone cannot re-check over time:
 
-1. ``artifact.py`` must read summary/config attributes directly — reintroducing
+1. ``artifact.py`` must not read attributes dynamically — reintroducing
    ``getattr(x, "attr", default)`` would mask Rust field renames as silent
    defaults (ruff's B009 only flags two-argument ``getattr``).
-2. :class:`SupportsCliOptions` (Protocol) must mirror :class:`CliOptionsDict`
-   key-for-key, so the typed config boundary and the serialized shape cannot
-   drift apart.
-3. :class:`ComparisonDict` must match the keys actually produced by
+2. :class:`ComparisonDict` must match the keys actually produced by
    :func:`compute_comparison`, so the HTML/CLI consumers stay type-safe.
 """
 
@@ -16,7 +13,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from strobengine.report_schema import CliOptionsDict, SupportsCliOptions
 from strobengine.reporting.baseline import ComparisonDict, compute_comparison
 
 _ARTIFACT_PY = Path(__file__).parent.parent / "src" / "strobengine" / "artifact.py"
@@ -41,16 +37,6 @@ class TestNoDynamicAttrAccess:
                 "required so Rust renames fail loudly instead of falling back "
                 "to a silent default"
             )
-
-
-class TestProtocolParity:
-    def test_supports_cli_options_mirrors_cli_options_dict(self):
-        protocol_keys = set(SupportsCliOptions.__annotations__)
-        typed_dict_keys = set(CliOptionsDict.__annotations__)
-        assert protocol_keys == typed_dict_keys, (
-            f"SupportsCliOptions drift: missing={typed_dict_keys - protocol_keys} "
-            f"extra={protocol_keys - typed_dict_keys}"
-        )
 
 
 class TestComparisonDictParity:

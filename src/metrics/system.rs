@@ -8,7 +8,8 @@ use tokio_util::sync::CancellationToken;
 
 /// A single resource measurement snapshot.
 #[pyclass(from_py_object)]
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
 pub struct ResourceSample {
     #[pyo3(get)]
     pub timestamp_us: u64,
@@ -25,6 +26,7 @@ pub struct ResourceSample {
 /// Aggregated system resource metrics computed from a series of samples.
 #[pyclass(skip_from_py_object)]
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
 pub struct SystemMetrics {
     #[pyo3(get)]
     pub peak_cpu_percent: f32,

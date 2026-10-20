@@ -3,7 +3,8 @@ use pyo3::prelude::*;
 
 /// One timeline sample: throughput and latency over a single interval.
 #[pyclass(from_py_object)]
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
 pub struct TimelineSample {
     #[pyo3(get)]
     pub elapsed_sec: f64,
@@ -21,7 +22,8 @@ pub struct TimelineSample {
 
 /// Time series of throughput/latency samples captured during a run.
 #[pyclass(from_py_object)]
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
 pub struct Timeline {
     #[pyo3(get)]
     pub interval_ms: u64,

@@ -1,17 +1,25 @@
-"""Shared mock factories for the unit test suite.
+"""Shared factories for the unit test suite.
 
-Consolidates the previously-duplicated ``_make_summary`` builders. The
-baseline mirrors the richest existing scenario (``test_reporting``) so the
+The baseline mirrors the richest existing scenario (``test_reporting``) so the
 majority of call sites need no overrides; tests that assert on specific values
 pass explicit keyword overrides instead.
+
+``make_summary`` returns a real Rust ``TestSummary`` built from JSON, so report
+artifacts always flow through the native schema builder. Nested protocol
+sections may be passed as (partial) dicts — the Rust types apply field defaults.
 """
 
-from unittest.mock import Mock
+from __future__ import annotations
 
-# Complete float-bearing baseline: every attribute that ``print_summary`` and
-# the report builders read numerically is a real value (not a Mock) so f-string
-# ``:.2f`` formatting and ``> 0`` guards never hit an un-configured Mock child.
-_SUMMARY_BASELINE = {
+import json
+from typing import Any
+
+from strobengine._strobengine import TestSummary
+
+# Complete float-bearing baseline: every attribute ``print_summary`` and the
+# report builders read numerically is a real value (not a Mock) so f-string
+# formatting and ``> 0`` guards never hit an un-configured child.
+_SUMMARY_BASELINE: dict[str, Any] = {
     "url": "http://localhost:8080",
     "total_requests": 100,
     "total_errors": 0,
@@ -37,18 +45,9 @@ _SUMMARY_BASELINE = {
     "connection_reuse_ratio": 0.5,
     "avg_dns_resolution_ms": 1.0,
     "latency_histogram": {"<1ms": 10, "1-5ms": 50, "5-10ms": 40},
-    "to_dict": lambda: {"quic": None, "sse": None},
-    "to_json": lambda indent=None: "{}",
 }
 
 
-def make_summary(**overrides: object) -> Mock:
-    """Return a Mock TestSummary seeded with realistic defaults.
-
-    Pass keyword arguments to override any baseline field for a specific test.
-    """
-    summary = Mock()
-    values = {**_SUMMARY_BASELINE, **overrides}
-    for key, value in values.items():
-        setattr(summary, key, value)
-    return summary
+def make_summary(**overrides: Any) -> TestSummary:
+    """Return a real ``TestSummary`` seeded with realistic defaults."""
+    return TestSummary.from_json(json.dumps({**_SUMMARY_BASELINE, **overrides}))

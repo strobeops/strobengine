@@ -11,8 +11,7 @@ from __future__ import annotations
 import sys
 from dataclasses import dataclass
 
-from strobengine._strobengine import TestSummary
-from strobengine.report_schema import SupportsCliOptions
+from strobengine._strobengine import TestConfig, TestSummary
 from strobengine.reporter import print_summary
 
 
@@ -38,7 +37,7 @@ def _report_saved(filepath: str | None, exports: ExportOptions) -> None:
 
 def _output_results(
     summary: TestSummary,
-    config: SupportsCliOptions,
+    config: TestConfig,
     exports: ExportOptions,
     saved_report_path: str | None = None,
 ) -> None:
