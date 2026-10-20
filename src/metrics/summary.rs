@@ -13,7 +13,8 @@ use super::system;
 use super::timeline::Timeline;
 
 #[pyclass(skip_from_py_object)]
-#[derive(Debug, Clone, serde::Serialize)]
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
 pub struct TestSummary {
     #[pyo3(get)]
     pub url: String,
@@ -103,6 +104,16 @@ impl TestSummary {
 
     pub fn __deepcopy__(&self, _py: Python<'_>) -> Self {
         self.clone()
+    }
+
+    /// Build a summary from its JSON representation.
+    ///
+    /// Missing fields fall back to their defaults, so partial fixtures are
+    /// valid; nested metric blocks may also omit fields.
+    #[staticmethod]
+    fn from_json(data: &str) -> PyResult<Self> {
+        serde_json::from_str(data)
+            .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(e.to_string()))
     }
 
     #[pyo3(signature = (indent=None))]
