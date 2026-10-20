@@ -1,10 +1,11 @@
 """Unit tests for reporting modules (Markdown summary, export generators)."""
 
-from unittest.mock import Mock, patch
+from unittest.mock import patch
 
 import pytest
 import typer
 
+from strobengine._strobengine import TestConfig as _TestConfig
 from strobengine.cli import _build_request_options, _parse_headers, _validate_method
 from strobengine.reporter import _is_grpc_mapped, build_artifact_dict, save_report
 from strobengine.reporting.baseline import compute_comparison, load_baseline_artifact
@@ -24,8 +25,7 @@ from .factories import make_summary as _make_summary
 
 
 def _make_config(**kwargs):
-    """Create a mock config with sensible defaults."""
-    config = Mock()
+    """Create a real TestConfig with sensible defaults."""
     defaults = {
         "url": "http://localhost:8080",
         "method": "GET",
@@ -37,9 +37,7 @@ def _make_config(**kwargs):
         "headers": None,
     }
     defaults.update(kwargs)
-    for k, v in defaults.items():
-        setattr(config, k, v)
-    return config
+    return _TestConfig(**defaults)
 
 
 class TestMarkdownSummary:
@@ -290,23 +288,18 @@ class TestRustDictParity:
         artifact = build_artifact_dict(summary, _make_config())
         assert artifact.get("connection_pool") is None
 
-    def test_ws_report_serialization(self, monkeypatch):
-        # Real WebsocketMetrics is a Rust pyclass (not Python-constructible), so
-        # swap in a stand-in type for the isinstance guard and assert the shape.
-        import strobengine.artifact as artifact
-
-        class FakeWs:
-            pings_sent_total = 8
-            pings_received_total = 2
-            pongs_solicited_total = 7
-            pongs_unsolicited_total = 1
-            backpressure_max_bytes = 2_097_152
-            backpressure_mean_bytes = 786_432.55
-            backpressure_threshold_breaches = 3
-
-        monkeypatch.setattr(artifact, "WebsocketMetrics", FakeWs)
-        summary = _make_summary()
-        summary.ws = FakeWs()
+    def test_ws_report_serialization(self):
+        summary = _make_summary(
+            ws={
+                "pings_sent_total": 8,
+                "pings_received_total": 2,
+                "pongs_solicited_total": 7,
+                "pongs_unsolicited_total": 1,
+                "backpressure_max_bytes": 2_097_152,
+                "backpressure_mean_bytes": 786_432.55,
+                "backpressure_threshold_breaches": 3,
+            }
+        )
 
         artifact = build_artifact_dict(summary, _make_config())
         ws = artifact["websocket"]
@@ -320,20 +313,17 @@ class TestRustDictParity:
         assert ws["backpressure_mean_bytes"] == 786_432.55
         assert ws["backpressure_threshold_breaches"] == 3
 
-    def test_grpc_report_serialization(self, monkeypatch):
-        import strobengine.artifact as artifact
-
-        class FakeGrpc:
-            active_streams_peak = 6
-            concurrency_utilization_peak = 0.06
-            concurrency_utilization_mean = 0.0001234
-            window_exhaustion_events_total = 3
-            window_stall_duration_ms_total = 42.56
-            send_capacity_min_bytes = 32768
-
-        monkeypatch.setattr(artifact, "GrpcMetrics", FakeGrpc)
-        summary = _make_summary()
-        summary.grpc = FakeGrpc()
+    def test_grpc_report_serialization(self):
+        summary = _make_summary(
+            grpc={
+                "active_streams_peak": 6,
+                "concurrency_utilization_peak": 0.06,
+                "concurrency_utilization_mean": 0.0001234,
+                "window_exhaustion_events_total": 3,
+                "window_stall_duration_ms_total": 42.56,
+                "send_capacity_min_bytes": 32768,
+            }
+        )
 
         artifact = build_artifact_dict(summary, _make_config())
         g = artifact["grpc"]
@@ -347,21 +337,18 @@ class TestRustDictParity:
         assert g["window_stall_duration_ms_total"] == 42.56
         assert g["send_capacity_min_bytes"] == 32768
 
-    def test_http3_report_serialization(self, monkeypatch):
-        import strobengine.artifact as artifact
-
-        class FakeHttp3:
-            cwnd_bytes_current = 4000
-            cwnd_bytes_min = 1000
-            cwnd_bytes_max = 8000
-            cwnd_bytes_mean = 3500.55
-            migrations_attempted_total = 4
-            migrations_successful_total = 3
-            migration_success_rate = 0.123456
-
-        monkeypatch.setattr(artifact, "Http3Metrics", FakeHttp3)
-        summary = _make_summary()
-        summary.http3 = FakeHttp3()
+    def test_http3_report_serialization(self):
+        summary = _make_summary(
+            http3={
+                "cwnd_bytes_current": 4000,
+                "cwnd_bytes_min": 1000,
+                "cwnd_bytes_max": 8000,
+                "cwnd_bytes_mean": 3500.55,
+                "migrations_attempted_total": 4,
+                "migrations_successful_total": 3,
+                "migration_success_rate": 0.123456,
+            }
+        )
 
         artifact = build_artifact_dict(summary, _make_config())
         h = artifact["http3"]
@@ -733,21 +720,18 @@ class TestHTMLReport:
         html = render_html_report(_make_summary(), _make_config())
         assert "WebSocket Deep Metrics" not in html
 
-    def test_render_html_contains_websocket_section(self, monkeypatch):
-        import strobengine.artifact as artifact
-
-        class FakeWs:
-            pings_sent_total = 5
-            pings_received_total = 2
-            pongs_solicited_total = 5
-            pongs_unsolicited_total = 0
-            backpressure_max_bytes = 1_048_576
-            backpressure_mean_bytes = 524_288.0
-            backpressure_threshold_breaches = 1
-
-        monkeypatch.setattr(artifact, "WebsocketMetrics", FakeWs)
-        summary = _make_summary()
-        summary.ws = FakeWs()
+    def test_render_html_contains_websocket_section(self):
+        summary = _make_summary(
+            ws={
+                "pings_sent_total": 5,
+                "pings_received_total": 2,
+                "pongs_solicited_total": 5,
+                "pongs_unsolicited_total": 0,
+                "backpressure_max_bytes": 1_048_576,
+                "backpressure_mean_bytes": 524_288.0,
+                "backpressure_threshold_breaches": 1,
+            }
+        )
 
         html = render_html_report(summary, _make_config())
         assert "WebSocket Deep Metrics" in html
@@ -758,20 +742,17 @@ class TestHTMLReport:
         html = render_html_report(_make_summary(), _make_config())
         assert "gRPC Stream Concurrency" not in html
 
-    def test_render_html_contains_grpc_section(self, monkeypatch):
-        import strobengine.artifact as artifact
-
-        class FakeGrpc:
-            active_streams_peak = 6
-            concurrency_utilization_peak = 0.06
-            concurrency_utilization_mean = 0.05
-            window_exhaustion_events_total = 3
-            window_stall_duration_ms_total = 42.0
-            send_capacity_min_bytes = 1_048_576
-
-        monkeypatch.setattr(artifact, "GrpcMetrics", FakeGrpc)
-        summary = _make_summary()
-        summary.grpc = FakeGrpc()
+    def test_render_html_contains_grpc_section(self):
+        summary = _make_summary(
+            grpc={
+                "active_streams_peak": 6,
+                "concurrency_utilization_peak": 0.06,
+                "concurrency_utilization_mean": 0.05,
+                "window_exhaustion_events_total": 3,
+                "window_stall_duration_ms_total": 42.0,
+                "send_capacity_min_bytes": 1_048_576,
+            }
+        )
 
         html = render_html_report(summary, _make_config())
         assert "gRPC Stream Concurrency" in html
@@ -782,21 +763,18 @@ class TestHTMLReport:
         html = render_html_report(_make_summary(), _make_config())
         assert "HTTP/3 Congestion Window" not in html
 
-    def test_render_html_contains_http3_section(self, monkeypatch):
-        import strobengine.artifact as artifact
-
-        class FakeHttp3:
-            cwnd_bytes_current = 4000
-            cwnd_bytes_min = 1000
-            cwnd_bytes_max = 8000
-            cwnd_bytes_mean = 3500.55
-            migrations_attempted_total = 4
-            migrations_successful_total = 3
-            migration_success_rate = 0.123456
-
-        monkeypatch.setattr(artifact, "Http3Metrics", FakeHttp3)
-        summary = _make_summary()
-        summary.http3 = FakeHttp3()
+    def test_render_html_contains_http3_section(self):
+        summary = _make_summary(
+            http3={
+                "cwnd_bytes_current": 4000,
+                "cwnd_bytes_min": 1000,
+                "cwnd_bytes_max": 8000,
+                "cwnd_bytes_mean": 3500.55,
+                "migrations_attempted_total": 4,
+                "migrations_successful_total": 3,
+                "migration_success_rate": 0.123456,
+            }
+        )
 
         html = render_html_report(summary, _make_config())
         assert "HTTP/3 Congestion Window" in html
@@ -812,8 +790,9 @@ class TestHTMLReport:
         assert "<html" in content
 
     def test_render_html_escapes_hostile_target_url(self):
-        summary = _make_summary(url="http://evil/</title><script>alert(1)</script>")
-        html = render_html_report(summary, _make_config())
+        url = "http://evil/</title><script>alert(1)</script>"
+        summary = _make_summary(url=url)
+        html = render_html_report(summary, _make_config(url=url))
         escaped = "http://evil/&lt;/title&gt;&lt;script&gt;alert(1)&lt;/script&gt;"
         assert escaped in html
         assert "</title><script>alert(1)</script>" not in html
@@ -996,31 +975,27 @@ class TestSlo:
         assert 'class="slo-banner' not in html
 
 
-class _FakeTimelineSample:
-    elapsed_sec = 1.0
-    rps = 120.5
-    error_rate = 0.0
-    p50_us = 1000.0
-    p95_us = 2500.0
-    p99_us = 4000.0
-
-
-class _FakeTimeline:
-    interval_ms = 1000
-    samples = (_FakeTimelineSample(),)
-
-
 class TestTimeline:
     def test_artifact_omits_timeline_when_absent(self):
         artifact = build_artifact_dict(_make_summary(), _make_config())
         assert "timeline" not in artifact
 
-    def test_artifact_includes_timeline_when_present(self, monkeypatch):
-        import strobengine.artifact as artifact
-
-        monkeypatch.setattr(artifact, "Timeline", _FakeTimeline)
-        summary = _make_summary()
-        summary.timeline = _FakeTimeline()
+    def test_artifact_includes_timeline_when_present(self):
+        summary = _make_summary(
+            timeline={
+                "interval_ms": 1000,
+                "samples": [
+                    {
+                        "elapsed_sec": 1.0,
+                        "rps": 120.5,
+                        "error_rate": 0.0,
+                        "p50_us": 1000.0,
+                        "p95_us": 2500.0,
+                        "p99_us": 4000.0,
+                    }
+                ],
+            }
+        )
 
         result = build_artifact_dict(summary, _make_config())
         assert result["timeline"] == {
@@ -1037,12 +1012,22 @@ class TestTimeline:
             ],
         }
 
-    def test_html_renders_timeline_chart(self, monkeypatch):
-        import strobengine.artifact as artifact
-
-        monkeypatch.setattr(artifact, "Timeline", _FakeTimeline)
-        summary = _make_summary()
-        summary.timeline = _FakeTimeline()
+    def test_html_renders_timeline_chart(self):
+        summary = _make_summary(
+            timeline={
+                "interval_ms": 1000,
+                "samples": [
+                    {
+                        "elapsed_sec": 1.0,
+                        "rps": 120.5,
+                        "error_rate": 0.0,
+                        "p50_us": 1000.0,
+                        "p95_us": 2500.0,
+                        "p99_us": 4000.0,
+                    }
+                ],
+            }
+        )
 
         html = render_html_report(summary, _make_config())
         assert "Throughput &amp; Latency Over Time" in html
@@ -1069,17 +1054,14 @@ class TestSoapArtifact:
         artifact = build_artifact_dict(_make_summary(), _make_config())
         assert "soap" not in artifact
 
-    def test_artifact_includes_soap_when_present(self, monkeypatch):
-        import strobengine.artifact as artifact
-
-        class FakeSoap:
-            operations_total = 10
-            fault_responses_total = 2
-            soap_version = "1.2"
-
-        monkeypatch.setattr(artifact, "SoapMetrics", FakeSoap)
-        summary = _make_summary()
-        summary.soap = FakeSoap()
+    def test_artifact_includes_soap_when_present(self):
+        summary = _make_summary(
+            soap={
+                "operations_total": 10,
+                "fault_responses_total": 2,
+                "soap_version": "1.2",
+            }
+        )
 
         result = build_artifact_dict(summary, _make_config())
         assert result["soap"] == {

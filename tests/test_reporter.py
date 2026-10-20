@@ -68,21 +68,19 @@ class TestRichFallback:
 
 
 class TestPrintSummaryWebsocket:
-    def test_plain_renders_websocket_rows(self, capsys, monkeypatch):
-        import strobengine.reporter as reporter
-
-        class FakeWs:
-            pings_sent_total = 5
-            pings_received_total = 2
-            pongs_solicited_total = 5
-            pongs_unsolicited_total = 1
-            backpressure_max_bytes = 1_048_576
-            backpressure_mean_bytes = 524_288.0
-            backpressure_threshold_breaches = 2
-
-        monkeypatch.setattr(reporter, "WebsocketMetrics", FakeWs)
-        summary = _make_summary(url="http://example.com")
-        summary.ws = FakeWs()
+    def test_plain_renders_websocket_rows(self, capsys):
+        summary = _make_summary(
+            url="http://example.com",
+            ws={
+                "pings_sent_total": 5,
+                "pings_received_total": 2,
+                "pongs_solicited_total": 5,
+                "pongs_unsolicited_total": 1,
+                "backpressure_max_bytes": 1_048_576,
+                "backpressure_mean_bytes": 524_288.0,
+                "backpressure_threshold_breaches": 2,
+            },
+        )
 
         with patch("strobengine.reporter._HAS_RICH", False):
             print_summary(summary)
@@ -95,25 +93,22 @@ class TestPrintSummaryWebsocket:
         with patch("strobengine.reporter._HAS_RICH", False):
             print_summary(summary)
         output = capsys.readouterr().out
-        # Mock's auto `.ws` child is not a real WebsocketMetrics -> section skipped.
         assert "WS Heartbeat" not in output
 
 
 class TestPrintSummaryGrpc:
-    def test_plain_renders_grpc_rows(self, capsys, monkeypatch):
-        import strobengine.reporter as reporter
-
-        class FakeGrpc:
-            active_streams_peak = 6
-            concurrency_utilization_peak = 0.06
-            concurrency_utilization_mean = 0.05
-            window_exhaustion_events_total = 3
-            window_stall_duration_ms_total = 42.0
-            send_capacity_min_bytes = 32768
-
-        monkeypatch.setattr(reporter, "GrpcMetrics", FakeGrpc)
-        summary = _make_summary(url="http://example.com")
-        summary.grpc = FakeGrpc()
+    def test_plain_renders_grpc_rows(self, capsys):
+        summary = _make_summary(
+            url="http://example.com",
+            grpc={
+                "active_streams_peak": 6,
+                "concurrency_utilization_peak": 0.06,
+                "concurrency_utilization_mean": 0.05,
+                "window_exhaustion_events_total": 3,
+                "window_stall_duration_ms_total": 42.0,
+                "send_capacity_min_bytes": 32768,
+            },
+        )
 
         with patch("strobengine.reporter._HAS_RICH", False):
             print_summary(summary)
@@ -130,21 +125,19 @@ class TestPrintSummaryGrpc:
 
 
 class TestPrintSummaryHttp3:
-    def test_plain_renders_http3_rows(self, capsys, monkeypatch):
-        import strobengine.reporter as reporter
-
-        class FakeHttp3:
-            cwnd_bytes_current = 4000
-            cwnd_bytes_min = 1000
-            cwnd_bytes_max = 8000
-            cwnd_bytes_mean = 3500.0
-            migrations_attempted_total = 4
-            migrations_successful_total = 3
-            migration_success_rate = 0.75
-
-        monkeypatch.setattr(reporter, "Http3Metrics", FakeHttp3)
-        summary = _make_summary(url="http://example.com")
-        summary.http3 = FakeHttp3()
+    def test_plain_renders_http3_rows(self, capsys):
+        summary = _make_summary(
+            url="http://example.com",
+            http3={
+                "cwnd_bytes_current": 4000,
+                "cwnd_bytes_min": 1000,
+                "cwnd_bytes_max": 8000,
+                "cwnd_bytes_mean": 3500.0,
+                "migrations_attempted_total": 4,
+                "migrations_successful_total": 3,
+                "migration_success_rate": 0.75,
+            },
+        )
 
         with patch("strobengine.reporter._HAS_RICH", False):
             print_summary(summary)
@@ -161,44 +154,8 @@ class TestPrintSummaryHttp3:
 
 
 class TestSummaryRowParity:
-    def test_labels_rendered_in_both_paths(self, capsys, monkeypatch):
+    def test_labels_rendered_in_both_paths(self, capsys):
         import strobengine.reporter as reporter
-
-        class FakeWs:
-            pings_sent_total = 5
-            pings_received_total = 2
-            pongs_solicited_total = 5
-            pongs_unsolicited_total = 1
-            backpressure_max_bytes = 1_048_576
-            backpressure_mean_bytes = 524_288.0
-            backpressure_threshold_breaches = 2
-
-        class FakeGrpc:
-            active_streams_peak = 6
-            concurrency_utilization_peak = 0.06
-            concurrency_utilization_mean = 0.05
-            window_exhaustion_events_total = 3
-            window_stall_duration_ms_total = 42.0
-            send_capacity_min_bytes = 32768
-
-        class FakeHttp3:
-            cwnd_bytes_current = 4000
-            cwnd_bytes_min = 1000
-            cwnd_bytes_max = 8000
-            cwnd_bytes_mean = 3500.0
-            migrations_attempted_total = 4
-            migrations_successful_total = 3
-            migration_success_rate = 0.75
-
-        class FakeSystemMetrics:
-            peak_memory_rss_bytes = 64 * 1024 * 1024
-            peak_cpu_percent = 45.5
-            peak_thread_count = 32
-
-        monkeypatch.setattr(reporter, "WebsocketMetrics", FakeWs)
-        monkeypatch.setattr(reporter, "GrpcMetrics", FakeGrpc)
-        monkeypatch.setattr(reporter, "Http3Metrics", FakeHttp3)
-        monkeypatch.setattr(reporter, "SystemMetrics", FakeSystemMetrics)
 
         summary = _make_summary(
             total_errors=7,
@@ -206,11 +163,38 @@ class TestSummaryRowParity:
             avg_e2e_latency_us=1500.0,
             chaos_injected_total=3,
             chaos_faults_by_type={"LatencySpike": 2, "ConnectionReset": 1},
+            ws={
+                "pings_sent_total": 5,
+                "pings_received_total": 2,
+                "pongs_solicited_total": 5,
+                "pongs_unsolicited_total": 1,
+                "backpressure_max_bytes": 1_048_576,
+                "backpressure_mean_bytes": 524_288.0,
+                "backpressure_threshold_breaches": 2,
+            },
+            grpc={
+                "active_streams_peak": 6,
+                "concurrency_utilization_peak": 0.06,
+                "concurrency_utilization_mean": 0.05,
+                "window_exhaustion_events_total": 3,
+                "window_stall_duration_ms_total": 42.0,
+                "send_capacity_min_bytes": 32768,
+            },
+            http3={
+                "cwnd_bytes_current": 4000,
+                "cwnd_bytes_min": 1000,
+                "cwnd_bytes_max": 8000,
+                "cwnd_bytes_mean": 3500.0,
+                "migrations_attempted_total": 4,
+                "migrations_successful_total": 3,
+                "migration_success_rate": 0.75,
+            },
+            system_metrics={
+                "peak_memory_rss_bytes": 64 * 1024 * 1024,
+                "peak_cpu_percent": 45.5,
+                "peak_thread_count": 32,
+            },
         )
-        summary.ws = FakeWs()
-        summary.grpc = FakeGrpc()
-        summary.http3 = FakeHttp3()
-        summary.system_metrics = FakeSystemMetrics()
 
         rows = reporter._summary_rows(summary)
         assert rows
