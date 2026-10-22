@@ -4,6 +4,91 @@ All notable changes to `strobengine` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.0] - 2026-10-22
+
+### Bug Fixes
+
+- *(metrics)* Make resource sampler test deterministic
+- *(distributed)* Require a command stream before allocating a worker
+- *(stomp)* Drop invalid transaction header from ACK frames
+
+### Documentation
+
+- *(graphql)* Document GraphQL benchmarking
+- *(graphql-ws)* Document subscription benchmarking
+- *(reports)* Document SLO thresholds, timeline and HTML diagnostics
+- *(roadmap)* Mark distributed runner architecture complete
+- *(distributed)* Add distributed load testing guide
+- *(soap)* Document SOAP benchmarking
+- *(jms)* Document enterprise messaging benchmarking
+- *(db)* Document relational database load testing
+- *(examples)* Add GraphQL, SOAP, STOMP, and database examples
+- *(examples)* Add example index and cross-links
+
+### Features
+
+- *(graphql)* Add GraphQL query/mutation engine and metrics
+- *(graphql-ws)* Add GraphQL over WebSocket subscription engine and telemetry
+- *(report)* Add latency summary table and error breakdown to HTML
+- *(report)* Add configurable SLO validation and pass/fail banner
+- *(metrics)* Add RPS and latency timeline telemetry
+- *(report)* Add print-friendly styles and Print to PDF action
+- *(distributed)* Add gRPC control-plane proto and generated bindings
+- *(distributed)* Add worker config, state machine and backoff
+- *(distributed)* Add windowed metrics collector and telemetry streaming
+- *(distributed)* Add worker executor, control loops and daemon binary
+- *(distributed)* Add master config, registry and health sweep
+- *(distributed)* Add barrier coordinator and telemetry aggregator
+- *(distributed)* Add master gRPC server and run controller
+- *(distributed)* Add master daemon binary
+- *(distributed)* Add real-time windowed telemetry pipeline
+- *(distributed)* Add live dashboard and flexible report output to master CLI
+- *(soap)* Add SOAP-over-HTTP engine and fault metrics
+- *(jms)* Add STOMP frame codec
+- *(jms)* Add STOMP engine and messaging metrics
+- *(jms)* Add STOMP JMS CLI and Python API
+- *(db)* Add SQL database engine and pooling metrics
+- *(db)* Add SQL database CLI and Python API
+- *(metrics)* Construct TestSummary from JSON
+
+### Miscellaneous Tasks
+
+- *(ci)* Cache cargo artifacts in the python job
+- Add GitHub release workflow
+
+### Performance
+
+- *(http)* Cache parsed target URLs per worker
+
+### Refactoring
+
+- *(distributed)* Extract report synthesis into a reporting module
+- *(python)* Derive TestConfig options from RequestOptions
+- *(cli)* Derive request options from RequestOptions
+- *(metrics)* Split the metrics module
+- *(metrics)* Deduplicate percentile folding
+- *(metrics)* Extract metric accumulators from finalize_metrics
+- *(report)* Make the Rust artifact builder the only schema path
+- *(cli)* Share one option block across subcommands
+
+### Styling
+
+- *(lib)* Allow too_many_arguments on execute_test
+- Apply ruff 0.17 formatting
+
+### Testing
+
+- *(graphql)* Add query, mutation and error-path e2e coverage
+- *(graphql-ws)* Add subscription e2e coverage
+- *(distributed)* Add fake-master integration coverage
+- *(distributed)* Add multi-worker master integration coverage
+- *(distributed)* Cover live broadcast and report breakdowns
+- *(soap)* Add SOAP e2e coverage
+- *(jms)* Add STOMP end-to-end coverage
+- *(db)* Add SQL database end-to-end coverage
+- *(examples)* Validate example option usage against the API
+- *(metrics)* Scan split metric modules for pyi fidelity
+- *(report)* Build artifacts from real summaries and configs
 ## [0.8.1] - 2026-10-11
 
 ### Bug Fixes
@@ -36,6 +121,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add pyright dev dependency and config
 - Run pyright in pre-push checks and workflow
 - *(flags)* Add warnings for unsupported flags and prune dead reflection code
+- *(release)* Bump version to 0.8.1
 
 ### Refactoring
 
