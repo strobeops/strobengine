@@ -2953,6 +2953,7 @@ dependencies = [
  "prost-types",
  "protox",
  "pyo3",
+ "pyo3-build-config",
  "quick-xml",
  "quinn",
  "rcgen",
