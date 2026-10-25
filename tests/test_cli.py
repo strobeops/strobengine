@@ -1,4 +1,5 @@
 import json
+import re
 from pathlib import Path
 from typing import ClassVar
 from unittest import mock
@@ -620,6 +621,9 @@ class TestRequestFieldAllowlist:
             assert set(_EXPORT_OPTION_NAMES) <= params
 
 
+_ANSI = re.compile(r"\x1b\[[0-9;]*m")
+
+
 class TestReservedOptions:
     @pytest.mark.parametrize("command", ["load", "stress", "spike"])
     @pytest.mark.parametrize(
@@ -634,9 +638,10 @@ class TestReservedOptions:
     def test_hidden_from_help(self, command: str) -> None:
         result = runner.invoke(app, [command, "--help"])
         assert result.exit_code == 0
-        assert "--ws-subscribers" not in result.output
-        assert "--grpc-use-reflection" not in result.output
-        assert "--http3-migrate" in result.output
+        out = _ANSI.sub("", result.output)
+        assert "--ws-subscribers" not in out
+        assert "--grpc-use-reflection" not in out
+        assert "--http3-migrate" in out
 
     @pytest.mark.parametrize("command", ["load", "stress", "spike"])
     def test_still_parse(self, command: str) -> None:
