@@ -111,18 +111,7 @@ pub trait WorkerSession: Send + 'static {
     fn as_any_mut(&mut self) -> &mut dyn std::any::Any;
 }
 
-/// Detect the appropriate protocol engine from the URL scheme and config.
-///
-/// Returns `Err(SetupError)` if the engine cannot be constructed (e.g., bad
-/// proto path, invalid QUIC scheme, malformed payload). Callers must propagate
-/// the error rather than silently falling back to a degraded engine.
-pub fn detect_protocol(
-    url: &str,
-    config: &TestConfig,
-    chaos: ChaosEngine,
-) -> Result<Arc<dyn ProtocolEngine>, SetupError> {
-    // Options that are recognized for forward-compatibility / CLI symmetry but
-    // not yet functional: surface them instead of silently ignoring them.
+pub(crate) fn warn_reserved_options(config: &TestConfig) {
     if config.grpc_use_reflection {
         tracing::warn!(
             "--grpc-use-reflection is recognized for forward-compatibility but not yet functional; ignoring"
@@ -138,7 +127,18 @@ pub fn detect_protocol(
             "--ws-subscribers is recognized for forward-compatibility but not yet functional; ignoring"
         );
     }
+}
 
+/// Detect the appropriate protocol engine from the URL scheme and config.
+///
+/// Returns `Err(SetupError)` if the engine cannot be constructed (e.g., bad
+/// proto path, invalid QUIC scheme, malformed payload). Callers must propagate
+/// the error rather than silently falling back to a degraded engine.
+pub fn detect_protocol(
+    url: &str,
+    config: &TestConfig,
+    chaos: ChaosEngine,
+) -> Result<Arc<dyn ProtocolEngine>, SetupError> {
     let headers = config.headers.clone().unwrap_or_default();
     if url.starts_with("ws://") || url.starts_with("wss://") {
         let engine = websocket::WebSocketEngine::new(
@@ -391,7 +391,7 @@ mod tests {
     }
 
     #[test]
-    fn test_dead_flags_emit_warnings() {
+    fn test_reserved_flags_emit_warnings() {
         use tracing_subscriber::layer::SubscriberExt as _;
 
         let capture = EventCapture::default();
@@ -403,10 +403,7 @@ mod tests {
         config.grpc_use_reflection = true;
         config.http3_enabled = true;
         config.ws_subscribers = Some(10);
-        assert!(
-            detect_protocol("http://127.0.0.1:8080", &config, ChaosEngine::default()).is_ok(),
-            "warnings must not change engine selection"
-        );
+        warn_reserved_options(&config);
 
         let events = capture.0.lock().unwrap();
         assert!(
@@ -421,5 +418,20 @@ mod tests {
             events.iter().any(|m| m.contains("--ws-subscribers")),
             "expected --ws-subscribers warning, got {events:?}"
         );
+    }
+
+    #[test]
+    fn test_reserved_flags_silent_when_unset() {
+        use tracing_subscriber::layer::SubscriberExt as _;
+
+        let capture = EventCapture::default();
+        let subscriber = tracing_subscriber::registry().with(capture.clone());
+        let _guard = tracing::subscriber::set_default(subscriber);
+
+        let config = TestConfig::for_protocol_detection("http://127.0.0.1:8080".into(), 1, 10, 10);
+        warn_reserved_options(&config);
+
+        let events = capture.0.lock().unwrap();
+        assert!(events.is_empty(), "unexpected warnings: {events:?}");
     }
 }
