@@ -12,7 +12,6 @@ class TestHttp3E2E:
             options=RequestOptions(
                 no_progress=True,
                 timeout=1,
-                http3_enabled=True,
             ),
         )
         summary = await asyncio.wait_for(engine.run_async(), timeout=15.0)
@@ -29,7 +28,6 @@ class TestHttp3E2E:
             options=RequestOptions(
                 no_progress=True,
                 timeout=1,
-                http3_enabled=True,
                 chaos=True,
             ),
         )
@@ -47,7 +45,6 @@ class TestHttp3E2E:
             options=RequestOptions(
                 no_progress=True,
                 timeout=1,
-                http3_enabled=True,
                 headers=[("Authorization", "Bearer token123")],
             ),
         )
@@ -64,7 +61,6 @@ class TestHttp3E2E:
             options=RequestOptions(
                 no_progress=True,
                 timeout=1,
-                http3_enabled=True,
                 quic_zero_rtt=True,
             ),
         )

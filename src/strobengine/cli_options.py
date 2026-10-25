@@ -130,7 +130,11 @@ WsPublishIntervalOpt = Annotated[
 ]
 WsSubscribersOpt = Annotated[
     int | None,
-    typer.Option("--ws-subscribers", help="Number of subscriber workers"),
+    typer.Option(
+        "--ws-subscribers",
+        help="Number of subscriber workers",
+        hidden=True,
+    ),
 ]
 GrpcServiceOpt = Annotated[
     str | None,
@@ -159,10 +163,16 @@ GrpcUseReflectionOpt = Annotated[
     typer.Option(
         "--grpc-use-reflection",
         help="Use server reflection for schema discovery",
+        hidden=True,
     ),
 ]
 Http3Opt = Annotated[
-    bool, typer.Option("--http3/--no-http3", help="Enable HTTP/3 over QUIC")
+    bool,
+    typer.Option(
+        "--http3/--no-http3",
+        help="Enable HTTP/3 over QUIC",
+        hidden=True,
+    ),
 ]
 QuicZeroRttOpt = Annotated[
     bool,
