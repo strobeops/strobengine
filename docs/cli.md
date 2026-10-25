@@ -39,13 +39,10 @@ By default, this spawns **10 concurrent workers** for **10 seconds** with a **10
 | `--ws-payload` | none | WebSocket text payload for stream mode |
 | `--ws-role` | none | WebSocket Pub/Sub role: `publisher`, `subscriber` |
 | `--ws-publish-interval` | none | Publisher send interval in milliseconds |
-| `--ws-subscribers` | none | Number of subscriber workers (recognized, not yet functional) |
 | `--grpc-service` | none | gRPC service name (e.g. helloworld.Greeter) |
 | `--grpc-method` | none | gRPC method name (e.g. SayHello) |
 | `--grpc-payload` | none | Base64-encoded protobuf payload |
 | `--grpc-deadline-ms` | none | gRPC deadline in milliseconds |
-| `--grpc-use-reflection` | off | Enable gRPC server reflection (recognized, not yet functional) |
-| `--http3/--no-http3` | off | Enable HTTP/3 over QUIC (recognized, not yet functional; the `http3://`/`h3://` URL scheme selects it) |
 | `--quic-zero-rtt` | off | Enable QUIC 0-RTT connection testing |
 | `--quic-max-idle-timeout` | none | QUIC max idle timeout in ms |
 | `--sse/--no-sse` | off | Enable SSE streaming mode |
@@ -97,13 +94,10 @@ By default, this spawns **10 concurrent workers** for **10 seconds** with a **10
 | `--ws-payload` | none | WebSocket text payload for stream mode |
 | `--ws-role` | none | WebSocket Pub/Sub role: `publisher`, `subscriber` |
 | `--ws-publish-interval` | none | Publisher send interval in milliseconds |
-| `--ws-subscribers` | none | Number of subscriber workers (recognized, not yet functional) |
 | `--grpc-service` | none | gRPC service name (e.g. helloworld.Greeter) |
 | `--grpc-method` | none | gRPC method name (e.g. SayHello) |
 | `--grpc-payload` | none | Base64-encoded protobuf payload |
 | `--grpc-deadline-ms` | none | gRPC deadline in milliseconds |
-| `--grpc-use-reflection` | off | Enable gRPC server reflection (recognized, not yet functional) |
-| `--http3/--no-http3` | off | Enable HTTP/3 over QUIC (recognized, not yet functional; the `http3://`/`h3://` URL scheme selects it) |
 | `--quic-zero-rtt` | off | Enable QUIC 0-RTT connection testing |
 | `--quic-max-idle-timeout` | none | QUIC max idle timeout in ms |
 | `--sse/--no-sse` | off | Enable SSE streaming mode |
@@ -156,13 +150,10 @@ By default, this spawns **10 concurrent workers** for **10 seconds** with a **10
 | `--ws-payload` | none | WebSocket text payload for stream mode |
 | `--ws-role` | none | WebSocket Pub/Sub role: `publisher`, `subscriber` |
 | `--ws-publish-interval` | none | Publisher send interval in milliseconds |
-| `--ws-subscribers` | none | Number of subscriber workers (recognized, not yet functional) |
 | `--grpc-service` | none | gRPC service name (e.g. helloworld.Greeter) |
 | `--grpc-method` | none | gRPC method name (e.g. SayHello) |
 | `--grpc-payload` | none | Base64-encoded protobuf payload |
 | `--grpc-deadline-ms` | none | gRPC deadline in milliseconds |
-| `--grpc-use-reflection` | off | Enable gRPC server reflection (recognized, not yet functional) |
-| `--http3/--no-http3` | off | Enable HTTP/3 over QUIC (recognized, not yet functional; the `http3://`/`h3://` URL scheme selects it) |
 | `--quic-zero-rtt` | off | Enable QUIC 0-RTT connection testing |
 | `--quic-max-idle-timeout` | none | QUIC max idle timeout in ms |
 | `--sse/--no-sse` | off | Enable SSE streaming mode |

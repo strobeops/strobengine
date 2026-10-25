@@ -245,7 +245,9 @@ nanosecond timestamps.
 |-----------|------|---------|-------------|
 | `ws_role` | `str \| None` | `None` | Worker role: `"publisher"` or `"subscriber"` |
 | `ws_publish_interval_ms` | `int \| None` | `None` | Interval between publisher sends (ms) |
-| `ws_subscribers` | `int \| None` | `None` | Number of subscriber workers (recognized, not yet functional) |
+
+`ws_subscribers` is reserved for future subscriber-worker support; the CLI flag
+is hidden and currently ignored.
 
 ### Python API — Publisher
 

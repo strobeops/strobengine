@@ -249,3 +249,5 @@ summary = engine.run()
   streaming are not yet supported.
 - **Profile-based tests** (`stress_test`, `spike_test`) with gRPC URLs are
   not yet fully supported -- gRPC fields may be silently dropped.
+- **Server reflection not supported** -- `--grpc-use-reflection` is hidden and
+  reserved for a future release.

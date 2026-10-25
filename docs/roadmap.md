@@ -138,8 +138,10 @@ This document outlines the planned trajectory and upcoming feature epics for **s
   - [x] Frame broadcasting and multi-message-per-connection streaming. `[v0.4.0] - 2026-08-23`
   - [x] Server-push and pub/sub patterns. `[v0.4.0] - 2026-08-23`
 - [x] **gRPC** `[v0.4.0] - 2026-08-23`
-  - [x] Protobuf service definition parsing (base64/hex payloads, .proto file parsing, server reflection). `[v0.4.0] - 2026-08-23`
+  - [x] Protobuf service definition parsing (base64/hex payloads, .proto file parsing). `[v0.4.0] - 2026-08-23`
   - [x] Unary RPC calls with deadline support and chaos injection. `[v0.4.0] - 2026-08-23`
+- [ ] **gRPC Server Reflection**
+  - [ ] Discover services and messages via the reflection API; enables the hidden `--grpc-use-reflection` flag.
 - [x] **HTTP/3 (QUIC)** `[v0.4.0] - 2026-08-23`
   - [x] UDP-based QUIC transport layer support. `[v0.4.0] - 2026-08-23`
   - [x] Zero-RTT connection testing and loss recovery benchmarking. `[v0.4.0] - 2026-08-23`

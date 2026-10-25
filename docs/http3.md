@@ -29,8 +29,9 @@ engine = StrobEngine(
 summary = engine.run()
 ```
 
-> **Note:** The `http3_enabled` option is recognized for forward-compatibility
-> but not yet functional; the `http3://` / `h3://` URL scheme selects HTTP/3.
+> **Note:** HTTP/3 is selected by the `http3://` / `h3://` URL scheme; no
+> flag is needed to enable it. The `--http3` flag is hidden and reserved for
+> future `https://` support.
 
 ### With Custom Headers
 
@@ -115,8 +116,8 @@ URL scheme:
 - `http3://` -- HTTP/3 over QUIC (alias)
 
 No explicit protocol flag is needed when using these URL schemes.
-The `--http3` flag is recognized for forward-compatibility but not yet
-functional; it does not change protocol selection.
+`--http3-migrate` controls migration behavior and remains supported.
+The `--http3` flag is hidden and reserved for future `https://` support.
 
 ## Metrics
 
