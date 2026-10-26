@@ -7,8 +7,8 @@
 
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::sync::Mutex;
 use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::{Mutex, MutexGuard};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use sysinfo::System;
@@ -48,6 +48,22 @@ fn now_timestamp() -> prost_types::Timestamp {
     }
 }
 
+// Recovering from poisoning is deliberate: these locks guard small control
+// state (a state machine over a Copy enum and an Option<RunControl>), so a
+// panic cannot leave a torn value. If stop_run panics after taking the handle,
+// the slot is already None; keeping the daemon alive beats propagating it.
+fn lock_or_recover<'a, T>(mutex: &'a Mutex<T>, name: &str) -> MutexGuard<'a, T> {
+    match mutex.lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => {
+            tracing::warn!(mutex = name, "recovering from poisoned mutex");
+            let guard = poisoned.into_inner();
+            mutex.clear_poison();
+            guard
+        }
+    }
+}
+
 /// A run currently executing on this worker.
 struct RunControl {
     cancel: CancellationToken,
@@ -71,11 +87,11 @@ impl Shared {
     }
 
     fn state(&self) -> WorkerState {
-        self.state.lock().expect("state mutex poisoned").state()
+        lock_or_recover(&self.state, "state").state()
     }
 
     fn set_state(&self, next: WorkerState) {
-        let mut guard = self.state.lock().expect("state mutex poisoned");
+        let mut guard = lock_or_recover(&self.state, "state");
         if let Err(e) = guard.transition(next) {
             tracing::warn!(error = %e, "ignoring illegal state transition");
         }
@@ -87,7 +103,7 @@ impl Shared {
 
     /// Install a new run, rejecting a START while one is already active.
     fn begin_run(&self, control: RunControl) -> bool {
-        let mut guard = self.run.lock().expect("run mutex poisoned");
+        let mut guard = lock_or_recover(&self.run, "run");
         if guard.is_some() {
             return false;
         }
@@ -97,14 +113,17 @@ impl Shared {
 
     /// Cancel the active run (if any) without waiting for it.
     fn cancel_run(&self) {
-        if let Some(control) = self.run.lock().expect("run mutex poisoned").as_ref() {
+        if let Some(control) = lock_or_recover(&self.run, "run").as_ref() {
             control.cancel.cancel();
         }
     }
 
     /// Cancel and await the active run (if any).
     async fn stop_run(&self) {
-        let control = self.run.lock().expect("run mutex poisoned").take();
+        let control = {
+            let mut guard = lock_or_recover(&self.run, "run");
+            guard.take()
+        };
         if let Some(control) = control {
             control.cancel.cancel();
             let _ = control.handle.await;
@@ -531,6 +550,84 @@ mod tests {
         assert_eq!(shared.state(), WorkerState::Ready);
         shared.set_state(WorkerState::Running);
         assert_eq!(shared.state(), WorkerState::Running);
+    }
+
+    fn poison<T>(mutex: &Mutex<T>) {
+        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _guard = mutex.lock().unwrap();
+            panic!("poison");
+        }));
+        assert!(mutex.is_poisoned());
+    }
+
+    #[test]
+    fn lock_recovers_from_poison() {
+        let mutex = Mutex::new(0);
+        poison(&mutex);
+        *lock_or_recover(&mutex, "test") = 1;
+        assert!(!mutex.is_poisoned());
+        assert_eq!(*mutex.lock().unwrap(), 1);
+    }
+
+    #[test]
+    fn shared_state_recovers_from_poison() {
+        let shared = Shared::new();
+        poison(&shared.state);
+        assert_eq!(shared.state(), WorkerState::Ready);
+        assert!(!shared.state.is_poisoned());
+        shared.set_state(WorkerState::Draining);
+        assert_eq!(shared.state(), WorkerState::Draining);
+    }
+
+    #[tokio::test]
+    async fn shared_run_recovers_from_poison_when_empty() {
+        let shared = Shared::new();
+        poison(&shared.run);
+        shared.cancel_run();
+        assert!(!shared.run.is_poisoned());
+
+        let cancel = CancellationToken::new();
+        assert!(shared.begin_run(RunControl {
+            cancel: cancel.clone(),
+            handle: tokio::spawn(async {}),
+        }));
+        shared.cancel_run();
+        assert!(cancel.is_cancelled());
+        shared.stop_run().await;
+
+        assert!(shared.begin_run(RunControl {
+            cancel: CancellationToken::new(),
+            handle: tokio::spawn(async {}),
+        }));
+        shared.stop_run().await;
+    }
+
+    #[tokio::test]
+    async fn shared_run_recovers_from_poison_with_active_run() {
+        let shared = Shared::new();
+        let cancel = CancellationToken::new();
+        assert!(shared.begin_run(RunControl {
+            cancel: cancel.clone(),
+            handle: tokio::spawn(async {}),
+        }));
+        poison(&shared.run);
+        assert!(shared.run.is_poisoned());
+
+        assert!(!shared.begin_run(RunControl {
+            cancel: CancellationToken::new(),
+            handle: tokio::spawn(async {}),
+        }));
+        assert!(!shared.run.is_poisoned());
+
+        shared.cancel_run();
+        assert!(cancel.is_cancelled());
+        shared.stop_run().await;
+
+        assert!(shared.begin_run(RunControl {
+            cancel: CancellationToken::new(),
+            handle: tokio::spawn(async {}),
+        }));
+        shared.stop_run().await;
     }
 
     #[test]
