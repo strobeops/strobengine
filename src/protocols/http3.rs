@@ -878,7 +878,7 @@ mod tests {
             .expect("h3 request should complete");
 
         assert_eq!(m.status_code, 200);
-        let h = m.http3.expect("http3 sample present");
+        let h = m.http3().expect("http3 sample present");
         // A real QUIC connection has a non-zero initial congestion window.
         assert!(h.cwnd_bytes > 0, "expected cwnd > 0, got {}", h.cwnd_bytes);
     }
@@ -910,7 +910,7 @@ mod tests {
             )
             .await
             .expect("iteration should finish");
-            if let Some(h) = &m.http3 {
+            if let Some(h) = m.http3() {
                 attempted += h.migrations_attempted;
             }
         }
@@ -973,11 +973,11 @@ mod tests {
             .expect("iteration should finish");
         assert_eq!(m.status_code, 200);
         assert!(
-            m.quic_handshake_us.is_some(),
+            m.quic().is_some_and(|q| q.handshake_us.is_some()),
             "stateless iterations must report quic metrics"
         );
-        assert!(m.quic_retransmits.is_some());
-        assert!(!m.quic_0rtt_used);
+        assert!(m.quic().is_some_and(|q| q.retransmits.is_some()));
+        assert!(!m.quic().is_some_and(|q| q.used_0rtt));
     }
 
     #[tokio::test(flavor = "multi_thread")]

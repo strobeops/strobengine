@@ -6,8 +6,10 @@ use tokio::sync::mpsc;
 
 use super::helpers::new_histogram;
 use super::protocols::{
-    DatabaseMetrics, GraphqlMetrics, GraphqlWsMetrics, GrpcMetrics, Http3Metrics, QuicMetrics,
-    SoapMetrics, SseMetrics, StompMetrics, WebsocketMetrics,
+    DatabaseMetrics, DbSample, GraphqlMetrics, GraphqlSample, GraphqlWsMetrics, GraphqlWsSample,
+    GrpcMetrics, GrpcSample, Http3Metrics, Http3Sample, ProtocolSample, QuicMetrics, QuicSample,
+    SoapMetrics, SoapSample, SseMetrics, SseSample, StompMetrics, StompSample, WebsocketMetrics,
+    WsSample,
 };
 use super::protocols::{
     db_stats_from_histograms, graphql_ws_stats_from_histograms, stomp_stats_from_histograms,
@@ -113,19 +115,16 @@ struct QuicAccumulator {
 }
 
 impl QuicAccumulator {
-    fn record(&mut self, metric: &RequestMetric) {
-        if metric.quic_handshake_us.is_some()
-            || metric.quic_0rtt_used
-            || metric.quic_retransmits.is_some()
-        {
+    fn record(&mut self, sample: &QuicSample) {
+        if sample.is_significant() {
             self.has = true;
-            if metric.quic_0rtt_used {
+            if sample.used_0rtt {
                 self.stats.zero_rtt_accepted_count += 1;
             }
-            if let Some(retrans) = metric.quic_retransmits {
+            if let Some(retrans) = sample.retransmits {
                 self.stats.retransmissions += retrans;
             }
-            if let Some(handshake) = metric.quic_handshake_us {
+            if let Some(handshake) = sample.handshake_us {
                 self.handshake_sum_us += handshake;
                 self.handshake_count += 1;
             }
@@ -152,11 +151,11 @@ struct SseAccumulator {
 }
 
 impl SseAccumulator {
-    fn record(&mut self, metric: &RequestMetric) {
-        if let Some(events) = metric.sse_events_received {
+    fn record(&mut self, sample: &SseSample) {
+        if let Some(events) = sample.events_received {
             self.stats.total_events_received += events;
         }
-        if let Some(first) = metric.sse_first_event_us {
+        if let Some(first) = sample.first_event_us {
             self.first_event_sum_us += first;
             self.first_event_count += 1;
         }
@@ -182,15 +181,13 @@ struct GraphqlAccumulator {
 }
 
 impl GraphqlAccumulator {
-    fn record(&mut self, metric: &RequestMetric) {
-        if let Some(errors) = metric.graphql_errors {
-            self.has = true;
-            self.stats.operations_total += 1;
-            if errors > 0 {
-                self.stats.error_responses_total += 1;
-            }
-            self.stats.errors_total += errors;
+    fn record(&mut self, sample: &GraphqlSample) {
+        self.has = true;
+        self.stats.operations_total += 1;
+        if sample.errors > 0 {
+            self.stats.error_responses_total += 1;
         }
+        self.stats.errors_total += sample.errors;
     }
 
     fn finish(self) -> Option<GraphqlMetrics> {
@@ -217,21 +214,21 @@ impl Default for GraphqlWsAccumulator {
 }
 
 impl GraphqlWsAccumulator {
-    fn record(&mut self, metric: &RequestMetric) {
-        if let Some(ops) = metric.graphql_ws_operations {
+    fn record(&mut self, sample: &GraphqlWsSample) {
+        if let Some(ops) = sample.operations {
             self.has = true;
             self.stats.operations_total += ops;
         }
-        if let Some(ttfm) = metric.graphql_ws_ttfm_us {
+        if let Some(ttfm) = sample.ttfm_us {
             self.has = true;
             self.ttfm.saturating_record(ttfm);
         }
-        if let Some(interval) = metric.graphql_ws_interval_us {
+        if let Some(interval) = sample.interval_us {
             self.has = true;
             self.stats.messages_total += 1;
             self.interval.saturating_record(interval);
         }
-        if let Some(errors) = metric.graphql_ws_errors {
+        if let Some(errors) = sample.errors {
             self.has = true;
             self.stats.errors_total += errors;
         }
@@ -256,13 +253,11 @@ struct SoapAccumulator {
 }
 
 impl SoapAccumulator {
-    fn record(&mut self, metric: &RequestMetric) {
-        if let Some(faults) = metric.soap_errors {
-            self.has = true;
-            self.stats.operations_total += 1;
-            if faults > 0 {
-                self.stats.fault_responses_total += 1;
-            }
+    fn record(&mut self, sample: &SoapSample) {
+        self.has = true;
+        self.stats.operations_total += 1;
+        if sample.faults > 0 {
+            self.stats.fault_responses_total += 1;
         }
     }
 
@@ -292,10 +287,10 @@ impl Default for StompAccumulator {
 }
 
 impl StompAccumulator {
-    fn record(&mut self, metric: &RequestMetric) {
-        let Some(sample) = metric.stomp.as_ref().filter(|s| s.is_significant()) else {
+    fn record(&mut self, sample: &StompSample) {
+        if !sample.is_significant() {
             return;
-        };
+        }
         self.has = true;
         self.stats.messages_sent_total += sample.messages_sent;
         self.stats.messages_received_total += sample.messages_received;
@@ -345,10 +340,10 @@ impl Default for DbAccumulator {
 }
 
 impl DbAccumulator {
-    fn record(&mut self, metric: &RequestMetric) {
-        let Some(sample) = metric.db.as_ref().filter(|s| s.is_significant()) else {
+    fn record(&mut self, sample: &DbSample) {
+        if !sample.is_significant() {
             return;
-        };
+        }
         self.has = true;
         self.stats.queries_total += 1;
         self.stats.rows_total += sample.rows;
@@ -385,10 +380,10 @@ struct WsAccumulator {
 }
 
 impl WsAccumulator {
-    fn record(&mut self, metric: &RequestMetric) {
-        let Some(sample) = metric.ws.as_ref().filter(|s| s.is_significant()) else {
+    fn record(&mut self, sample: &WsSample) {
+        if !sample.is_significant() {
             return;
-        };
+        }
         self.has = true;
         self.stats.pings_sent_total += sample.pings_sent;
         self.stats.pings_received_total += sample.pings_received;
@@ -433,10 +428,10 @@ impl Default for GrpcAccumulator {
 }
 
 impl GrpcAccumulator {
-    fn record(&mut self, metric: &RequestMetric) {
-        let Some(sample) = metric.grpc.as_ref().filter(|s| s.is_significant()) else {
+    fn record(&mut self, sample: &GrpcSample) {
+        if !sample.is_significant() {
             return;
-        };
+        }
         self.has = true;
         if sample.active_streams > self.stats.active_streams_peak {
             self.stats.active_streams_peak = sample.active_streams;
@@ -491,10 +486,10 @@ impl Default for Http3Accumulator {
 }
 
 impl Http3Accumulator {
-    fn record(&mut self, metric: &RequestMetric) {
-        let Some(sample) = metric.http3.as_ref().filter(|s| s.is_significant()) else {
+    fn record(&mut self, sample: &Http3Sample) {
+        if !sample.is_significant() {
             return;
-        };
+        }
         self.has = true;
         // "current" = last observed sample; min/max/mean over the session.
         self.stats.cwnd_bytes_current = sample.cwnd_bytes;
@@ -548,17 +543,28 @@ struct ProtocolAccumulators {
 }
 
 impl ProtocolAccumulators {
-    fn record(&mut self, metric: &RequestMetric) {
-        self.quic.record(metric);
-        self.sse.record(metric);
-        self.graphql.record(metric);
-        self.graphql_ws.record(metric);
-        self.soap.record(metric);
-        self.stomp.record(metric);
-        self.db.record(metric);
-        self.ws.record(metric);
-        self.grpc.record(metric);
-        self.http3.record(metric);
+    fn record(&mut self, protocol: Option<&ProtocolSample>) {
+        let Some(protocol) = protocol else {
+            return;
+        };
+        match protocol {
+            ProtocolSample::Http3 { http3, quic } => {
+                if let Some(quic) = quic {
+                    self.quic.record(quic);
+                }
+                if let Some(http3) = http3 {
+                    self.http3.record(http3);
+                }
+            }
+            ProtocolSample::Sse(sample) => self.sse.record(sample),
+            ProtocolSample::Graphql(sample) => self.graphql.record(sample),
+            ProtocolSample::GraphqlWs(sample) => self.graphql_ws.record(sample),
+            ProtocolSample::Soap(sample) => self.soap.record(sample),
+            ProtocolSample::Stomp(sample) => self.stomp.record(sample),
+            ProtocolSample::Db(sample) => self.db.record(sample),
+            ProtocolSample::Ws(sample) => self.ws.record(sample),
+            ProtocolSample::Grpc(sample) => self.grpc.record(sample),
+        }
     }
 
     fn finish_into(self, metrics: &mut AggregatedMetrics) {
@@ -668,7 +674,7 @@ pub async fn finalize_metrics(
         let latency_us = u64::try_from(metric.latency_micros).unwrap_or(u64::MAX);
         record_common(&mut metrics, &metric, latency_us);
         timeline.record_latency(latency_us, metric.is_error());
-        protocols.record(&metric);
+        protocols.record(metric.protocol.as_ref());
         timeline.maybe_emit();
     }
 

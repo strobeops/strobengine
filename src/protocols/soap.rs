@@ -194,7 +194,7 @@ impl ProtocolEngine for SoapEngine {
             tracing::trace!(
                 status = metric.status_code,
                 latency_us = metric.latency_micros,
-                soap_errors = ?metric.soap_errors,
+                soap_errors = ?metric.soap().map(|s| s.faults),
                 "soap request completed"
             );
         }
@@ -317,7 +317,7 @@ mod tests {
         .await;
         let metric = engine().execute_iteration(&url).await;
         assert_eq!(metric.status_code, 200);
-        assert_eq!(metric.soap_errors, Some(1));
+        assert_eq!(metric.soap().map(|s| s.faults), Some(1));
     }
 
     #[tokio::test]
@@ -329,6 +329,6 @@ mod tests {
         .await;
         let metric = engine().execute_iteration(&url).await;
         assert_eq!(metric.status_code, 200);
-        assert_eq!(metric.soap_errors, Some(0));
+        assert_eq!(metric.soap().map(|s| s.faults), Some(0));
     }
 }

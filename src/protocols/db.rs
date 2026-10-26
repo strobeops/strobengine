@@ -406,7 +406,7 @@ mod tests {
         let eng = engine(&url, "SELECT id FROM items", true);
         let metric = eng.execute_iteration(&url).await;
         assert_eq!(metric.status_code, 200);
-        let sample = metric.db.unwrap();
+        let sample = metric.db().unwrap();
         assert_eq!(sample.rows, 5);
         assert!(sample.acquire_us.is_some());
         assert!(sample.query_us.is_some());
@@ -445,7 +445,7 @@ mod tests {
         .unwrap();
         let metric = eng.execute_iteration(&url).await;
         assert_eq!(metric.status_code, 200);
-        assert_eq!(metric.db.unwrap().rows, 1);
+        assert_eq!(metric.db().unwrap().rows, 1);
     }
 
     #[tokio::test]
@@ -469,7 +469,7 @@ mod tests {
             .execute_with_fault(Instant::now(), Some(ChaosFault::MetadataCorruption))
             .await;
         assert_eq!(metric.status_code, 200);
-        assert_eq!(metric.db.unwrap().rows, 1);
+        assert_eq!(metric.db().unwrap().rows, 1);
     }
 
     #[tokio::test]
@@ -479,7 +479,7 @@ mod tests {
         let eng = engine(&url, "UPDATE items SET name = 'x'", false);
         let metric = eng.execute_iteration(&url).await;
         assert_eq!(metric.status_code, 200);
-        assert_eq!(metric.db.unwrap().rows, 5);
+        assert_eq!(metric.db().unwrap().rows, 5);
     }
 
     #[tokio::test]
@@ -489,7 +489,7 @@ mod tests {
         let eng = engine(&url, "SELECT * FROM does_not_exist", true);
         let metric = eng.execute_iteration(&url).await;
         assert_eq!(metric.status_code, 0);
-        assert_eq!(metric.db.unwrap().errors, 1);
+        assert_eq!(metric.db().unwrap().errors, 1);
     }
 
     #[tokio::test]
@@ -508,7 +508,7 @@ mod tests {
         .unwrap();
         let first = eng.execute_iteration("postgres://127.0.0.1:1/db").await;
         assert_eq!(first.status_code, 0);
-        assert_eq!(first.db.unwrap().errors, 1);
+        assert_eq!(first.db().unwrap().errors, 1);
         // The cell must remain uninitialized so a later attempt retries.
         assert!(eng.pool.get().is_none());
     }
@@ -529,6 +529,6 @@ mod tests {
         )
         .unwrap();
         let metric = eng.execute_iteration(&url).await;
-        assert_eq!(metric.db.unwrap().rows, 2);
+        assert_eq!(metric.db().unwrap().rows, 2);
     }
 }

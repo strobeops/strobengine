@@ -390,6 +390,70 @@ impl DbSample {
     }
 }
 
+/// Per-iteration QUIC connection telemetry for HTTP/3.
+#[derive(Debug, Clone, Default)]
+pub struct QuicSample {
+    pub handshake_us: Option<u64>,
+    pub used_0rtt: bool,
+    pub retransmits: Option<u64>,
+}
+
+impl QuicSample {
+    /// True when the sample carries any meaningful QUIC telemetry.
+    pub fn is_significant(&self) -> bool {
+        self.handshake_us.is_some() || self.used_0rtt || self.retransmits.is_some()
+    }
+}
+
+/// Per-iteration Server-Sent Events telemetry.
+#[derive(Debug, Clone, Default)]
+pub struct SseSample {
+    pub events_received: Option<u64>,
+    pub first_event_us: Option<u64>,
+    pub event_interval_us: Option<u64>,
+}
+
+/// Per-iteration GraphQL HTTP operation telemetry.
+#[derive(Debug, Clone, Default)]
+pub struct GraphqlSample {
+    pub errors: u64,
+}
+
+/// Per-iteration GraphQL-over-WebSocket subscription telemetry.
+#[derive(Debug, Clone, Default)]
+pub struct GraphqlWsSample {
+    pub operations: Option<u64>,
+    pub ttfm_us: Option<u64>,
+    pub interval_us: Option<u64>,
+    pub errors: Option<u64>,
+}
+
+/// Per-iteration SOAP fault telemetry.
+#[derive(Debug, Clone, Default)]
+pub struct SoapSample {
+    pub faults: u64,
+}
+
+/// Protocol-specific telemetry for a single iteration.
+///
+/// An iteration belongs to one protocol family; HTTP/3 carries its QUIC
+/// connection sample alongside the HTTP/3 sample.
+#[derive(Debug, Clone)]
+pub enum ProtocolSample {
+    Ws(WsSample),
+    Grpc(GrpcSample),
+    Http3 {
+        http3: Option<Http3Sample>,
+        quic: Option<QuicSample>,
+    },
+    Sse(SseSample),
+    Stomp(StompSample),
+    Db(DbSample),
+    Graphql(GraphqlSample),
+    GraphqlWs(GraphqlWsSample),
+    Soap(SoapSample),
+}
+
 /// Fold HDR histogram percentiles (microseconds) into `GraphqlWsMetrics`.
 pub(crate) fn graphql_ws_stats_from_histograms(
     mut stats: GraphqlWsMetrics,
