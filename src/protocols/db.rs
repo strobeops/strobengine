@@ -17,6 +17,7 @@
 //! The query text is deliberately never copied into metrics/reports; only the
 //! driver, pool size, and fetch mode are surfaced.
 
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
@@ -93,7 +94,7 @@ pub fn run_info(url: &str, pool_max: usize, fetch: bool) -> Option<DbRunInfo> {
 pub struct DbEngine {
     url: String,
     driver: DbDriver,
-    query: String,
+    query: Arc<str>,
     params: Vec<String>,
     fetch: bool,
     max_rows: u64,
@@ -123,7 +124,7 @@ impl DbEngine {
         Ok(Self {
             url: url.to_string(),
             driver,
-            query,
+            query: Arc::from(query),
             params,
             fetch,
             max_rows,
@@ -157,35 +158,31 @@ impl DbEngine {
             .await
     }
 
-    /// Apply `MetadataCorruption` by binding one extra junk parameter.
-    fn effective_params(&self, chaos_fault: Option<ChaosFault>) -> Vec<String> {
-        let mut params = self.params.clone();
-        if let Some(ChaosFault::MetadataCorruption) = chaos_fault {
-            params.push("__strobengine_chaos__".to_string());
-        }
-        params
-    }
-
     /// Apply `CorruptedPayload` by appending an invalid SQL token.
-    fn effective_query(&self, chaos_fault: Option<ChaosFault>) -> String {
+    fn effective_query(&self, chaos_fault: Option<ChaosFault>) -> Arc<str> {
         if let Some(ChaosFault::CorruptedPayload) = chaos_fault {
-            format!("{} __strobengine_chaos__", self.query)
+            Arc::from(format!("{} __strobengine_chaos__", self.query))
         } else {
-            self.query.clone()
+            Arc::clone(&self.query)
         }
     }
 
     async fn run_query(
         &self,
         conn: &mut AnyConnection,
-        sql: String,
-        params: &[String],
+        sql: Arc<str>,
+        chaos_fault: Option<ChaosFault>,
     ) -> Result<u64, sqlx::Error> {
         // The query is operator-provided (the whole point of a load test), so we
         // assert it safe; dynamic *data* still goes through bind parameters.
         let mut query = sqlx::query::<sqlx::Any>(sqlx::AssertSqlSafe(sql));
-        for param in params {
-            query = query.bind(param.clone());
+        for param in &self.params {
+            query = query.bind(param.as_str());
+        }
+        // MetadataCorruption keeps the SQL unchanged and adds an unmatched bind,
+        // so drivers that reject extra parameters surface the fault.
+        if let Some(ChaosFault::MetadataCorruption) = chaos_fault {
+            query = query.bind("__strobengine_chaos__");
         }
         if self.fetch {
             // Stream rows so a large result set cannot exhaust memory.
@@ -204,33 +201,11 @@ impl DbEngine {
         }
     }
 
-    fn error_metric(
+    async fn execute_with_fault(
         &self,
         start: Instant,
         chaos_fault: Option<ChaosFault>,
-        acquire_us: Option<u64>,
-        pool: Option<&AnyPool>,
     ) -> RequestMetric {
-        let sample = DbSample {
-            errors: 1,
-            acquire_us,
-            pool_size: pool.map(|p| p.size() as u64).unwrap_or(0),
-            pool_idle: pool.map(|p| p.num_idle() as u64).unwrap_or(0),
-            ..Default::default()
-        };
-        RequestMetric::builder(start.elapsed().as_micros(), chaos_fault)
-            .status(0)
-            .db(Some(sample))
-            .build()
-    }
-}
-
-#[async_trait]
-impl ProtocolEngine for DbEngine {
-    async fn execute_iteration(&self, _target_url: &str) -> RequestMetric {
-        let start = Instant::now();
-        let chaos_fault = self.chaos.select_fault();
-
         if let Some(ChaosFault::LatencySpike { duration_ms }) = chaos_fault {
             tracing::trace!(duration_ms, "chaos: latency spike injected");
             tokio::time::sleep(Duration::from_millis(duration_ms)).await;
@@ -241,7 +216,6 @@ impl ProtocolEngine for DbEngine {
         }
 
         let sql = self.effective_query(chaos_fault);
-        let params = self.effective_params(chaos_fault);
 
         let pool = match self.pool().await {
             Ok(pool) => pool,
@@ -261,7 +235,7 @@ impl ProtocolEngine for DbEngine {
         let acquire_us = acquire_start.elapsed().as_micros() as u64;
 
         let query_start = Instant::now();
-        let result = self.run_query(&mut conn, sql, &params).await;
+        let result = self.run_query(&mut conn, sql, chaos_fault).await;
         let query_us = query_start.elapsed().as_micros() as u64;
         drop(conn);
 
@@ -296,6 +270,35 @@ impl ProtocolEngine for DbEngine {
                     .build()
             }
         }
+    }
+
+    fn error_metric(
+        &self,
+        start: Instant,
+        chaos_fault: Option<ChaosFault>,
+        acquire_us: Option<u64>,
+        pool: Option<&AnyPool>,
+    ) -> RequestMetric {
+        let sample = DbSample {
+            errors: 1,
+            acquire_us,
+            pool_size: pool.map(|p| p.size() as u64).unwrap_or(0),
+            pool_idle: pool.map(|p| p.num_idle() as u64).unwrap_or(0),
+            ..Default::default()
+        };
+        RequestMetric::builder(start.elapsed().as_micros(), chaos_fault)
+            .status(0)
+            .db(Some(sample))
+            .build()
+    }
+}
+
+#[async_trait]
+impl ProtocolEngine for DbEngine {
+    async fn execute_iteration(&self, _target_url: &str) -> RequestMetric {
+        let start = Instant::now();
+        self.execute_with_fault(start, self.chaos.select_fault())
+            .await
     }
 }
 
@@ -408,6 +411,65 @@ mod tests {
         assert!(sample.acquire_us.is_some());
         assert!(sample.query_us.is_some());
         assert!(sample.pool_size >= 1);
+    }
+
+    #[test]
+    fn effective_query_reuses_allocation_without_chaos() {
+        let eng = engine(&temp_db_url("query"), "SELECT 1", false);
+        for fault in [
+            None,
+            Some(ChaosFault::MetadataCorruption),
+            Some(ChaosFault::ConnectionDrop),
+            Some(ChaosFault::LatencySpike { duration_ms: 1 }),
+        ] {
+            assert!(Arc::ptr_eq(&eng.effective_query(fault), &eng.query));
+        }
+        let corrupted = eng.effective_query(Some(ChaosFault::CorruptedPayload));
+        assert_eq!(&*corrupted, "SELECT 1 __strobengine_chaos__");
+    }
+
+    #[tokio::test]
+    async fn binds_borrowed_params() {
+        let url = temp_db_url("params");
+        seed(&url).await;
+        let eng = DbEngine::new(
+            &url,
+            "SELECT name FROM items WHERE name = ?".to_string(),
+            vec!["item-1".to_string()],
+            true,
+            0,
+            1,
+            ChaosEngine::default(),
+            5,
+        )
+        .unwrap();
+        let metric = eng.execute_iteration(&url).await;
+        assert_eq!(metric.status_code, 200);
+        assert_eq!(metric.db.unwrap().rows, 1);
+    }
+
+    #[tokio::test]
+    async fn metadata_corruption_keeps_sql_and_binds_extra() {
+        let url = temp_db_url("metadata");
+        seed(&url).await;
+        let eng = DbEngine::new(
+            &url,
+            "SELECT name FROM items WHERE name = ? AND ? IS NOT NULL".to_string(),
+            vec!["item-1".to_string()],
+            true,
+            0,
+            1,
+            ChaosEngine::default(),
+            5,
+        )
+        .unwrap();
+        let sql = eng.effective_query(Some(ChaosFault::MetadataCorruption));
+        assert!(Arc::ptr_eq(&sql, &eng.query));
+        let metric = eng
+            .execute_with_fault(Instant::now(), Some(ChaosFault::MetadataCorruption))
+            .await;
+        assert_eq!(metric.status_code, 200);
+        assert_eq!(metric.db.unwrap().rows, 1);
     }
 
     #[tokio::test]
