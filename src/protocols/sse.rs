@@ -730,7 +730,7 @@ mod tests {
             .execute_iteration_with_context(&url, ctx.as_mut())
             .await;
         assert_eq!(capped.status_code, 200, "budget completion is not an error");
-        assert_eq!(capped.sse_events_received, Some(1));
+        assert_eq!(capped.sse().and_then(|s| s.events_received), Some(1));
         assert_eq!(capped.latency_micros, 0);
     }
 
@@ -787,7 +787,8 @@ mod tests {
 
         assert_eq!(metric.status_code, 200);
         let ttfb = metric
-            .sse_first_event_us
+            .sse()
+            .and_then(|s| s.first_event_us)
             .expect("the connection's first event must report a TTFB");
         assert!(
             ttfb >= 60_000,
@@ -804,14 +805,14 @@ mod tests {
         let first = engine
             .execute_iteration_with_context(&url, ctx.as_mut())
             .await;
-        assert!(first.sse_first_event_us.is_some());
+        assert!(first.sse().and_then(|s| s.first_event_us).is_some());
 
         let second = engine
             .execute_iteration_with_context(&url, ctx.as_mut())
             .await;
         assert_eq!(second.status_code, 200);
         assert!(
-            second.sse_first_event_us.is_none(),
+            second.sse().and_then(|s| s.first_event_us).is_none(),
             "only the connection's first event carries a TTFB sample"
         );
     }
@@ -825,20 +826,23 @@ mod tests {
         let first = engine
             .execute_iteration_with_context(&url, ctx.as_mut())
             .await;
-        assert!(first.sse_first_event_us.is_some());
+        assert!(first.sse().and_then(|s| s.first_event_us).is_some());
 
         // EOF: the stream is dropped so the next iteration reconnects.
         let eof = engine
             .execute_iteration_with_context(&url, ctx.as_mut())
             .await;
-        assert!(eof.sse_first_event_us.is_none());
+        assert!(eof.sse().and_then(|s| s.first_event_us).is_none());
 
         let after_reconnect = engine
             .execute_iteration_with_context(&url, ctx.as_mut())
             .await;
         assert_eq!(after_reconnect.status_code, 200);
         assert!(
-            after_reconnect.sse_first_event_us.is_some(),
+            after_reconnect
+                .sse()
+                .and_then(|s| s.first_event_us)
+                .is_some(),
             "a reconnect must produce a fresh TTFB sample"
         );
     }

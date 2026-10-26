@@ -5,6 +5,7 @@ use hdrhistogram::Histogram;
 use tokio::sync::mpsc;
 
 use super::helpers::{Percentiles, new_histogram, ns_since_epoch};
+use super::protocols::ProtocolSample;
 use super::summary::calculate_histogram_from_hdr;
 use super::*;
 
@@ -473,16 +474,16 @@ async fn test_finalize_metrics_aggregates_websocket_samples() {
     };
 
     let mut first = RequestMetric::error(1000, None);
-    first.ws = Some(sample(1, 0, 1, 0, 1000, 1000, 1, 0));
+    first.protocol = Some(ProtocolSample::Ws(sample(1, 0, 1, 0, 1000, 1000, 1, 0)));
     tx.send(first).await.unwrap();
 
     let mut second = RequestMetric::error(1000, None);
-    second.ws = Some(sample(0, 0, 0, 0, 2000, 3000, 2, 1));
+    second.protocol = Some(ProtocolSample::Ws(sample(0, 0, 0, 0, 2000, 3000, 2, 1)));
     tx.send(second).await.unwrap();
 
     // Insignificant samples must not flip `has_ws`.
     let mut third = RequestMetric::error(1000, None);
-    third.ws = Some(WsSample::default());
+    third.protocol = Some(ProtocolSample::Ws(WsSample::default()));
     tx.send(third).await.unwrap();
 
     drop(tx);
@@ -503,7 +504,7 @@ async fn test_finalize_metrics_aggregates_grpc_samples() {
     let (tx, rx) = tokio::sync::mpsc::channel::<RequestMetric>(8);
 
     let mut first = RequestMetric::error(1000, None);
-    first.grpc = Some(GrpcSample {
+    first.protocol = Some(ProtocolSample::Grpc(GrpcSample {
         active_streams: 4,
         max_concurrent_streams: 100,
         utilization: 0.04,
@@ -511,11 +512,11 @@ async fn test_finalize_metrics_aggregates_grpc_samples() {
         window_stall_us: 1500,
         send_capacity_bytes: 65535,
         has_send_capacity: true,
-    });
+    }));
     tx.send(first).await.unwrap();
 
     let mut second = RequestMetric::error(1000, None);
-    second.grpc = Some(GrpcSample {
+    second.protocol = Some(ProtocolSample::Grpc(GrpcSample {
         active_streams: 6,
         max_concurrent_streams: 100,
         utilization: 0.06,
@@ -523,12 +524,12 @@ async fn test_finalize_metrics_aggregates_grpc_samples() {
         window_stall_us: 3000,
         send_capacity_bytes: 32768,
         has_send_capacity: true,
-    });
+    }));
     tx.send(second).await.unwrap();
 
     // Insignificant sample must not flip `has_grpc`.
     let mut third = RequestMetric::error(1000, None);
-    third.grpc = Some(GrpcSample::default());
+    third.protocol = Some(ProtocolSample::Grpc(GrpcSample::default()));
     tx.send(third).await.unwrap();
 
     drop(tx);
@@ -555,12 +556,18 @@ async fn test_finalize_metrics_aggregates_http3_samples() {
     };
     for sample in [s(2000, 0, 0), s(1000, 0, 0), s(4000, 2, 1)] {
         let mut m = RequestMetric::error(1000, None);
-        m.http3 = Some(sample);
+        m.protocol = Some(ProtocolSample::Http3 {
+            http3: Some(sample),
+            quic: None,
+        });
         tx.send(m).await.unwrap();
     }
     // Insignificant sample must not flip has_http3.
     let mut none = RequestMetric::error(1000, None);
-    none.http3 = Some(Http3Sample::default());
+    none.protocol = Some(ProtocolSample::Http3 {
+        http3: Some(Http3Sample::default()),
+        quic: None,
+    });
     tx.send(none).await.unwrap();
     drop(tx);
 
@@ -614,10 +621,13 @@ async fn test_finalize_metrics_counts_chaos_faults() {
 async fn test_http3_migration_rate_sentinel_no_migrations() {
     let (tx, rx) = tokio::sync::mpsc::channel::<RequestMetric>(8);
     let mut m = RequestMetric::error(1000, None);
-    m.http3 = Some(Http3Sample {
-        cwnd_bytes: 5000,
-        migrations_attempted: 0,
-        migrations_successful: 0,
+    m.protocol = Some(ProtocolSample::Http3 {
+        http3: Some(Http3Sample {
+            cwnd_bytes: 5000,
+            migrations_attempted: 0,
+            migrations_successful: 0,
+        }),
+        quic: None,
     });
     tx.send(m).await.unwrap();
     drop(tx);

@@ -737,7 +737,7 @@ mod tests {
             .execute_iteration_with_context(&broker.url, ctx.as_mut())
             .await;
         assert_eq!(metric.status_code, 200);
-        assert_eq!(metric.stomp.unwrap().messages_received, 1);
+        assert_eq!(metric.stomp().unwrap().messages_received, 1);
 
         wait_for_acks(&broker, 1).await;
         let acks = broker.acks.lock().unwrap();
@@ -807,7 +807,7 @@ mod tests {
             .execute_iteration_with_context(&broker.url, ctx.as_mut())
             .await;
         assert_eq!(metric.status_code, 200);
-        let sample = metric.stomp.unwrap();
+        let sample = metric.stomp().unwrap();
         assert_eq!(sample.messages_sent, 1);
         assert!(sample.send_latency_us.is_some());
         assert!(sample.bytes_sent > 0);
@@ -822,7 +822,7 @@ mod tests {
             .execute_iteration_with_context(&broker.url, ctx.as_mut())
             .await;
         assert_eq!(metric.status_code, 200);
-        let sample = metric.stomp.unwrap();
+        let sample = metric.stomp().unwrap();
         assert!(
             sample.send_latency_us.unwrap() >= 20_000,
             "receipt latency should include the broker delay"
@@ -839,7 +839,7 @@ mod tests {
             .execute_iteration_with_context(&broker.url, ctx.as_mut())
             .await;
         assert_eq!(first.status_code, 200);
-        let s1 = first.stomp.unwrap();
+        let s1 = first.stomp().unwrap();
         assert_eq!(s1.messages_received, 1);
         assert!(s1.ttfm_us.is_some(), "first message reports TTFM");
         assert!(s1.receive_interval_us.is_none());
@@ -847,7 +847,7 @@ mod tests {
         let second = eng
             .execute_iteration_with_context(&broker.url, ctx.as_mut())
             .await;
-        let s2 = second.stomp.unwrap();
+        let s2 = second.stomp().unwrap();
         assert_eq!(s2.messages_received, 1);
         assert!(s2.ttfm_us.is_none(), "TTFM is first-message only");
         assert!(s2.receive_interval_us.is_some());
@@ -862,7 +862,7 @@ mod tests {
             .execute_iteration_with_context(&broker.url, ctx.as_mut())
             .await;
         assert_eq!(metric.status_code, 0);
-        assert_eq!(metric.stomp.unwrap().errors, 1);
+        assert_eq!(metric.stomp().unwrap().errors, 1);
     }
 
     #[tokio::test]

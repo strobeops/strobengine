@@ -568,7 +568,7 @@ mod tests {
         let metric = engine.execute_iteration("").await;
         assert_eq!(metric.status_code, 200);
         assert_eq!(metric.bytes_received, 17); // len("hello-from-server")
-        let g = metric.grpc.expect("grpc sample present");
+        let g = metric.grpc().cloned().expect("grpc sample present");
         assert!(g.active_streams >= 1);
         assert_eq!(g.window_exhaustion_events, 0);
 
@@ -578,7 +578,7 @@ mod tests {
         let mut g2 = g;
         for _ in 0..50 {
             let m = engine.execute_iteration("").await;
-            g2 = m.grpc.expect("grpc sample present");
+            g2 = m.grpc().cloned().expect("grpc sample present");
             if g2.max_concurrent_streams != u64::MAX {
                 break;
             }
@@ -614,7 +614,7 @@ mod tests {
             peak = peak.max(
                 [a, b, c]
                     .iter()
-                    .filter_map(|m| m.grpc.as_ref())
+                    .filter_map(|m| m.grpc())
                     .map(|g| g.active_streams)
                     .max()
                     .unwrap_or(0),
@@ -652,7 +652,7 @@ mod tests {
         for _ in 0..12 {
             let m = engine.execute_iteration("").await;
             assert_eq!(m.status_code, 200);
-            let g = m.grpc.expect("grpc sample present");
+            let g = m.grpc().cloned().expect("grpc sample present");
             if g.window_exhaustion_events >= 1 {
                 stalled = Some(g);
                 break;

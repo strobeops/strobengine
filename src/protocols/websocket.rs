@@ -1136,7 +1136,7 @@ mod tests {
             .execute_iteration(&format!("ws://{}", local_addr))
             .await;
 
-        let ws = metric.ws.expect("ping/pong iteration yields a ws sample");
+        let ws = metric.ws().expect("ping/pong iteration yields a ws sample");
         assert_eq!(ws.pings_sent, 1);
         assert_eq!(ws.pongs_solicited, 1);
         assert_eq!(ws.pongs_unsolicited, 0);
@@ -1176,7 +1176,7 @@ mod tests {
             .execute_iteration(&format!("ws://{}", local_addr))
             .await;
 
-        let ws = metric.ws.expect("control frames yield a ws sample");
+        let ws = metric.ws().expect("control frames yield a ws sample");
         assert_eq!(ws.pings_sent, 0);
         assert_eq!(ws.pings_received, 1);
         assert_eq!(ws.pongs_solicited, 0);
@@ -1430,7 +1430,7 @@ mod tests {
         assert!(metric.connection.timestamp_sent_ns.is_some());
 
         // The CountingSink feed->flush cycle yields a per-iteration backpressure sample.
-        let ws = metric.ws.expect("publisher iteration yields a ws sample");
+        let ws = metric.ws().expect("publisher iteration yields a ws sample");
         assert_eq!(ws.backpressure_sample_count, 1);
         assert!(ws.backpressure_max_bytes > 0);
         // Payload is far below the default 1 MiB warn threshold.
@@ -1474,7 +1474,7 @@ mod tests {
             .await;
 
         assert_eq!(metric.status_code, 200);
-        let ws = metric.ws.expect("publisher yields a ws sample");
+        let ws = metric.ws().expect("publisher yields a ws sample");
         assert!(ws.backpressure_max_bytes > 1024);
         assert_eq!(ws.threshold_breaches, 1);
     }

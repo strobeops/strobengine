@@ -202,7 +202,7 @@ impl ProtocolEngine for GraphqlEngine {
             tracing::trace!(
                 status = metric.status_code,
                 latency_us = metric.latency_micros,
-                graphql_errors = ?metric.graphql_errors,
+                graphql_errors = ?metric.graphql().map(|s| s.errors),
                 "graphql request completed"
             );
         }
@@ -328,7 +328,7 @@ mod tests {
         let metric = engine.execute_iteration(&url).await;
 
         assert_eq!(metric.status_code, 200);
-        assert_eq!(metric.graphql_errors, Some(1));
+        assert_eq!(metric.graphql().map(|s| s.errors), Some(1));
     }
 
     #[tokio::test]
@@ -343,7 +343,7 @@ mod tests {
         let metric = engine.execute_iteration(&url).await;
 
         assert_eq!(metric.status_code, 200);
-        assert_eq!(metric.graphql_errors, Some(0));
+        assert_eq!(metric.graphql().map(|s| s.errors), Some(0));
         assert!(metric.bytes_received > 0);
     }
 
@@ -359,6 +359,6 @@ mod tests {
         let metric = engine.execute_iteration(&url).await;
 
         assert_eq!(metric.status_code, 200);
-        assert_eq!(metric.graphql_errors, None);
+        assert_eq!(metric.graphql().map(|s| s.errors), None);
     }
 }

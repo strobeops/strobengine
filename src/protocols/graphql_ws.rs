@@ -598,19 +598,23 @@ mod tests {
         let mut session = GraphqlWsSession::new(vec![], 2);
         let first = engine.run_iteration(&url, &mut session).await;
         assert_eq!(first.status_code, 200);
-        assert_eq!(first.graphql_ws_operations, Some(1));
+        assert_eq!(first.graphql_ws().and_then(|s| s.operations), Some(1));
         assert!(
-            first.graphql_ws_ttfm_us.is_some(),
+            first.graphql_ws().and_then(|s| s.ttfm_us).is_some(),
             "first message must record TTFM"
         );
-        assert_eq!(first.graphql_ws_interval_us, None);
+        assert_eq!(first.graphql_ws().and_then(|s| s.interval_us), None);
 
         let second = engine.run_iteration(&url, &mut session).await;
         assert_eq!(second.status_code, 200);
-        assert_eq!(second.graphql_ws_operations, None);
-        assert_eq!(second.graphql_ws_ttfm_us, None, "TTFM is recorded once");
+        assert_eq!(second.graphql_ws().and_then(|s| s.operations), None);
+        assert_eq!(
+            second.graphql_ws().and_then(|s| s.ttfm_us),
+            None,
+            "TTFM is recorded once"
+        );
         assert!(
-            second.graphql_ws_interval_us.is_some(),
+            second.graphql_ws().and_then(|s| s.interval_us).is_some(),
             "subsequent messages record inter-message intervals"
         );
     }
@@ -652,8 +656,8 @@ mod tests {
 
         let metric = engine.execute_iteration(&url).await;
         assert_eq!(metric.status_code, 200);
-        assert_eq!(metric.graphql_ws_errors, Some(1));
-        assert_eq!(metric.graphql_ws_operations, Some(1));
+        assert_eq!(metric.graphql_ws().and_then(|s| s.errors), Some(1));
+        assert_eq!(metric.graphql_ws().and_then(|s| s.operations), Some(1));
     }
 
     #[tokio::test]
