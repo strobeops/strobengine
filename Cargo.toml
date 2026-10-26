@@ -69,6 +69,7 @@ rcgen = "0.14.10"
 [build-dependencies]
 # Pure-Rust .proto compiler + tonic/prost codegen (no system protoc required).
 protox = "0.10.0"
+pyo3-build-config = "0.29"
 tonic-prost-build = "0.14"
 
 [[bench]]

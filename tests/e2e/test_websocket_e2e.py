@@ -185,7 +185,6 @@ class TestWebSocketLoadTest:
                 no_progress=True,
                 ws_role="publisher",
                 ws_publish_interval_ms=200,
-                ws_subscribers=2,
             ),
         )
         summary = await asyncio.wait_for(engine.run_async(), timeout=15.0)
@@ -202,7 +201,6 @@ class TestWebSocketLoadTest:
             options=RequestOptions(
                 no_progress=True,
                 ws_role="subscriber",
-                ws_subscribers=2,
             ),
         )
         summary = await asyncio.wait_for(engine.run_async(), timeout=15.0)

@@ -534,6 +534,7 @@ fn build_engine(
     chaos: ChaosEngine,
     pool_size: usize,
 ) -> PyResult<Arc<dyn ProtocolEngine>> {
+    protocols::warn_reserved_options(config);
     let url = config.url.clone();
 
     // GraphQL over a ws(s):// URL is a subscription; over http(s):// it is a

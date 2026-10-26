@@ -1,9 +1,11 @@
 import json
+import re
 from pathlib import Path
 from typing import ClassVar
 from unittest import mock
 
 import pytest
+from typer.main import get_command
 from typer.testing import CliRunner
 
 from strobengine.cli import app, main
@@ -617,3 +619,42 @@ class TestRequestFieldAllowlist:
         for cmd in (load, stress, spike):
             params = set(inspect.signature(cmd).parameters)
             assert set(_EXPORT_OPTION_NAMES) <= params
+
+
+_ANSI = re.compile(r"\x1b\[[0-9;]*m")
+
+
+class TestReservedOptions:
+    @pytest.mark.parametrize("command", ["load", "stress", "spike"])
+    @pytest.mark.parametrize(
+        "option", ["--ws-subscribers", "--grpc-use-reflection", "--http3"]
+    )
+    def test_hidden_from_command(self, command: str, option: str) -> None:
+        params = get_command(app).commands[command].params
+        param = next(p for p in params if option in p.opts)
+        assert param.hidden is True
+
+    @pytest.mark.parametrize("command", ["load", "stress", "spike"])
+    def test_hidden_from_help(self, command: str) -> None:
+        result = runner.invoke(app, [command, "--help"])
+        assert result.exit_code == 0
+        out = _ANSI.sub("", result.output)
+        assert "--ws-subscribers" not in out
+        assert "--grpc-use-reflection" not in out
+        assert "--http3-migrate" in out
+
+    @pytest.mark.parametrize("command", ["load", "stress", "spike"])
+    def test_still_parse(self, command: str) -> None:
+        result = runner.invoke(
+            app,
+            [
+                command,
+                "http://127.0.0.1:1",
+                "--ws-subscribers",
+                "2",
+                "--grpc-use-reflection",
+                "--http3",
+                "--help",
+            ],
+        )
+        assert result.exit_code == 0

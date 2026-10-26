@@ -1,10 +1,15 @@
 import contextlib
 import http.server
+import os
 import socketserver
 import threading
 from collections.abc import Generator
 
 import pytest
+
+# Deterministic --help rendering: CI forces color, local doesn't.
+os.environ["NO_COLOR"] = "1"
+os.environ["TERM"] = "dumb"
 
 
 def pytest_addoption(parser):
