@@ -76,6 +76,46 @@ This document outlines the planned trajectory and upcoming feature epics for **s
 
 ---
 
+## Runtime Execution Context
+
+### Epic: Runtime Execution Context
+*Target Focus: Per-iteration data injection, deterministic data, and safe lifecycle control for pytest-driven load*
+
+*Priority: P1 — next milestone; P2 — later. P0 is reserved for release-blocking work.*
+
+> Existing pieces: per-iteration timeouts/session shutdown and distributed STOP/ABORT plumbing are already present. The gaps are local graceful drain, a Python abort API, per-VU context/overrides, and deterministic data helpers.
+
+- [ ] **Per-VU deterministic RNG** `[P1]`
+  - [ ] Add a run-level `test_seed` (`RequestOptions`/CLI `--seed`, `TestConfig`) and derive a stable seed from `(test_seed, vu_id, iter)`.
+  - [ ] Expose `rng_for(vu_id, iter)` returning a `random.Random` with a stream stable across runs and processes.
+  - [ ] Document that this seeds Python-side fixture/data generation only; Rust chaos stays on `fastrand` and is not deterministic under this seed.
+  - [ ] Test cross-run/process determinism and distinct per-VU data.
+
+- [ ] **Graceful stop, drain, and abort** `[P1]`
+  - [x] Existing: per-iteration timeout, worker/session shutdown, distributed STOP/ABORT command plumbing.
+  - [ ] Stop scheduling new iterations and drain in-flight work with a configurable grace timeout on `graceful_stop`.
+  - [ ] Treat `graceful_ramp_down` as in-flight drain when a profile or controller reduces concurrency (not a timed ramp-down).
+  - [ ] Add `StrobEngine.abort(reason)`/a thread-safe abort handle usable from a watchdog thread, signal handler, or `pytest.exit()` path; immediate cancel with clean teardown.
+  - [ ] Return a partial summary on graceful stop; define whether abort returns a partial summary or raises (e.g. `AbortedError`).
+  - [ ] Unify local and distributed semantics; first SIGINT = graceful stop, second = abort.
+  - [ ] Test drain, grace-timeout fallback, cross-thread abort, and partial metrics.
+
+- [ ] **Per-VU iteration context and HTTP request overrides** `[P1]`
+  - [ ] Add stable `vu_id` slots and per-VU `iter` counters for constant and dynamic profiles; include an optional run/scenario label.
+  - [ ] Add an opt-in Python `on_iteration(context)` callback returning HTTP request overrides (`url`, `method`, `headers`, `body`, `form`).
+  - [ ] Apply overrides in the HTTP engine; define callback exception handling and GIL/throughput caveats.
+  - [ ] Expose context/overrides in the Python API and pyi; document the high-RPS cost and prefer precomputed data for throughput-sensitive runs.
+  - [ ] Test per-VU/iter values, override application, dynamic-profile identity, and callback errors.
+
+- [ ] **All-protocol overrides** `[P2]`
+  - [ ] Extend per-iteration overrides to WebSocket, gRPC, GraphQL/SOAP, SSE, STOMP, and database engines where meaningful.
+  - [ ] Define and validate protocol-specific override schemas.
+
+- [ ] **Named scenario model** `[P2]`
+  - [ ] Add named scenarios/groups beyond a single run label, with per-scenario context and data; align with multi-target orchestration.
+
+---
+
 ## Reporting, Storage & Analytics
 
 ### Epic: Test Persistence & Visual Reporting
