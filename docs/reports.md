@@ -37,7 +37,7 @@ These flags appear on all three subcommands (`load`, `stress`, `spike`):
 | Section | Key Fields |
 |---------|------------|
 | `metadata` | `timestamp`, `duration_secs`, `target_url`, `cli_options`, `system_info` |
-| `cli_options` | `method`, `concurrency`, `timeout_secs`, `chaos`, `chaos_rate`, `body`, `headers` |
+| `cli_options` | `method`, `concurrency`, `timeout_secs`, `chaos`, `chaos_rate`, `test_seed`, `body`, `headers` |
 | `system_info` | `hostname`, `platform`, `version` |
 | `summary` | `total_requests`, `successful_requests`, `failed_requests`, `rps`, `bytes_transferred` |
 | `latency_percentiles` | `p50_us`, `p90_us`, `p95_us`, `p99_us`, `p99_99_us`, `min_us`, `max_us`, `mean_us`, `std_dev_us` |
@@ -78,7 +78,7 @@ they are never written as `null`. Fields *inside* a section may still be
     "timestamp": "2026-08-28T09:48:19Z",
     "duration_secs": 30.0,
     "target_url": "http://localhost:8080/api",
-    "cli_options": { "method": "GET", "concurrency": 50, "chaos": false },
+    "cli_options": { "method": "GET", "concurrency": 50, "chaos": false, "test_seed": 0 },
     "system_info": { "hostname": "ci-runner-01", "platform": "linux", "version": "0.5.0" }
   },
   "summary": { "total_requests": 1500, "successful_requests": 1485, "failed_requests": 15, "rps": 50.0, "bytes_transferred": 524288 },

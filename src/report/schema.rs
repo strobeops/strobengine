@@ -153,6 +153,8 @@ pub struct CliOptions {
     pub timeout_secs: u64,
     pub chaos: bool,
     pub chaos_rate: f32,
+    #[serde(default)]
+    pub test_seed: u64,
     pub body: Option<String>,
     pub headers: Option<Vec<(String, String)>>,
     pub slo_p95_ms: Option<f64>,
@@ -315,6 +317,7 @@ impl ReportArtifact {
                     timeout_secs: config.timeout_secs,
                     chaos: config.chaos,
                     chaos_rate: config.chaos_rate,
+                    test_seed: config.test_seed,
                     body: config.body.clone(),
                     headers: config.headers.clone(),
                     slo_p95_ms: config.slo_p95_ms,
@@ -426,6 +429,7 @@ mod tests {
                     timeout_secs: 10,
                     chaos: false,
                     chaos_rate: 0.1,
+                    test_seed: 0,
                     body: None,
                     headers: Some(vec![(
                         "Authorization".to_string(),
@@ -915,6 +919,7 @@ mod tests {
             false,
             None,
             None,
+            0,
         )
         .unwrap();
 
@@ -933,6 +938,7 @@ mod tests {
         assert_eq!(artifact.metadata.target_url, "http://localhost:8080");
         assert_eq!(artifact.metadata.cli_options.method, "GET");
         assert_eq!(artifact.metadata.cli_options.concurrency, 10);
+        assert_eq!(artifact.metadata.cli_options.test_seed, 0);
         assert!(!artifact.metadata.cli_options.chaos);
         assert!(artifact.latency_histogram.is_some());
         assert!(artifact.latency_histogram.unwrap().is_empty());
@@ -1065,6 +1071,7 @@ mod tests {
             false,
             None,
             None,
+            0,
         )
         .unwrap();
 

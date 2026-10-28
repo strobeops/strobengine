@@ -423,6 +423,16 @@ class TestRequestOptionsMapping:
             **kwargs,
         )
         assert config.timeout_secs == RequestOptions.timeout
+        assert config.test_seed == RequestOptions.test_seed
+
+    def test_test_seed_defaults_and_validates(self):
+        from strobengine.constants import DEFAULT_TEST_SEED
+
+        assert RequestOptions().test_seed == DEFAULT_TEST_SEED
+        with pytest.raises(ValueError, match="test_seed"):
+            RequestOptions(test_seed=-1)
+        with pytest.raises(ValueError, match="test_seed"):
+            RequestOptions(test_seed=1 << 64)
 
     def test_enum_options_are_translated(self):
         from strobengine._strobengine import (

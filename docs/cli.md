@@ -25,6 +25,7 @@ By default, this spawns **10 concurrent workers** for **10 seconds** with a **10
 | `-c`, `--concurrency` | `10` | Number of concurrent workers |
 | `-d`, `--duration` | `10` | Duration in seconds |
 | `-t`, `--timeout` | `10` | Per-request timeout in seconds |
+| `--seed` | `0` | Run seed for deterministic per-VU data |
 | `--method` | `GET` | HTTP method (GET, POST, PUT, DELETE, PATCH, HEAD, OPTIONS) |
 | `--body` | none | Request body (raw string) |
 | `--form` | none | Form data body (e.g. key1=val1&key2=val2) |
@@ -80,6 +81,7 @@ By default, this spawns **10 concurrent workers** for **10 seconds** with a **10
 | `--ramp` | `60` | Ramp duration in seconds |
 | `--hold` | `30` | Hold duration at target concurrency |
 | `-t`, `--timeout` | `10` | Per-request timeout in seconds |
+| `--seed` | `0` | Run seed for deterministic per-VU data |
 | `--method` | `GET` | HTTP method (GET, POST, PUT, DELETE, PATCH, HEAD, OPTIONS) |
 | `--body` | none | Request body (raw string) |
 | `--form` | none | Form data body (e.g. key1=val1&key2=val2) |
@@ -136,6 +138,7 @@ By default, this spawns **10 concurrent workers** for **10 seconds** with a **10
 | `--spike-duration` | `10` | Spike duration in seconds |
 | `--post-spike` | `5` | Post-spike duration in seconds |
 | `-t`, `--timeout` | `10` | Per-request timeout in seconds |
+| `--seed` | `0` | Run seed for deterministic per-VU data |
 | `--method` | `GET` | HTTP method (GET, POST, PUT, DELETE, PATCH, HEAD, OPTIONS) |
 | `--body` | none | Request body (raw string) |
 | `--form` | none | Form data body (e.g. key1=val1&key2=val2) |
