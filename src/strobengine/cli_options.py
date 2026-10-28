@@ -87,7 +87,7 @@ SeedOpt = Annotated[
         "--seed",
         min=0,
         max=(1 << 64) - 1,
-        help="Run seed for deterministic per-VU data",
+        help="Run seed for deterministic Python-side per-VU data (chaos unaffected)",
     ),
 ]
 NoProgressOpt = Annotated[

@@ -5,6 +5,9 @@ over a run-level seed, VU id, and iteration number. It is independent of
 Python's hash randomization and of worker scheduling, so the same inputs
 produce the same seed across runs and processes.
 
+This seeds Python-side fixture/data generation only; Rust chaos stays on
+``fastrand`` and is not controlled by this seed.
+
 This module is internal for now; ``rng_for`` will expose the public
 ``random.Random`` stream built from these seeds.
 """
