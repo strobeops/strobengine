@@ -81,6 +81,15 @@ HeaderOpt = Annotated[
 ChaosOpt = Annotated[
     bool, typer.Option("--chaos", help="Enable fault injection (~10%% of requests)")
 ]
+SeedOpt = Annotated[
+    int,
+    typer.Option(
+        "--seed",
+        min=0,
+        max=(1 << 64) - 1,
+        help="Run seed for deterministic Python-side per-VU data (chaos unaffected)",
+    ),
+]
 NoProgressOpt = Annotated[
     bool, typer.Option("--no-progress", help="Suppress live progress output")
 ]
@@ -469,6 +478,7 @@ COMMON_OPTION_SPECS: list[OptionSpec] = [
     ("form", FormOpt, None),
     ("header", HeaderOpt, None),
     ("chaos", ChaosOpt, RequestOptions.chaos),
+    ("test_seed", SeedOpt, RequestOptions.test_seed),
     ("no_progress", NoProgressOpt, RequestOptions.no_progress),
     ("json_output", JsonOutputOpt, False),
     ("verbose", VerboseOpt, 0),

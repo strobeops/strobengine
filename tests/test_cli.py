@@ -624,6 +624,16 @@ class TestRequestFieldAllowlist:
 _ANSI = re.compile(r"\x1b\[[0-9;]*m")
 
 
+class TestSeedOption:
+    def test_seed_is_visible_and_forwarded(self) -> None:
+        from strobengine.cli_options import _build_request_options
+
+        result = runner.invoke(app, ["load", "--help"])
+        assert result.exit_code == 0
+        assert "--seed" in result.output
+        assert _build_request_options(test_seed=42).test_seed == 42
+
+
 class TestReservedOptions:
     @pytest.mark.parametrize("command", ["load", "stress", "spike"])
     @pytest.mark.parametrize(

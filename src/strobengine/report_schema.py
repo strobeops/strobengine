@@ -32,6 +32,7 @@ class CliOptionsDict(TypedDict):
     timeout_secs: int
     chaos: bool
     chaos_rate: float
+    test_seed: int
     body: str | None
     headers: list[tuple[str, str]] | None
     slo_p95_ms: float | None

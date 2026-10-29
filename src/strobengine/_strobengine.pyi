@@ -57,6 +57,7 @@ class TestConfig:
     timeout_secs: int
     chaos: bool
     chaos_rate: float
+    test_seed: int
     no_progress: bool
     method: str
     body: str | None
@@ -173,6 +174,7 @@ class TestConfig:
         db_fetch: bool = False,
         db_max_rows: int | None = None,
         db_params: list[str] | None = None,
+        test_seed: int = 0,
     ) -> None: ...
 
 class SystemMetrics:

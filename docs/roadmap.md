@@ -86,9 +86,9 @@ This document outlines the planned trajectory and upcoming feature epics for **s
 > Existing pieces: per-iteration timeouts/session shutdown and distributed STOP/ABORT plumbing are already present. The gaps are local graceful drain, a Python abort API, per-VU context/overrides, and deterministic data helpers.
 
 - [ ] **Per-VU deterministic RNG** `[P1]`
-  - [ ] Add a run-level `test_seed` (`RequestOptions`/CLI `--seed`, `TestConfig`) and derive a stable seed from `(test_seed, vu_id, iter)`.
+  - [x] Add a run-level `test_seed` (`RequestOptions`/CLI `--seed`, `TestConfig`) and derive a stable seed from `(test_seed, vu_id, iter)`.
   - [ ] Expose `rng_for(vu_id, iter)` returning a `random.Random` with a stream stable across runs and processes.
-  - [ ] Document that this seeds Python-side fixture/data generation only; Rust chaos stays on `fastrand` and is not deterministic under this seed.
+  - [x] Document that this seeds Python-side fixture/data generation only; Rust chaos stays on `fastrand` and is not deterministic under this seed.
   - [ ] Test cross-run/process determinism and distinct per-VU data.
 
 - [ ] **Graceful stop, drain, and abort** `[P1]`

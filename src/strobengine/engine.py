@@ -30,6 +30,7 @@ from strobengine.constants import (
     DEFAULT_SPIKE_SECS,
     DEFAULT_START_CONCURRENCY,
     DEFAULT_SYS_SAMPLE_INTERVAL_MS,
+    DEFAULT_TEST_SEED,
     DEFAULT_TIMEOUT_SECS,
     DEFAULT_WS_BACKPRESSURE_WARN_RATIO,
     DEFAULT_WS_MAX_BUFFER_BYTES,
@@ -153,10 +154,13 @@ class RequestOptions:
     db_fetch: bool = False
     db_max_rows: int | None = None
     db_params: list[str] | None = None
+    test_seed: int = DEFAULT_TEST_SEED
 
     def __post_init__(self) -> None:
         if self.timeout <= 0:
             raise ValueError("timeout must be greater than 0")
+        if not 0 <= self.test_seed <= (1 << 64) - 1:
+            raise ValueError("test_seed must be between 0 and 2**64 - 1")
 
 
 def _test_config_options(opts: RequestOptions) -> dict[str, Any]:

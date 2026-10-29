@@ -154,6 +154,7 @@ class TestArtifactSchemaConsistency:
         assert "duration_secs" in metadata
         assert "target_url" in metadata
         assert "cli_options" in metadata
+        assert metadata["cli_options"]["test_seed"] == 0
         assert "system_info" in metadata
 
     def test_latency_percentiles_has_microsecond_fields(self):
