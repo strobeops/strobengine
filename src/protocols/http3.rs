@@ -42,9 +42,7 @@ pub struct Http3Engine {
     headers: Vec<(String, String)>,
     body: Option<Bytes>,
     chaos: ChaosEngine,
-    #[allow(dead_code)]
     max_idle_timeout_ms: Option<u64>,
-    #[allow(dead_code)]
     zero_rtt: bool,
     /// Opt-in: periodically rebind the endpoint's UDP socket to exercise QUIC
     /// client connection migration (path validation) and count its outcome.
