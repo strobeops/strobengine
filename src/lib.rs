@@ -209,7 +209,10 @@ fn spawn_worker(
                 counters.errors.fetch_add(1, Ordering::Relaxed);
             }
 
-            let _ = tx.send(metric).await;
+            if tx.send(metric).await.is_err() {
+                tracing::warn!("metrics receiver closed; stopping worker");
+                break;
+            }
         }
 
         // Clean up session via polymorphic shutdown (with timeout)
@@ -852,6 +855,16 @@ mod tests {
         }
     }
 
+    /// Engine whose iterations complete immediately.
+    struct ImmediateEngine;
+
+    #[async_trait::async_trait]
+    impl ProtocolEngine for ImmediateEngine {
+        async fn execute_iteration(&self, _target_url: &str) -> RequestMetric {
+            RequestMetric::builder(1, None).status(200).build()
+        }
+    }
+
     /// Run a hanging worker for 2s with a 1s deadline and collect the metrics
     /// it produced. The 15s outer guard turns a regression (worker parked
     /// forever) into a failed assertion instead of a hung test suite.
@@ -909,5 +922,29 @@ mod tests {
             metrics.iter().all(|m| m.status_code == 0),
             "timed-out iterations must be recorded as errors"
         );
+    }
+
+    #[tokio::test]
+    async fn worker_stops_when_metrics_receiver_closes() {
+        let counters = Arc::new(LiveCounters::new());
+        let (tx, rx) = tokio::sync::mpsc::channel(1);
+        drop(rx);
+
+        let engine: Arc<dyn ProtocolEngine> = Arc::new(ImmediateEngine);
+        let handle = spawn_worker(
+            engine,
+            "http://127.0.0.1:9/closed".to_string(),
+            Arc::clone(&counters),
+            tx,
+            CancellationToken::new(),
+            Duration::from_secs(30),
+            1,
+        );
+
+        tokio::time::timeout(Duration::from_secs(2), handle)
+            .await
+            .expect("worker must stop when the metric receiver closes")
+            .expect("worker task panicked");
+        assert_eq!(counters.total_requests.load(Ordering::Relaxed), 1);
     }
 }
