@@ -820,7 +820,9 @@ mod tests {
 
         let request_count = Arc::new(AtomicUsize::new(0));
         let counter = request_count.clone();
+        let (ready_tx, ready_rx) = tokio::sync::oneshot::channel();
         tokio::spawn(async move {
+            let _ = ready_tx.send(());
             while let Some(incoming) = endpoint.accept().await {
                 let counter = counter.clone();
                 tokio::spawn(async move {
@@ -853,12 +855,14 @@ mod tests {
                 });
             }
         });
+        ready_rx.await.expect("h3 server task started");
+        tokio::task::yield_now().await;
         (port, trust_der, request_count)
     }
 
     #[tokio::test(flavor = "multi_thread")]
     async fn http3_engine_samples_cwnd_over_real_transfer() {
-        let (port, trust, _count) = spawn_h3_server().await;
+        let (port, trust, count) = spawn_h3_server().await;
         let engine = Http3Engine::new(
             &format!("h3://127.0.0.1:{port}/test"),
             vec![],
@@ -879,6 +883,7 @@ mod tests {
         let h = m.http3().expect("http3 sample present");
         // A real QUIC connection has a non-zero initial congestion window.
         assert!(h.cwnd_bytes > 0, "expected cwnd > 0, got {}", h.cwnd_bytes);
+        assert_eq!(count.load(Ordering::SeqCst), 1);
     }
 
     #[tokio::test(flavor = "multi_thread")]
