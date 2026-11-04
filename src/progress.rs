@@ -19,7 +19,7 @@ pub fn create_progress_bar() -> ProgressBar {
         ProgressStyle::with_template(
             "{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/dim}] {pos}% | {msg}",
         )
-        .unwrap()
+        .expect("valid progress bar template")
         .progress_chars("=>-"),
     );
     pb.set_message("Starting load test...");
