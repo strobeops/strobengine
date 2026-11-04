@@ -119,7 +119,7 @@ fn create_live_bar(duration_secs: u64) -> ProgressBar {
         ProgressStyle::with_template(
             "{spinner:.green} [{elapsed_precise}] [{bar:32.cyan/dim}] {pos}s/{len}s | {msg}",
         )
-        .unwrap()
+        .expect("valid progress bar template")
         .progress_chars("=>-"),
     );
     bar.set_message("waiting for workers...");

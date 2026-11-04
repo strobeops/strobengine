@@ -33,7 +33,6 @@ impl std::error::Error for ProtoError {}
 
 /// Parsed .proto schema with service, method, and message descriptors.
 pub struct ProtoSchema {
-    #[allow(dead_code)]
     pool: DescriptorPool,
     service_name: String,
     method_name: String,

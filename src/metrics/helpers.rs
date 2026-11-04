@@ -82,7 +82,6 @@ pub fn create_pubsub_payload(user_payload: &[u8]) -> Vec<u8> {
 
 /// Decode a pub/sub payload, returning (sent_ns, user_payload).
 /// Returns None if the data is shorter than 16 bytes.
-#[allow(dead_code)]
 pub fn parse_pubsub_payload(data: &[u8]) -> Option<(u128, &[u8])> {
     if data.len() < 16 {
         return None;
