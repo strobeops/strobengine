@@ -274,7 +274,15 @@ fn evaluate_slo(
 impl ReportArtifact {
     /// Build a ReportArtifact from an enriched TestSummary and TestConfig.
     ///
-    /// Latency values are converted from milliseconds to microseconds (× 1000.0).
+    /// The summary is borrowed because Python reuses the same `TestSummary` for
+    /// persistence, HTML/Markdown/JUnit/CSV exports, and baseline comparison.
+    /// Taking it by value would clone it at the PyO3 boundary (`TestSummary`
+    /// uses `skip_from_py_object`), and `Option::take` would mutate a
+    /// user-visible object. The section/timeline/histogram clones below are
+    /// therefore intentional and happen once per report, not per load-test
+    /// iteration.
+    ///
+    /// Latency values are converted from milliseconds to microseconds (x 1000.0).
     /// Status codes are mapped from `HashMap<u16, u64>` to `HashMap<String, u64>`.
     pub fn from_summary_and_config(
         summary: &crate::metrics::TestSummary,
