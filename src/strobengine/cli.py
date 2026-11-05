@@ -126,6 +126,11 @@ def _global_options(
     pass
 
 
+# Errors expected at the CLI boundary: Python/Rust validation, runtime/FFI
+# failures, and report/file I/O. Anything else is a programming error.
+_USER_FACING_ERRORS = (ValueError, RuntimeError, OSError)
+
+
 def _run_load_test(
     url: str,
     options: RequestOptions,
@@ -148,15 +153,19 @@ def _run_load_test(
         _configure_logging(_resolve_log_level(verbose, quiet), log_file)
 
     # engine_factory may raise config-validation errors and engine.run() may
-    # surface FFI errors as ValueError/RuntimeError; present them cleanly
-    # instead of a raw traceback. except Exception does not catch
-    # KeyboardInterrupt, so graceful-interrupt handling in main() is preserved.
+    # surface FFI errors as ValueError/RuntimeError; present expected failures
+    # cleanly instead of a raw traceback. Programming errors and
+    # KeyboardInterrupt propagate.
     try:
         engine = engine_factory(url=url, options=options)
         summary = engine.run()
-    except Exception as e:
+    except typer.Exit:
+        raise
+    except _USER_FACING_ERRORS as e:
+        if verbose:
+            raise
         typer.echo(f"Error: load test failed: {e}", err=True)
-        raise typer.Exit(1) from e
+        raise typer.Exit(1) from None
 
     exports = ExportOptions(
         output_dir=options.output_dir,
@@ -175,9 +184,13 @@ def _run_load_test(
             exports,
             saved_report_path=engine.saved_report_path,
         )
-    except Exception as e:
+    except typer.Exit:
+        raise
+    except _USER_FACING_ERRORS as e:
+        if verbose:
+            raise
         typer.echo(f"Error: report generation failed: {e}", err=True)
-        raise typer.Exit(1) from e
+        raise typer.Exit(1) from None
 
 
 @app.command()
