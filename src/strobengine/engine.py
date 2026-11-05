@@ -1,4 +1,5 @@
 import asyncio
+import random
 from dataclasses import dataclass, fields
 from datetime import UTC, datetime
 from enum import StrEnum
@@ -36,6 +37,7 @@ from strobengine.constants import (
     DEFAULT_WS_MAX_BUFFER_BYTES,
     MAX_CONCURRENCY,
 )
+from strobengine.rng import _derive_seed
 
 
 class SoapVersionEnum(StrEnum):
@@ -161,6 +163,14 @@ class RequestOptions:
             raise ValueError("timeout must be greater than 0")
         if not 0 <= self.test_seed <= (1 << 64) - 1:
             raise ValueError("test_seed must be between 0 and 2**64 - 1")
+
+    def rng_for(self, vu_id: int, iter: int) -> random.Random:
+        """Return the deterministic stream for a VU/iteration.
+
+        ``iter`` is zero-based. Streams are stable across runs and processes
+        on the same Python version; see :mod:`strobengine.rng`.
+        """
+        return random.Random(_derive_seed(self.test_seed, vu_id, iter))
 
 
 def _test_config_options(opts: RequestOptions) -> dict[str, Any]:
@@ -342,6 +352,15 @@ class StrobEngine:
 
     async def run_async(self) -> TestSummary:
         return await asyncio.to_thread(self.run)
+
+    def rng_for(self, vu_id: int, iter: int) -> random.Random:
+        """Return the deterministic stream for a VU/iteration.
+
+        Uses the run config's ``test_seed`` (authoritative for this engine).
+        ``iter`` is zero-based; streams are stable across runs and processes on
+        the same Python version.
+        """
+        return random.Random(_derive_seed(self.config.test_seed, vu_id, iter))
 
     def get_config(self) -> TestConfig:
         """Return the active TestConfig."""
