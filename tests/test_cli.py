@@ -417,6 +417,25 @@ class TestCLIErrorHandling:
         assert "Error:" in result.output
         assert "Traceback" not in result.output
 
+    def test_unexpected_errors_surface(self) -> None:
+        with mock.patch(
+            "strobengine.cli.StrobEngine.load_test",
+            side_effect=TypeError("boom"),
+        ):
+            result = runner.invoke(app, ["load", "http://unused", "-c", "1", "-d", "1"])
+        assert isinstance(result.exception, TypeError)
+        assert "Error:" not in result.output
+
+    def test_verbose_reraises_expected_errors(self) -> None:
+        with mock.patch(
+            "strobengine.cli.StrobEngine.load_test",
+            side_effect=ValueError("bad config"),
+        ):
+            result = runner.invoke(
+                app, ["load", "-v", "http://unused", "-c", "1", "-d", "1"]
+            )
+        assert isinstance(result.exception, ValueError)
+
 
 class TestCLIOptionDefaults:
     """CLI and builder defaults must not drift from their single sources.
