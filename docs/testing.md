@@ -13,6 +13,28 @@ uv run pytest -v
 uv run pytest -v --e2e
 ```
 
+## Deterministic per-VU data
+
+`--seed` (or `RequestOptions(test_seed=...)`) seeds Python-side fixture and
+data generation. `rng_for(vu_id, iter)` returns a `random.Random` whose stream
+is stable across runs and processes for the same Python version. `iter` is
+zero-based, and every call returns an independent object.
+
+```python
+from strobengine import RequestOptions, StrobEngine
+
+options = RequestOptions(test_seed=1234)
+rng = options.rng_for(vu_id=7, iter=0)  # precompute / fixture data
+user_id = rng.randrange(10_000)
+
+engine = StrobEngine(url="http://localhost:8080", options=options)
+rng = engine.rng_for(vu_id=7, iter=0)  # run-bound seed
+```
+
+Rust chaos remains driven by `fastrand` and is not affected by this seed.
+CPython does not guarantee every higher-level `random.Random` method across
+interpreter versions; pin the Python version when replaying exact streams.
+
 ## Test Structure
 
 | Directory | Scope | Description |

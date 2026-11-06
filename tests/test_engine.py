@@ -434,6 +434,39 @@ class TestRequestOptionsMapping:
         with pytest.raises(ValueError, match="test_seed"):
             RequestOptions(test_seed=1 << 64)
 
+    def test_rng_for_uses_seed_and_is_deterministic(self):
+        options = RequestOptions(test_seed=42)
+        expected = [
+            17802986416972374973,
+            8903682632858472175,
+            10154987994014175804,
+            9443506346941220820,
+            10330180692609772643,
+        ]
+        first = options.rng_for(7, 13)
+        second = options.rng_for(7, 13)
+        assert [first.getrandbits(64) for _ in range(5)] == expected
+        assert [second.getrandbits(64) for _ in range(5)] == expected
+        assert options.rng_for(8, 13).getrandbits(64) != expected[0]
+
+        engine = StrobEngine(
+            url="http://unused",
+            concurrency=1,
+            duration=1,
+            options=options,
+        )
+        assert engine.rng_for(7, 13).getrandbits(64) == expected[0]
+
+        engine.config.test_seed = 43
+        assert engine.rng_for(7, 13).getrandbits(64) != expected[0]
+
+    def test_rng_for_returns_independent_streams(self):
+        options = RequestOptions(test_seed=42)
+        first = options.rng_for(7, 13)
+        second = options.rng_for(7, 13)
+        first.getrandbits(64)
+        assert second.getrandbits(64) == 17802986416972374973
+
     def test_enum_options_are_translated(self):
         from strobengine._strobengine import (
             SoapVersion as NativeSoapVersion,
