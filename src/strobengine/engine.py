@@ -20,6 +20,7 @@ from strobengine.constants import (
     DEFAULT_BASELINE,
     DEFAULT_CONCURRENCY,
     DEFAULT_DURATION_SECS,
+    DEFAULT_GRACE_PERIOD_SECS,
     DEFAULT_HOLD_SECS,
     DEFAULT_HTTP3_MIGRATE_EVERY,
     DEFAULT_MAX_CONCURRENCY,
@@ -84,8 +85,11 @@ _STOMP_ACK_MAP: dict[StompAckEnum, StompAck] = {
     StompAckEnum.client_individual: StompAck.client_individual(),
 }
 
-# RequestOptions field -> TestConfig kwarg (only `timeout` differs).
-_TEST_CONFIG_RENAMES: dict[str, str] = {"timeout": "timeout_secs"}
+# RequestOptions field -> TestConfig kwarg where the names differ.
+_TEST_CONFIG_RENAMES: dict[str, str] = {
+    "timeout": "timeout_secs",
+    "grace_period": "grace_period_secs",
+}
 
 # Fields whose Python enum must be translated to a native PyO3 enum value.
 _TEST_CONFIG_ENUMS: dict[str, tuple[dict[Any, Any], Any]] = {
@@ -157,12 +161,15 @@ class RequestOptions:
     db_max_rows: int | None = None
     db_params: list[str] | None = None
     test_seed: int = DEFAULT_TEST_SEED
+    grace_period: int = DEFAULT_GRACE_PERIOD_SECS
 
     def __post_init__(self) -> None:
         if self.timeout <= 0:
             raise ValueError("timeout must be greater than 0")
         if not 0 <= self.test_seed <= (1 << 64) - 1:
             raise ValueError("test_seed must be between 0 and 2**64 - 1")
+        if self.grace_period < 0:
+            raise ValueError("grace_period must be >= 0")
 
     def rng_for(self, vu_id: int, iter: int) -> random.Random:
         """Return the deterministic stream for a VU/iteration.

@@ -153,6 +153,8 @@ pub struct TestConfig {
     #[pyo3(get, set)]
     pub timeout_secs: u64,
     #[pyo3(get, set)]
+    pub grace_period_secs: u64,
+    #[pyo3(get, set)]
     pub chaos: bool,
     #[pyo3(get, set)]
     pub chaos_rate: f32,
@@ -333,6 +335,7 @@ impl TestConfig {
         db_max_rows=None,
         db_params=None,
         test_seed=0u64,
+        grace_period_secs=5u64,
     ))]
     #[allow(clippy::too_many_arguments)]
     pub fn new(
@@ -397,6 +400,7 @@ impl TestConfig {
         db_max_rows: Option<u64>,
         db_params: Option<Vec<String>>,
         test_seed: u64,
+        grace_period_secs: u64,
     ) -> PyResult<Self> {
         let config = Self {
             url,
@@ -460,6 +464,7 @@ impl TestConfig {
             db_max_rows,
             db_params,
             test_seed,
+            grace_period_secs,
         };
         config.validate()?;
         Ok(config)
@@ -618,6 +623,7 @@ pub struct TestConfigBuilder {
     concurrency: usize,
     duration_secs: u64,
     timeout_secs: u64,
+    grace_period_secs: u64,
     chaos: bool,
     chaos_rate: f32,
     test_seed: u64,
@@ -684,6 +690,7 @@ impl Default for TestConfigBuilder {
             concurrency: 10,
             duration_secs: 10,
             timeout_secs: 10,
+            grace_period_secs: 5,
             chaos: false,
             chaos_rate: DEFAULT_CHAOS_RATE,
             test_seed: 0,
@@ -763,6 +770,10 @@ impl TestConfigBuilder {
     }
     pub fn timeout_secs(mut self, v: u64) -> Self {
         self.timeout_secs = v;
+        self
+    }
+    pub fn grace_period_secs(mut self, v: u64) -> Self {
+        self.grace_period_secs = v;
         self
     }
     pub fn chaos(mut self, v: bool) -> Self {
@@ -1000,6 +1011,7 @@ impl TestConfigBuilder {
             concurrency: self.concurrency,
             duration_secs: self.duration_secs,
             timeout_secs: self.timeout_secs,
+            grace_period_secs: self.grace_period_secs,
             chaos: self.chaos,
             chaos_rate: self.chaos_rate,
             test_seed: self.test_seed,
@@ -1231,6 +1243,7 @@ mod tests {
         assert!(!c.chaos);
         assert_eq!(c.chaos_rate, DEFAULT_CHAOS_RATE);
         assert_eq!(c.test_seed, 0);
+        assert_eq!(c.grace_period_secs, 5);
         assert_eq!(c.method, "GET");
         assert!(c.body.is_none());
         assert!(c.headers.is_none());
@@ -1254,6 +1267,7 @@ mod tests {
             .chaos(true)
             .chaos_rate(0.25)
             .test_seed(42)
+            .grace_period_secs(7)
             .method("POST")
             .ws_mode(WsMode::Stream)
             .ws_persistent(true)
@@ -1268,6 +1282,7 @@ mod tests {
         assert!(c.chaos);
         assert_eq!(c.chaos_rate, 0.25);
         assert_eq!(c.test_seed, 42);
+        assert_eq!(c.grace_period_secs, 7);
         assert_eq!(c.method, "POST");
         assert_eq!(c.ws_mode, WsMode::Stream);
         assert!(c.ws_persistent);
@@ -1350,11 +1365,13 @@ mod tests {
             None,
             None,
             0,
+            5,
         )
         .unwrap();
         assert_eq!(c.url, "http://127.0.0.1:8080");
         assert_eq!(c.concurrency, 10);
         assert_eq!(c.test_seed, 0);
+        assert_eq!(c.grace_period_secs, 5);
         assert!(!c.ws_persistent);
     }
 
@@ -1423,11 +1440,13 @@ mod tests {
             None,
             None,
             42,
+            7,
         )
         .unwrap();
         assert_eq!(c.concurrency, 50);
         assert!(c.chaos);
         assert_eq!(c.test_seed, 42);
+        assert_eq!(c.grace_period_secs, 7);
         assert_eq!(c.ws_mode, WsMode::PingPong);
         assert!(c.ws_persistent);
         assert_eq!(c.ws_keepalive_secs, Some(300));

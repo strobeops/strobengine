@@ -434,6 +434,21 @@ class TestRequestOptionsMapping:
         with pytest.raises(ValueError, match="test_seed"):
             RequestOptions(test_seed=1 << 64)
 
+    def test_grace_period_defaults_and_validates(self):
+        from strobengine.constants import DEFAULT_GRACE_PERIOD_SECS
+
+        assert RequestOptions().grace_period == DEFAULT_GRACE_PERIOD_SECS
+        with pytest.raises(ValueError, match="grace_period"):
+            RequestOptions(grace_period=-1)
+
+        config = _TestConfig(
+            url="http://127.0.0.1:1",
+            concurrency=1,
+            duration_secs=1,
+            grace_period_secs=7,
+        )
+        assert config.grace_period_secs == 7
+
     def test_rng_for_uses_seed_and_is_deterministic(self):
         options = RequestOptions(test_seed=42)
         expected = [

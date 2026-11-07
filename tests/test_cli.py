@@ -653,6 +653,16 @@ class TestSeedOption:
         assert _build_request_options(test_seed=42).test_seed == 42
 
 
+class TestGracePeriodOption:
+    def test_grace_period_is_visible_and_forwarded(self) -> None:
+        from strobengine.cli_options import _build_request_options
+
+        result = runner.invoke(app, ["load", "--help"])
+        assert result.exit_code == 0
+        assert "--grace-period" in result.output
+        assert _build_request_options(grace_period=3).grace_period == 3
+
+
 class TestReservedOptions:
     @pytest.mark.parametrize("command", ["load", "stress", "spike"])
     @pytest.mark.parametrize(
