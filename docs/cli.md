@@ -10,6 +10,12 @@ strobengine provides a CLI for running load tests from the terminal.
 
 By default, this spawns **10 concurrent workers** for **10 seconds** with a **10-second request timeout**. Results are displayed as a formatted table with total requests, errors, requests/sec, and latency percentiles (min, avg, p50, p90, p95, p99, max).
 
+**Graceful stop:** the first SIGINT stops scheduling new iterations and waits up to
+`--grace-period` seconds for in-flight iterations to finish. The same drain applies
+when a profile scales down. This applies to local worker/profile runs only; it does
+not bound session cleanup, change distributed STOP/ABORT behavior, or produce a
+partial summary on SIGINT.
+
 ## Subcommands
 
 | Subcommand | Description |
@@ -25,6 +31,7 @@ By default, this spawns **10 concurrent workers** for **10 seconds** with a **10
 | `-c`, `--concurrency` | `10` | Number of concurrent workers |
 | `-d`, `--duration` | `10` | Duration in seconds |
 | `-t`, `--timeout` | `10` | Per-request timeout in seconds |
+| `--grace-period` | `5` | Max seconds to drain in-flight iterations after a stop (0 = immediate) |
 | `--seed` | `0` | Run seed for deterministic Python-side per-VU data (chaos unaffected) |
 | `--method` | `GET` | HTTP method (GET, POST, PUT, DELETE, PATCH, HEAD, OPTIONS) |
 | `--body` | none | Request body (raw string) |
@@ -81,6 +88,7 @@ By default, this spawns **10 concurrent workers** for **10 seconds** with a **10
 | `--ramp` | `60` | Ramp duration in seconds |
 | `--hold` | `30` | Hold duration at target concurrency |
 | `-t`, `--timeout` | `10` | Per-request timeout in seconds |
+| `--grace-period` | `5` | Max seconds to drain in-flight iterations after a stop (0 = immediate) |
 | `--seed` | `0` | Run seed for deterministic Python-side per-VU data (chaos unaffected) |
 | `--method` | `GET` | HTTP method (GET, POST, PUT, DELETE, PATCH, HEAD, OPTIONS) |
 | `--body` | none | Request body (raw string) |
@@ -138,6 +146,7 @@ By default, this spawns **10 concurrent workers** for **10 seconds** with a **10
 | `--spike-duration` | `10` | Spike duration in seconds |
 | `--post-spike` | `5` | Post-spike duration in seconds |
 | `-t`, `--timeout` | `10` | Per-request timeout in seconds |
+| `--grace-period` | `5` | Max seconds to drain in-flight iterations after a stop (0 = immediate) |
 | `--seed` | `0` | Run seed for deterministic Python-side per-VU data (chaos unaffected) |
 | `--method` | `GET` | HTTP method (GET, POST, PUT, DELETE, PATCH, HEAD, OPTIONS) |
 | `--body` | none | Request body (raw string) |
