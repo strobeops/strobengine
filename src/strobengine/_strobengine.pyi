@@ -55,6 +55,7 @@ class TestConfig:
     concurrency: int
     duration_secs: int
     timeout_secs: int
+    grace_period_secs: int
     chaos: bool
     chaos_rate: float
     test_seed: int
@@ -175,6 +176,7 @@ class TestConfig:
         db_max_rows: int | None = None,
         db_params: list[str] | None = None,
         test_seed: int = 0,
+        grace_period_secs: int = 5,
     ) -> None: ...
 
 class SystemMetrics:

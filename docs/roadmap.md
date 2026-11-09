@@ -93,8 +93,8 @@ This document outlines the planned trajectory and upcoming feature epics for **s
 
 - [ ] **Graceful stop, drain, and abort** `[P1]`
   - [x] Existing: per-iteration timeout, worker/session shutdown, distributed STOP/ABORT command plumbing.
-  - [ ] Stop scheduling new iterations and drain in-flight work with a configurable grace timeout on `graceful_stop`.
-  - [ ] Treat `graceful_ramp_down` as in-flight drain when a profile or controller reduces concurrency (not a timed ramp-down).
+  - [x] Stop scheduling new iterations and drain in-flight work with a configurable grace timeout on `graceful_stop`.
+  - [x] Treat `graceful_ramp_down` as in-flight drain when a profile or controller reduces concurrency (not a timed ramp-down).
   - [ ] Add `StrobEngine.abort(reason)`/a thread-safe abort handle usable from a watchdog thread, signal handler, or `pytest.exit()` path; immediate cancel with clean teardown.
   - [ ] Return a partial summary on graceful stop; define whether abort returns a partial summary or raises (e.g. `AbortedError`).
   - [ ] Unify local and distributed semantics; first SIGINT = graceful stop, second = abort.

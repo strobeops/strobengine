@@ -142,6 +142,7 @@ impl Drop for WorkerGuard {
 }
 
 /// Spawn a single worker task that executes iterations for the given duration.
+#[allow(clippy::too_many_arguments)]
 fn spawn_worker(
     engine: Arc<dyn ProtocolEngine>,
     url: String,
@@ -150,6 +151,7 @@ fn spawn_worker(
     token: CancellationToken,
     duration: Duration,
     timeout_secs: u64,
+    grace_period_secs: u64,
 ) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
         let _guard = WorkerGuard(Arc::clone(&counters));
@@ -171,29 +173,43 @@ fn spawn_worker(
             };
 
         let start = Instant::now();
+        let grace = Duration::from_secs(grace_period_secs);
         while start.elapsed() < duration && !token.is_cancelled() {
             counters.total_requests.fetch_add(1, Ordering::Relaxed);
 
-            // Every iteration is bounded by `timeout_dur` so a stalled server
-            // (blackholed connect, dead stream) can never park a worker
-            // forever; Ctrl+C remains a second escape hatch.
-            let metric = tokio::select! {
-                _ = token.cancelled() => {
-                    tracing::debug!("worker cancelled");
-                    break;
+            let iteration = tokio::time::timeout(timeout_dur, async {
+                match worker_ctx.as_deref_mut() {
+                    Some(ctx) => engine.execute_iteration_with_context(&url, ctx).await,
+                    None => engine.execute_iteration(&url).await,
                 }
-                outcome = tokio::time::timeout(timeout_dur, async {
-                    match worker_ctx.as_deref_mut() {
-                        Some(ctx) => engine.execute_iteration_with_context(&url, ctx).await,
-                        None => engine.execute_iteration(&url).await,
+            });
+            tokio::pin!(iteration);
+
+            let outcome = tokio::select! {
+                biased;
+                outcome = &mut iteration => outcome,
+                _ = token.cancelled() => {
+                    if grace.is_zero() {
+                        tracing::debug!("stop requested with zero grace; dropping in-flight iteration");
+                        break;
                     }
-                }) => match outcome {
-                    Ok(metric) => metric,
-                    Err(_) => {
-                        tracing::debug!(?timeout_dur, "iteration exceeded deadline");
-                        RequestMetric::error(timeout_dur.as_micros(), None)
+                    tracing::debug!(?grace, "stop requested; draining in-flight iteration");
+                    match tokio::time::timeout(grace, &mut iteration).await {
+                        Ok(outcome) => outcome,
+                        Err(_) => {
+                            tracing::warn!(?grace, "grace period expired; dropping in-flight iteration");
+                            break;
+                        }
                     }
-                },
+                }
+            };
+
+            let metric = match outcome {
+                Ok(metric) => metric,
+                Err(_) => {
+                    tracing::debug!(?timeout_dur, "iteration exceeded deadline");
+                    RequestMetric::error(timeout_dur.as_micros(), None)
+                }
             };
 
             counters.completed_requests.fetch_add(1, Ordering::Relaxed);
@@ -211,6 +227,11 @@ fn spawn_worker(
 
             if tx.send(metric).await.is_err() {
                 tracing::warn!("metrics receiver closed; stopping worker");
+                break;
+            }
+
+            if token.is_cancelled() {
+                tracing::debug!("graceful drain complete; stopping worker");
                 break;
             }
         }
@@ -233,6 +254,7 @@ async fn execute_test(
     no_progress: bool,
     strategy: ConcurrencyStrategy,
     timeout_secs: u64,
+    grace_period_secs: u64,
     sys_sample_interval: u64,
     graphql_operation_type: Option<&'static str>,
     soap_version: Option<&'static str>,
@@ -323,6 +345,7 @@ async fn execute_test(
                     cancel_token.clone(),
                     duration,
                     timeout_secs,
+                    grace_period_secs,
                 ));
             }
 
@@ -347,6 +370,7 @@ async fn execute_test(
             let cancel_clone = cancel_token.clone();
             let tx_supervisor = tx.clone();
             let timeout_clone = timeout_secs;
+            let grace_clone = grace_period_secs;
 
             // Drop outer tx so supervisor/children control sender lifetime
             drop(tx);
@@ -378,6 +402,7 @@ async fn execute_test(
                             child_token.clone(),
                             remaining,
                             timeout_clone,
+                            grace_clone,
                         );
 
                         child_tokens.push(child_token);
@@ -708,6 +733,7 @@ fn run_load_test(py: Python<'_>, config: TestConfig) -> PyResult<metrics::TestSu
             config.no_progress,
             strategy,
             config.timeout_secs,
+            config.grace_period_secs,
             config.sys_sample_interval,
             graphql_operation_type,
             soap_version,
@@ -752,6 +778,7 @@ fn run_load_profiles(
             config.no_progress,
             strategy,
             config.timeout_secs,
+            config.grace_period_secs,
             config.sys_sample_interval,
             graphql_operation_type,
             soap_version,
@@ -813,6 +840,10 @@ fn _strobengine(m: &Bound<'_, PyModule>) -> PyResult<()> {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::atomic::{AtomicBool, AtomicUsize};
+
+    use tokio::sync::Notify;
+
     use super::*;
     use crate::protocols::WorkerSession;
 
@@ -865,6 +896,54 @@ mod tests {
         }
     }
 
+    struct BlockingEngine {
+        calls: AtomicUsize,
+        started: Notify,
+        release: Notify,
+        completed: AtomicBool,
+        dropped: AtomicBool,
+    }
+
+    impl BlockingEngine {
+        fn new() -> Self {
+            Self {
+                calls: AtomicUsize::new(0),
+                started: Notify::new(),
+                release: Notify::new(),
+                completed: AtomicBool::new(false),
+                dropped: AtomicBool::new(false),
+            }
+        }
+    }
+
+    struct DropSignal<'a> {
+        completed: &'a AtomicBool,
+        dropped: &'a AtomicBool,
+    }
+
+    impl Drop for DropSignal<'_> {
+        fn drop(&mut self) {
+            if !self.completed.load(Ordering::SeqCst) {
+                self.dropped.store(true, Ordering::SeqCst);
+            }
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl ProtocolEngine for BlockingEngine {
+        async fn execute_iteration(&self, _target_url: &str) -> RequestMetric {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            let _drop = DropSignal {
+                completed: &self.completed,
+                dropped: &self.dropped,
+            };
+            self.started.notify_one();
+            self.release.notified().await;
+            self.completed.store(true, Ordering::SeqCst);
+            RequestMetric::builder(1, None).status(200).build()
+        }
+    }
+
     /// Run a hanging worker for 2s with a 1s deadline and collect the metrics
     /// it produced. The 15s outer guard turns a regression (worker parked
     /// forever) into a failed assertion instead of a hung test suite.
@@ -881,6 +960,7 @@ mod tests {
             tx,
             token,
             Duration::from_secs(2),
+            1,
             1,
         );
 
@@ -925,6 +1005,98 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn worker_drains_in_flight_iteration_on_cancel() {
+        let engine = Arc::new(BlockingEngine::new());
+        let counters = Arc::new(LiveCounters::new());
+        let (tx, mut rx) = tokio::sync::mpsc::channel(4);
+        let token = CancellationToken::new();
+        let handle = spawn_worker(
+            engine.clone(),
+            "http://127.0.0.1:9/drain".to_string(),
+            Arc::clone(&counters),
+            tx,
+            token.clone(),
+            Duration::from_secs(30),
+            1,
+            5,
+        );
+
+        engine.started.notified().await;
+        token.cancel();
+        engine.release.notify_one();
+
+        tokio::time::timeout(Duration::from_secs(2), handle)
+            .await
+            .expect("worker must drain and stop")
+            .expect("worker task panicked");
+        let metric = rx.recv().await.expect("drained iteration must be reported");
+        assert_eq!(metric.status_code, 200);
+        assert_eq!(counters.completed_requests.load(Ordering::Relaxed), 1);
+        assert_eq!(engine.calls.load(Ordering::SeqCst), 1);
+        assert!(engine.completed.load(Ordering::SeqCst));
+        assert!(!engine.dropped.load(Ordering::SeqCst));
+    }
+
+    #[tokio::test]
+    async fn worker_drops_iteration_when_grace_expires() {
+        let engine = Arc::new(BlockingEngine::new());
+        let counters = Arc::new(LiveCounters::new());
+        let (tx, mut rx) = tokio::sync::mpsc::channel(4);
+        let token = CancellationToken::new();
+        let handle = spawn_worker(
+            engine.clone(),
+            "http://127.0.0.1:9/expire".to_string(),
+            Arc::clone(&counters),
+            tx,
+            token.clone(),
+            Duration::from_secs(30),
+            30,
+            1,
+        );
+
+        engine.started.notified().await;
+        token.cancel();
+
+        tokio::time::timeout(Duration::from_secs(3), handle)
+            .await
+            .expect("worker must stop after the grace period")
+            .expect("worker task panicked");
+        assert!(!engine.completed.load(Ordering::SeqCst));
+        assert!(engine.dropped.load(Ordering::SeqCst));
+        assert_eq!(counters.completed_requests.load(Ordering::Relaxed), 0);
+        assert!(rx.try_recv().is_err());
+    }
+
+    #[tokio::test]
+    async fn worker_zero_grace_aborts_immediately() {
+        let engine = Arc::new(BlockingEngine::new());
+        let counters = Arc::new(LiveCounters::new());
+        let (tx, mut rx) = tokio::sync::mpsc::channel(4);
+        let token = CancellationToken::new();
+        let handle = spawn_worker(
+            engine.clone(),
+            "http://127.0.0.1:9/zero-grace".to_string(),
+            Arc::clone(&counters),
+            tx,
+            token.clone(),
+            Duration::from_secs(30),
+            1,
+            0,
+        );
+
+        engine.started.notified().await;
+        token.cancel();
+
+        tokio::time::timeout(Duration::from_secs(1), handle)
+            .await
+            .expect("worker must stop immediately with zero grace")
+            .expect("worker task panicked");
+        assert!(!engine.completed.load(Ordering::SeqCst));
+        assert!(engine.dropped.load(Ordering::SeqCst));
+        assert!(rx.try_recv().is_err());
+    }
+
+    #[tokio::test]
     async fn worker_stops_when_metrics_receiver_closes() {
         let counters = Arc::new(LiveCounters::new());
         let (tx, rx) = tokio::sync::mpsc::channel(1);
@@ -938,6 +1110,7 @@ mod tests {
             tx,
             CancellationToken::new(),
             Duration::from_secs(30),
+            1,
             1,
         );
 

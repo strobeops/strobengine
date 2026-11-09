@@ -90,6 +90,14 @@ SeedOpt = Annotated[
         help="Run seed for deterministic Python-side per-VU data (chaos unaffected)",
     ),
 ]
+GracePeriodOpt = Annotated[
+    int,
+    typer.Option(
+        "--grace-period",
+        min=0,
+        help="Seconds to drain in-flight iterations after a stop (0 = immediate)",
+    ),
+]
 NoProgressOpt = Annotated[
     bool, typer.Option("--no-progress", help="Suppress live progress output")
 ]
@@ -479,6 +487,7 @@ COMMON_OPTION_SPECS: list[OptionSpec] = [
     ("header", HeaderOpt, None),
     ("chaos", ChaosOpt, RequestOptions.chaos),
     ("test_seed", SeedOpt, RequestOptions.test_seed),
+    ("grace_period", GracePeriodOpt, RequestOptions.grace_period),
     ("no_progress", NoProgressOpt, RequestOptions.no_progress),
     ("json_output", JsonOutputOpt, False),
     ("verbose", VerboseOpt, 0),
