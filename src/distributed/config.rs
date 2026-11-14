@@ -128,7 +128,7 @@ impl WorkerConfig {
     pub fn resolved_hostname(&self) -> String {
         self.hostname
             .clone()
-            .or_else(System::host_name)
+            .or_else(|| System::host_name().ok())
             .unwrap_or_else(|| "unknown-host".to_string())
     }
 
@@ -153,7 +153,20 @@ impl WorkerConfig {
 
     /// Build the resource-capacity snapshot advertised at registration.
     pub fn capacity(&self) -> ResourceCapacity {
-        let mut system = System::new_all();
+        let mut system = match System::new_all() {
+            Ok(system) => system,
+            Err(e) => {
+                tracing::warn!(error = %e, "system capacity unavailable; using CPU fallback");
+                return ResourceCapacity {
+                    cpu_cores: std::thread::available_parallelism()
+                        .map(|n| n.get() as u32)
+                        .unwrap_or(1),
+                    total_memory_bytes: 0,
+                    available_memory_bytes: 0,
+                    available_cpu_percent: 0.0,
+                };
+            }
+        };
         system.refresh_all();
         ResourceCapacity {
             cpu_cores: system.cpus().len() as u32,

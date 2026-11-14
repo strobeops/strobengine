@@ -12,7 +12,7 @@ use super::protocols::{
 use super::system;
 use super::timeline::Timeline;
 
-#[pyclass(skip_from_py_object)]
+#[pyclass]
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
 #[serde(default)]
 pub struct TestSummary {

@@ -24,7 +24,7 @@ pub struct ResourceSample {
 }
 
 /// Aggregated system resource metrics computed from a series of samples.
-#[pyclass(skip_from_py_object)]
+#[pyclass]
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct SystemMetrics {
@@ -162,7 +162,13 @@ fn start_with_capacity(
         .name("strobengine-sysinfo".into())
         .spawn(move || {
             tracing::debug!(interval_ms, "resource sampler thread started");
-            let mut system = sysinfo::System::new();
+            let mut system = match sysinfo::System::new() {
+                Ok(system) => system,
+                Err(e) => {
+                    tracing::warn!(error = %e, "resource monitor unavailable: sysinfo init failed");
+                    return;
+                }
+            };
             let Ok(pid) = sysinfo::get_current_pid() else {
                 tracing::warn!("resource monitor unavailable: cannot determine PID");
                 return;

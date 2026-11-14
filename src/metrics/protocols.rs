@@ -3,7 +3,7 @@ use pyo3::prelude::*;
 
 use super::helpers::fold_percentiles;
 
-#[pyclass(skip_from_py_object)]
+#[pyclass]
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
 #[serde(default)]
 pub struct QuicMetrics {
@@ -15,7 +15,7 @@ pub struct QuicMetrics {
     pub avg_handshake_ms: Option<f64>,
 }
 
-#[pyclass(skip_from_py_object)]
+#[pyclass]
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
 #[serde(default)]
 pub struct SseMetrics {
@@ -30,7 +30,7 @@ pub struct SseMetrics {
 /// GraphQL reports logical failures in an `"errors"` array on an otherwise
 /// successful HTTP 200 response; `error_responses_total` and `errors_total`
 /// expose those, while the run's `status_codes` stays truthful.
-#[pyclass(skip_from_py_object)]
+#[pyclass]
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
 #[serde(default)]
 pub struct GraphqlMetrics {
@@ -50,7 +50,7 @@ pub struct GraphqlMetrics {
 /// first `next` frame; the event interval is the gap between consecutive `next`
 /// frames. Both are backed by HDR histograms and surfaced as millisecond
 /// percentiles. GraphQL `error` frames count toward `errors_total`.
-#[pyclass(skip_from_py_object)]
+#[pyclass]
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
 #[serde(default)]
 pub struct GraphqlWsMetrics {
@@ -83,7 +83,7 @@ pub struct GraphqlWsMetrics {
 /// SOAP faults are reported inside the XML envelope (commonly on an HTTP 200
 /// response for SOAP 1.2); `fault_responses_total` exposes those while the run's
 /// `status_codes` stays truthful.
-#[pyclass(skip_from_py_object)]
+#[pyclass]
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
 #[serde(default)]
 pub struct SoapMetrics {
@@ -102,7 +102,7 @@ pub struct SoapMetrics {
 /// `receive_interval_*` is the gap between consecutive consumed messages and
 /// `ttfm_*` is the time from `SUBSCRIBE` to the first message. `destination`,
 /// `mode`, `ack_mode` and `receipts_enabled` are per-run constants.
-#[pyclass(skip_from_py_object)]
+#[pyclass]
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
 #[serde(default)]
 pub struct StompMetrics {
@@ -156,7 +156,7 @@ pub struct StompMetrics {
 /// execution time; keeping them separate distinguishes pool starvation from
 /// slow queries. `driver`, `pool_max`, and `fetch_mode` are per-run constants
 /// (the query text is intentionally never recorded).
-#[pyclass(skip_from_py_object)]
+#[pyclass]
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
 #[serde(default)]
 pub struct DatabaseMetrics {
@@ -193,7 +193,7 @@ pub struct DatabaseMetrics {
 }
 
 /// Aggregated WebSocket heartbeat and write-buffer telemetry.
-#[pyclass(skip_from_py_object)]
+#[pyclass]
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
 #[serde(default)]
 pub struct WebsocketMetrics {
@@ -244,7 +244,7 @@ impl WsSample {
 }
 
 /// Aggregated gRPC/HTTP2 stream-concurrency and flow-control telemetry.
-#[pyclass(skip_from_py_object)]
+#[pyclass]
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
 #[serde(default)]
 pub struct GrpcMetrics {
@@ -291,7 +291,7 @@ impl GrpcSample {
 }
 
 /// Aggregated HTTP/3 (QUIC) congestion-control and connection-migration telemetry.
-#[pyclass(skip_from_py_object)]
+#[pyclass]
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
 #[serde(default)]
 pub struct Http3Metrics {

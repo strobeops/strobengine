@@ -277,7 +277,7 @@ impl ReportArtifact {
     /// The summary is borrowed because Python reuses the same `TestSummary` for
     /// persistence, HTML/Markdown/JUnit/CSV exports, and baseline comparison.
     /// Taking it by value would clone it at the PyO3 boundary (`TestSummary`
-    /// uses `skip_from_py_object`), and `Option::take` would mutate a
+    /// does not implement `FromPyObject`), and `Option::take` would mutate a
     /// user-visible object. The section/timeline/histogram clones below are
     /// therefore intentional and happen once per report, not per load-test
     /// iteration.
