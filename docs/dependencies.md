@@ -10,13 +10,13 @@
 
 | Crate | Version | Purpose |
 |-------|---------|---------|
-| pyo3 | 0.29 | Python FFI bindings (stable ABI, abi3-py311) |
+| pyo3 | 0.30 | Python FFI bindings (stable ABI, abi3-py311) |
 | reqwest | 0.13 | HTTP client with connection pooling |
 | tonic | 0.14 | gRPC framework with TLS support |
 | quinn | 0.11 | QUIC transport for HTTP/3 |
 | h3 | 0.0.8 | HTTP/3 protocol implementation |
 | h3-quinn | 0.0.10 | h3-Quinn bridge |
-| tokio | 1.53 | Multi-threaded async runtime |
+| tokio | 1.54 | Multi-threaded async runtime |
 | tokio-util | 0.7 | CancellationToken for graceful worker shutdown |
 | tracing | 0.1 | Structured logging instrumentation |
 | tracing-subscriber | 0.3 | Log formatting and output (stderr/file) |
@@ -34,7 +34,7 @@
 
 | Package | Version | Purpose |
 |---------|---------|---------|
-| pytest | >= 9.1.1 | Test runner |
-| pytest-asyncio | >= 1.4.0 | Async test support |
+| pytest | >= 9.2.0 | Test runner |
+| pytest-asyncio | >= 1.5.0 | Async test support |
 | aiohttp | >= 3.14.5 | Mock server for E2E tests |
-| ruff | >= 0.17.1 | Linting and formatting |
+| ruff | >= 0.17.5 | Linting and formatting |

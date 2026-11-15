@@ -299,7 +299,13 @@ async fn heartbeat_loop(
     params: RunParams,
     shutdown: CancellationToken,
 ) -> WorkerResult<()> {
-    let mut system = System::new();
+    let mut system = match System::new() {
+        Ok(system) => Some(system),
+        Err(e) => {
+            tracing::warn!(error = %e, "system metrics unavailable");
+            None
+        }
+    };
     let mut ticker = tokio::time::interval(interval.max(Duration::from_millis(100)));
     ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
 
@@ -309,24 +315,31 @@ async fn heartbeat_loop(
             _ = ticker.tick() => {}
         }
 
-        system.refresh_cpu_usage();
-        system.refresh_memory();
-        let total = system.total_memory();
-        let available = system.available_memory();
-        let memory_percent = if total > 0 {
-            (total.saturating_sub(available)) as f32 / total as f32 * 100.0
-        } else {
-            0.0
-        };
+        let (cpu_utilization_percent, memory_utilization_percent, memory_used_bytes) =
+            if let Some(system) = system.as_mut() {
+                system.refresh_cpu_usage();
+                system.refresh_memory();
+                let total = system.total_memory();
+                let available = system.available_memory();
+                let used = total.saturating_sub(available);
+                let memory_percent = if total > 0 {
+                    used as f32 / total as f32 * 100.0
+                } else {
+                    0.0
+                };
+                (system.global_cpu_usage(), memory_percent, used)
+            } else {
+                (0.0, 0.0, 0)
+            };
 
         let request = HeartbeatRequest {
             worker_id: params.worker_id.clone(),
             state: shared.state().as_proto() as i32,
             active_vus: shared.active_vus(),
             usage: Some(ResourceUsage {
-                cpu_utilization_percent: system.global_cpu_usage(),
-                memory_utilization_percent: memory_percent,
-                memory_used_bytes: total.saturating_sub(available),
+                cpu_utilization_percent,
+                memory_utilization_percent,
+                memory_used_bytes,
                 thread_count: 0,
             }),
             sent_at: Some(now_timestamp()),
