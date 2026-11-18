@@ -69,6 +69,38 @@ cargo test
 By default, tests under `tests/e2e/` are skipped. Pass `--e2e` to include them.
 The `e2e` marker can be used with `-m e2e` to select only e2e tests.
 
+## Aborting a Run
+
+`StrobEngine.abort(reason)` is thread-safe and can be called from a watchdog
+thread, signal handler, or async task while `run()`/`run_async()` is active.
+Unlike SIGINT, abort requests immediate cancellation: in-flight iterations are
+dropped and sessions are shut down cleanly. If no run is active, `abort()` is a
+no-op.
+
+```python
+import asyncio
+
+from strobengine import AbortedError, StrobEngine
+
+
+async def main() -> None:
+    engine = StrobEngine(
+        url="http://localhost:8080",
+        concurrency=4,
+        duration=30,
+    )
+    task = asyncio.create_task(engine.run_async())
+    await asyncio.sleep(1.0)
+    engine.abort("watchdog timeout")
+    try:
+        await task
+    except AbortedError as exc:
+        print(exc)
+
+
+asyncio.run(main())
+```
+
 ## Test Markers
 
 | Marker | Description |
