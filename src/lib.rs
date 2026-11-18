@@ -13,8 +13,8 @@ pub mod protocols;
 pub mod report;
 
 use std::io::IsTerminal;
-use std::sync::Arc;
 use std::sync::atomic::Ordering;
+use std::sync::{Arc, OnceLock};
 use std::time::{Duration, Instant};
 
 use http::Method;
@@ -77,6 +77,68 @@ fn parse_method(method_str: &str) -> PyResult<Method> {
 
 fn parse_body(body: Option<&str>) -> Option<bytes::Bytes> {
     body.map(|b| bytes::Bytes::copy_from_slice(b.as_bytes()))
+}
+
+pyo3::create_exception!(_strobengine, AbortedError, pyo3::exceptions::PyException);
+
+/// Thread-safe abort signal for a running load test.
+#[pyclass(from_py_object)]
+#[derive(Clone)]
+pub struct AbortHandle {
+    token: CancellationToken,
+    reason: Arc<OnceLock<String>>,
+}
+
+impl Default for AbortHandle {
+    fn default() -> Self {
+        Self {
+            token: CancellationToken::new(),
+            reason: Arc::new(OnceLock::new()),
+        }
+    }
+}
+
+impl AbortHandle {
+    fn token(&self) -> CancellationToken {
+        self.token.clone()
+    }
+
+    fn reason(&self) -> Option<String> {
+        self.reason.get().cloned()
+    }
+}
+
+#[pymethods]
+impl AbortHandle {
+    #[new]
+    fn new() -> Self {
+        Self::default()
+    }
+
+    #[pyo3(signature = (reason=None))]
+    fn abort(&self, reason: Option<String>) {
+        if let Some(reason) = reason {
+            let _ = self.reason.set(reason);
+        }
+        self.token.cancel();
+    }
+
+    fn is_aborted(&self) -> bool {
+        self.token.is_cancelled()
+    }
+
+    #[pyo3(name = "reason")]
+    fn reason_py(&self) -> Option<String> {
+        self.reason()
+    }
+}
+
+fn aborted_error(reason: Option<String>) -> pyo3::PyErr {
+    let message = reason.map_or_else(
+        || "run aborted".to_string(),
+        |r| format!("run aborted: {r}"),
+    );
+    AbortedError::new_err(message)
 }
 
 fn parse_form(form: Option<&[(String, String)]>) -> Option<bytes::Bytes> {
@@ -149,6 +211,7 @@ fn spawn_worker(
     counters: Arc<LiveCounters>,
     tx: tokio::sync::mpsc::Sender<RequestMetric>,
     token: CancellationToken,
+    abort: CancellationToken,
     duration: Duration,
     timeout_secs: u64,
     grace_period_secs: u64,
@@ -159,22 +222,31 @@ fn spawn_worker(
 
         let timeout_dur = Duration::from_secs(if timeout_secs > 0 { timeout_secs } else { 5 });
 
-        // Create worker-local context for persistent connections (with timeout)
-        let mut worker_ctx =
-            match tokio::time::timeout(timeout_dur, engine.create_worker_context()).await {
-                Ok(ctx) => ctx,
-                Err(_) => {
-                    tracing::warn!(
-                        ?timeout_dur,
-                        "worker context creation timed out, falling back to stateless mode"
-                    );
-                    None
+        // Create worker-local context for persistent connections (with timeout).
+        // Abort is checked here too so a hanging connect cannot delay it.
+        let mut worker_ctx = tokio::select! {
+            biased;
+            _ = abort.cancelled() => {
+                tracing::debug!("abort requested before worker context creation");
+                return;
+            }
+            ctx = tokio::time::timeout(timeout_dur, engine.create_worker_context()) => {
+                match ctx {
+                    Ok(ctx) => ctx,
+                    Err(_) => {
+                        tracing::warn!(
+                            ?timeout_dur,
+                            "worker context creation timed out, falling back to stateless mode"
+                        );
+                        None
+                    }
                 }
-            };
+            }
+        };
 
         let start = Instant::now();
         let grace = Duration::from_secs(grace_period_secs);
-        while start.elapsed() < duration && !token.is_cancelled() {
+        while start.elapsed() < duration && !token.is_cancelled() && !abort.is_cancelled() {
             counters.total_requests.fetch_add(1, Ordering::Relaxed);
 
             let iteration = tokio::time::timeout(timeout_dur, async {
@@ -187,6 +259,10 @@ fn spawn_worker(
 
             let outcome = tokio::select! {
                 biased;
+                _ = abort.cancelled() => {
+                    tracing::debug!("abort requested; dropping in-flight iteration");
+                    break;
+                }
                 outcome = &mut iteration => outcome,
                 _ = token.cancelled() => {
                     if grace.is_zero() {
@@ -194,7 +270,15 @@ fn spawn_worker(
                         break;
                     }
                     tracing::debug!(?grace, "stop requested; draining in-flight iteration");
-                    match tokio::time::timeout(grace, &mut iteration).await {
+                    let drained = tokio::select! {
+                        biased;
+                        _ = abort.cancelled() => {
+                            tracing::debug!("abort requested during graceful drain; dropping in-flight iteration");
+                            break;
+                        }
+                        result = tokio::time::timeout(grace, &mut iteration) => result,
+                    };
+                    match drained {
                         Ok(outcome) => outcome,
                         Err(_) => {
                             tracing::warn!(?grace, "grace period expired; dropping in-flight iteration");
@@ -230,8 +314,8 @@ fn spawn_worker(
                 break;
             }
 
-            if token.is_cancelled() {
-                tracing::debug!("graceful drain complete; stopping worker");
+            if token.is_cancelled() || abort.is_cancelled() {
+                tracing::debug!("stop complete; stopping worker");
                 break;
             }
         }
@@ -261,8 +345,19 @@ async fn execute_test(
     stomp_info: Option<StompRunInfo>,
     db_info: Option<DbRunInfo>,
     timeline_interval_ms: u64,
+    abort: Option<AbortHandle>,
 ) -> PyResult<metrics::TestSummary> {
     tracing::debug!("protocol engine initialized");
+
+    if let Some(handle) = abort.as_ref()
+        && handle.is_aborted()
+    {
+        return Err(aborted_error(handle.reason()));
+    }
+    let abort_token = abort
+        .as_ref()
+        .map(|handle| handle.token())
+        .unwrap_or_default();
 
     let counters = Arc::new(LiveCounters::new());
     let total_duration = Duration::from_secs(strategy.total_duration_secs());
@@ -290,6 +385,15 @@ async fn execute_test(
             }
         }
     });
+
+    if abort.is_some() {
+        let abort_watch = abort_token.clone();
+        let graceful_watch = cancel_token.clone();
+        tokio::spawn(async move {
+            abort_watch.cancelled().await;
+            graceful_watch.cancel();
+        });
+    }
 
     // --- Metrics Aggregator Setup ---
     let (tx, rx) = tokio::sync::mpsc::channel::<RequestMetric>(METRIC_CHANNEL_BUFFER);
@@ -343,6 +447,7 @@ async fn execute_test(
                     Arc::clone(&counters),
                     tx.clone(),
                     cancel_token.clone(),
+                    abort_token.clone(),
                     duration,
                     timeout_secs,
                     grace_period_secs,
@@ -368,6 +473,7 @@ async fn execute_test(
             let engine_clone = Arc::clone(&engine);
             let url_clone = url.clone();
             let cancel_clone = cancel_token.clone();
+            let abort_clone = abort_token.clone();
             let tx_supervisor = tx.clone();
             let timeout_clone = timeout_secs;
             let grace_clone = grace_period_secs;
@@ -384,7 +490,10 @@ async fn execute_test(
 
                 loop {
                     let elapsed = start.elapsed();
-                    if elapsed >= total_duration || cancel_clone.is_cancelled() {
+                    if elapsed >= total_duration
+                        || cancel_clone.is_cancelled()
+                        || abort_clone.is_cancelled()
+                    {
                         break;
                     }
 
@@ -400,6 +509,7 @@ async fn execute_test(
                             Arc::clone(&counters_clone),
                             tx_supervisor.clone(),
                             child_token.clone(),
+                            abort_clone.clone(),
                             remaining,
                             timeout_clone,
                             grace_clone,
@@ -488,6 +598,12 @@ async fn execute_test(
     } else {
         Vec::new()
     };
+
+    if abort_token.is_cancelled() {
+        return Err(aborted_error(
+            abort.as_ref().and_then(|handle| handle.reason()),
+        ));
+    }
 
     // Stamp the run's GraphQL operation type (constant per run) onto the
     // aggregated section; the aggregator itself is protocol-agnostic.
@@ -701,7 +817,12 @@ fn db_run_info(config: &TestConfig) -> Option<DbRunInfo> {
 }
 
 #[pyfunction]
-fn run_load_test(py: Python<'_>, config: TestConfig) -> PyResult<metrics::TestSummary> {
+#[pyo3(signature = (config, abort_handle=None))]
+fn run_load_test(
+    py: Python<'_>,
+    config: TestConfig,
+    abort_handle: Option<AbortHandle>,
+) -> PyResult<metrics::TestSummary> {
     py.detach(move || {
         ensure_concurrency_limit(config.concurrency)?;
         let url = config.url.clone();
@@ -740,15 +861,18 @@ fn run_load_test(py: Python<'_>, config: TestConfig) -> PyResult<metrics::TestSu
             stomp_run_info(&config),
             db_run_info(&config),
             config.timeline_interval_ms,
+            abort_handle,
         ))
     })
 }
 
 #[pyfunction]
+#[pyo3(signature = (config, profile, abort_handle=None))]
 fn run_load_profiles(
     py: Python<'_>,
     config: TestConfig,
     profile: LoadProfile,
+    abort_handle: Option<AbortHandle>,
 ) -> PyResult<metrics::TestSummary> {
     py.detach(move || {
         ensure_concurrency_limit(profile.concurrency_upper_bound())?;
@@ -785,6 +909,7 @@ fn run_load_profiles(
             stomp_run_info(&config),
             db_run_info(&config),
             config.timeline_interval_ms,
+            abort_handle,
         ))
     })
 }
@@ -813,6 +938,8 @@ fn _strobengine(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(run_load_test, m)?)?;
     m.add_function(wrap_pyfunction!(run_load_profiles, m)?)?;
     m.add_function(wrap_pyfunction!(build_report_artifact_dict, m)?)?;
+    m.add_class::<AbortHandle>()?;
+    m.add("AbortedError", m.py().get_type::<AbortedError>())?;
     m.add_class::<config::TestConfig>()?;
     m.add_class::<config::LoadProfile>()?;
     m.add_class::<config::WsMode>()?;
@@ -959,6 +1086,7 @@ mod tests {
             counters,
             tx,
             token,
+            CancellationToken::new(),
             Duration::from_secs(2),
             1,
             1,
@@ -1016,6 +1144,7 @@ mod tests {
             Arc::clone(&counters),
             tx,
             token.clone(),
+            CancellationToken::new(),
             Duration::from_secs(30),
             1,
             5,
@@ -1049,6 +1178,7 @@ mod tests {
             Arc::clone(&counters),
             tx,
             token.clone(),
+            CancellationToken::new(),
             Duration::from_secs(30),
             30,
             1,
@@ -1079,6 +1209,7 @@ mod tests {
             Arc::clone(&counters),
             tx,
             token.clone(),
+            CancellationToken::new(),
             Duration::from_secs(30),
             1,
             0,
@@ -1090,6 +1221,84 @@ mod tests {
         tokio::time::timeout(Duration::from_secs(1), handle)
             .await
             .expect("worker must stop immediately with zero grace")
+            .expect("worker task panicked");
+        assert!(!engine.completed.load(Ordering::SeqCst));
+        assert!(engine.dropped.load(Ordering::SeqCst));
+        assert!(rx.try_recv().is_err());
+    }
+
+    #[test]
+    fn abort_handle_records_first_reason() {
+        let handle = AbortHandle::new();
+        assert!(!handle.is_aborted());
+        assert!(handle.reason().is_none());
+
+        handle.abort(Some("watchdog".into()));
+        handle.abort(Some("second".into()));
+
+        assert!(handle.is_aborted());
+        assert_eq!(handle.reason().as_deref(), Some("watchdog"));
+    }
+
+    #[tokio::test]
+    async fn worker_aborts_in_flight_iteration_immediately() {
+        let engine = Arc::new(BlockingEngine::new());
+        let counters = Arc::new(LiveCounters::new());
+        let (tx, mut rx) = tokio::sync::mpsc::channel(4);
+        let token = CancellationToken::new();
+        let abort = CancellationToken::new();
+        let handle = spawn_worker(
+            engine.clone(),
+            "http://127.0.0.1:9/abort".to_string(),
+            Arc::clone(&counters),
+            tx,
+            token,
+            abort.clone(),
+            Duration::from_secs(30),
+            1,
+            5,
+        );
+
+        engine.started.notified().await;
+        abort.cancel();
+
+        tokio::time::timeout(Duration::from_secs(2), handle)
+            .await
+            .expect("worker must abort immediately")
+            .expect("worker task panicked");
+        assert!(!engine.completed.load(Ordering::SeqCst));
+        assert!(engine.dropped.load(Ordering::SeqCst));
+        assert_eq!(counters.completed_requests.load(Ordering::Relaxed), 0);
+        assert!(rx.try_recv().is_err());
+    }
+
+    #[tokio::test]
+    async fn worker_abort_interrupts_grace_drain() {
+        let engine = Arc::new(BlockingEngine::new());
+        let counters = Arc::new(LiveCounters::new());
+        let (tx, mut rx) = tokio::sync::mpsc::channel(4);
+        let token = CancellationToken::new();
+        let abort = CancellationToken::new();
+        let handle = spawn_worker(
+            engine.clone(),
+            "http://127.0.0.1:9/abort-drain".to_string(),
+            Arc::clone(&counters),
+            tx,
+            token.clone(),
+            abort.clone(),
+            Duration::from_secs(30),
+            30,
+            30,
+        );
+
+        engine.started.notified().await;
+        token.cancel();
+        tokio::time::sleep(Duration::from_millis(20)).await;
+        abort.cancel();
+
+        tokio::time::timeout(Duration::from_secs(2), handle)
+            .await
+            .expect("abort must interrupt the grace drain")
             .expect("worker task panicked");
         assert!(!engine.completed.load(Ordering::SeqCst));
         assert!(engine.dropped.load(Ordering::SeqCst));
@@ -1108,6 +1317,7 @@ mod tests {
             "http://127.0.0.1:9/closed".to_string(),
             Arc::clone(&counters),
             tx,
+            CancellationToken::new(),
             CancellationToken::new(),
             Duration::from_secs(30),
             1,
