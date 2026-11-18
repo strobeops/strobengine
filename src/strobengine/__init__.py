@@ -1,4 +1,6 @@
 from strobengine._strobengine import (
+    AbortedError,
+    AbortHandle,
     LoadProfile,
     TestConfig,
     TestSummary,
@@ -9,6 +11,8 @@ from strobengine._strobengine import (
 from strobengine.engine import RequestOptions, StrobEngine
 
 __all__ = [
+    "AbortHandle",
+    "AbortedError",
     "LoadProfile",
     "RequestOptions",
     "StrobEngine",

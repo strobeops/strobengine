@@ -1,7 +1,9 @@
-from unittest.mock import patch
+import asyncio
+from unittest.mock import ANY, patch
 
 import pytest
 
+from strobengine import AbortedError
 from strobengine._strobengine import (
     LoadProfile,
     SoapVersion,
@@ -65,7 +67,7 @@ class TestStrobEngineRun:
         engine = StrobEngine(url="http://example.com")
         result = engine.run()
 
-        mock_run.assert_called_once_with(engine.config)
+        mock_run.assert_called_once_with(engine.config, ANY)
         mock_save.assert_called_once()
         # Verify enrichment was applied (clone creates independent copy)
         assert result.raw_command is not None
@@ -98,6 +100,31 @@ class TestStrobEngineRunAsync:
         # Verify enrichment was applied (clone creates independent copy)
         assert result.raw_command is not None
         assert "http://example.com" in result.raw_command
+
+
+class TestStrobEngineAbort:
+    def test_abort_without_active_run_is_noop(self):
+        engine = StrobEngine(url="http://example.com")
+        engine.abort("watchdog")
+
+    async def test_abort_stops_active_run(self, local_server: str):
+        engine = StrobEngine(
+            url=local_server,
+            concurrency=1,
+            duration=30,
+            options=RequestOptions(no_save=True, no_progress=True),
+        )
+        task = asyncio.create_task(engine.run_async())
+        for _ in range(200):
+            if engine._abort_handle is not None:
+                break
+            await asyncio.sleep(0.01)
+        assert engine._abort_handle is not None
+
+        engine.abort("watchdog")
+        with pytest.raises(AbortedError, match="watchdog"):
+            await task
+        assert engine._abort_handle is None
 
 
 class TestLoadTestFactory:

@@ -21,13 +21,15 @@ import pytest
 
 _ROOT = Path(__file__).resolve().parent.parent
 _PYI_PATH = _ROOT / "src" / "strobengine" / "_strobengine.pyi"
+_LIB_RS = _ROOT / "src" / "lib.rs"
 _RUST_SOURCES = [
     _ROOT / "src" / "config.rs",
     *sorted((_ROOT / "src" / "metrics").glob("*.rs")),
+    _LIB_RS,
 ]
-_LIB_RS = _ROOT / "src" / "lib.rs"
 
 _EXPECTED_FIDELITY_CLASSES = {
+    "AbortHandle",
     "DatabaseMetrics",
     "GraphqlMetrics",
     "GraphqlWsMetrics",
