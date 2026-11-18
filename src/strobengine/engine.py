@@ -1,11 +1,13 @@
 import asyncio
 import random
+import threading
 from dataclasses import dataclass, fields
 from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Any
 
 from strobengine._strobengine import (
+    AbortHandle,
     LoadProfile,
     SoapVersion,
     StompAck,
@@ -222,6 +224,8 @@ class StrobEngine:
         self._options = options if options is not None else RequestOptions()
         self._profile = profile
         self._saved_report_path: str | None = None
+        self._abort_lock = threading.Lock()
+        self._abort_handle: AbortHandle | None = None
 
         if profile is None:
             if concurrency <= 0:
@@ -338,24 +342,41 @@ class StrobEngine:
         return enriched
 
     def run(self) -> TestSummary:
-        if self._profile is not None:
-            summary = run_load_profiles(self.config, self._profile)
-        else:
-            summary = run_load_test(self.config)
-        enriched = self._enrich_summary(summary)
-        # Persist artifact (single owner, always with enriched metadata)
-        if not self._options.no_save:
-            from strobengine.reporter import save_report
+        handle = AbortHandle()
+        with self._abort_lock:
+            if self._abort_handle is not None:
+                raise RuntimeError("a run is already active for this engine")
+            self._abort_handle = handle
+        try:
+            if self._profile is not None:
+                summary = run_load_profiles(self.config, self._profile, handle)
+            else:
+                summary = run_load_test(self.config, handle)
+            enriched = self._enrich_summary(summary)
+            # Persist artifact (single owner, always with enriched metadata)
+            if not self._options.no_save:
+                from strobengine.reporter import save_report
 
-            self._saved_report_path = save_report(
-                enriched,
-                self.config,
-                output_dir=self._options.output_dir,
-                no_save=self._options.no_save,
-            )
-        else:
-            self._saved_report_path = None
-        return enriched
+                self._saved_report_path = save_report(
+                    enriched,
+                    self.config,
+                    output_dir=self._options.output_dir,
+                    no_save=self._options.no_save,
+                )
+            else:
+                self._saved_report_path = None
+            return enriched
+        finally:
+            with self._abort_lock:
+                if self._abort_handle is handle:
+                    self._abort_handle = None
+
+    def abort(self, reason: str | None = None) -> None:
+        """Abort the active run, if any, and let teardown finish cleanly."""
+        with self._abort_lock:
+            handle = self._abort_handle
+        if handle is not None:
+            handle.abort(reason)
 
     async def run_async(self) -> TestSummary:
         return await asyncio.to_thread(self.run)
